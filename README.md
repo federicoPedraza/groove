@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Groove
 
-## Getting Started
+Groove is a Next.js app that manages lightweight workspace state directly inside a user-selected local directory.
 
-First, run the development server:
+## What Groove does
+
+- Lets the user pick a local folder with the File System Access API.
+- Creates and uses a hidden `.groove` directory inside that folder.
+- Stores workspace metadata in `.groove/workspace.json`.
+- Includes a simple save/retrieve demo for notes in `.groove/data.json`.
+
+## Browser requirement
+
+Groove requires the File System Access API, currently available in modern Chromium-based browsers (for example Chrome, Edge, or Brave).
+
+Browsers without this API can load the app UI but cannot select directories or persist local workspace files.
+
+## Workspace files
+
+After selecting a directory, Groove ensures these files exist:
+
+- `.groove/workspace.json`
+  - `version` (number)
+  - `rootName` (string)
+  - `createdAt` (ISO datetime string)
+  - `updatedAt` (ISO datetime string)
+- `.groove/data.json`
+  - `notes` (string)
+  - `updatedAt` (ISO datetime string)
+
+If `workspace.json` or `data.json` is missing or corrupt, Groove recreates it safely with defaults.
+
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open `http://localhost:3000` in a supported browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Current limitations
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Workspace handles are kept in memory only (no persisted handle between sessions).
+- The demo data model is intentionally minimal and currently stores only notes text.
+- Non-Chromium browsers do not support directory access yet.

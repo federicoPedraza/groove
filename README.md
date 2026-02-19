@@ -30,6 +30,34 @@ After selecting a directory, Groove ensures these files exist:
 
 If `workspace.json` or `data.json` is missing or corrupt, Groove recreates it safely with defaults.
 
+## CLI restore command
+
+Use `groove restore` to repair Groove workspace metadata for a specific worktree or branch.
+
+```bash
+groove restore <worktree-or-branch> [--dir <worktrees_dir>] [--opencode-log-file <path>]
+```
+
+`restore` is a maintenance command: it fixes missing/corrupt Groove files and records diagnostics, but it does not launch editor or coding tools.
+
+The web UI worktree table can also run restore locally through the app server process (same command and flags), so you can trigger it directly from Actions.
+
+The web UI also includes a destructive `Cut groove` action that maps to:
+
+```bash
+groove rm <branch> [--dir <worktrees_dir>]
+```
+
+When restore is triggered from the UI, Groove auto-resolves the workspace root from selected workspace context (`rootName`, known worktree list, and workspace metadata when available) by default.
+
+If auto-resolve is ambiguous or fails, you can set **Workspace root override (absolute path)** in the UI. When provided, this absolute `workspaceRoot` is sent to the restore API and used directly instead of auto-resolution.
+
+## Realtime workspace updates
+
+- The app also exposes an SSE endpoint at `GET /api/groove/events`.
+- It watches active workspace filesystem paths (`.worktrees` and `.groove`, plus known worktree `.groove` paths) and triggers UI rescans on change.
+- Groove currently does not expose a formal event bus API from the CLI script, so realtime updates are filesystem-driven.
+
 ## Run locally
 
 ```bash

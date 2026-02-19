@@ -24,6 +24,7 @@
     "components",
     "lib",
     "app/page.tsx",
+    "app/diagnostics/page.tsx",
     "app/settings/page.tsx",
     "vite.config.ts"
   ],

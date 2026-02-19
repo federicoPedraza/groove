@@ -12,6 +12,7 @@ opencode_log_mode="auto"
 opencode_log_file=""
 resolved_opencode_log_enabled="false"
 resolved_opencode_log_file=""
+ACTIVITY_THINKING_WINDOW_SEC="20"
 
 usage() {
   cat <<'EOF'
@@ -288,6 +289,136 @@ log_runtime_state_for_worktree() {
   fi
 
   printf '%s' "none"
+}
+
+resolve_latest_log_path_for_worktree() {
+  local worktree_path="$1"
+  local log_dir="$worktree_path/.groove/logs"
+  local latest_link="$log_dir/latest.log"
+  local latest_target=""
+  local resolved=""
+
+  if [[ -L "$latest_link" && -e "$latest_link" ]]; then
+    latest_target="$(readlink "$latest_link" 2>/dev/null || true)"
+    if [[ -z "$latest_target" ]]; then
+      printf '%s' ""
+      return
+    fi
+
+    if [[ "$latest_target" == /* ]]; then
+      resolved="$latest_target"
+    else
+      resolved="$log_dir/$latest_target"
+    fi
+
+    if [[ -f "$resolved" ]]; then
+      printf '%s' "$resolved"
+      return
+    fi
+  fi
+
+  printf '%s' "$(newest_opencode_log_file "$log_dir")"
+}
+
+file_mtime_epoch_seconds() {
+  local path="$1"
+  local mtime=""
+
+  if mtime="$(stat -c %Y "$path" 2>/dev/null)"; then
+    printf '%s' "$mtime"
+    return
+  fi
+
+  if mtime="$(stat -f %m "$path" 2>/dev/null)"; then
+    printf '%s' "$mtime"
+    return
+  fi
+
+  printf '%s' ""
+}
+
+log_failure_marker_for_file() {
+  local log_path="$1"
+  local tail_text=""
+
+  tail_text="$(tail -n 80 "$log_path" 2>/dev/null || true)"
+  if [[ -z "$tail_text" ]]; then
+    printf '%s' "none"
+    return
+  fi
+
+  if grep -Eiq '(panic|traceback|fatal|segmentation fault|assertion failed)' <<<"$tail_text"; then
+    printf '%s' "fatal"
+    return
+  fi
+
+  if grep -Eiq '(^|[^[:alpha:]])error([^[:alpha:]]|$)' <<<"$tail_text"; then
+    printf '%s' "error"
+    return
+  fi
+
+  printf '%s' "none"
+}
+
+opencode_activity_state_for_worktree() {
+  local worktree_path="$1"
+  local opencode_state="$2"
+  local log_state="$3"
+  local latest_log_path=""
+  local now_epoch=""
+  local mtime_epoch=""
+  local age_s="na"
+  local marker="none"
+  local reason=""
+  local state="unknown"
+  local log_name="none"
+
+  if [[ "$log_state" == "broken-latest"* ]]; then
+    printf '%s' "error reason=broken-latest age_s=na marker=broken-symlink log=latest.log"
+    return
+  fi
+
+  latest_log_path="$(resolve_latest_log_path_for_worktree "$worktree_path")"
+  if [[ -n "$latest_log_path" && -f "$latest_log_path" ]]; then
+    log_name="$(basename "$latest_log_path")"
+    marker="$(log_failure_marker_for_file "$latest_log_path")"
+    mtime_epoch="$(file_mtime_epoch_seconds "$latest_log_path")"
+    now_epoch="$(date +%s)"
+    if [[ -n "$mtime_epoch" && "$now_epoch" =~ ^[0-9]+$ && "$mtime_epoch" =~ ^[0-9]+$ && "$now_epoch" -ge "$mtime_epoch" ]]; then
+      age_s="$((now_epoch - mtime_epoch))"
+    fi
+  fi
+
+  if [[ "$marker" != "none" ]]; then
+    printf '%s' "error reason=failure-marker age_s=$age_s marker=$marker log=$log_name"
+    return
+  fi
+
+  if [[ "$opencode_state" == running* ]]; then
+    if [[ "$age_s" =~ ^[0-9]+$ && "$age_s" -le "$ACTIVITY_THINKING_WINDOW_SEC" ]]; then
+      state="thinking"
+      reason="running-log-fresh"
+    elif [[ "$age_s" =~ ^[0-9]+$ ]]; then
+      state="idle"
+      reason="running-log-stale"
+    else
+      state="idle"
+      reason="running-no-log-age"
+    fi
+  elif [[ "$opencode_state" == not-running* ]]; then
+    if [[ -n "$latest_log_path" && -f "$latest_log_path" ]]; then
+      state="finished"
+      reason="process-exited-log-present"
+    else
+      state="unknown"
+      reason="process-exited-no-log"
+    fi
+  else
+    state="unknown"
+    reason="insufficient-signals"
+  fi
+
+  printf '%s' "$state reason=$reason age_s=$age_s marker=$marker log=$log_name"
 }
 
 repair_latest_opencode_symlink() {
@@ -581,10 +712,11 @@ if [[ "${first_positional}" == "list" ]]; then
     branch_name="$(git -C "$worktree_path" branch --show-current 2>/dev/null || true)"
     opencode_state="$(opencode_runtime_state_for_worktree "$worktree_path")"
     log_state="$(log_runtime_state_for_worktree "$worktree_path")"
+    activity_state="$(opencode_activity_state_for_worktree "$worktree_path" "$opencode_state" "$log_state")"
     if [[ -n "$branch_name" ]]; then
-      printf ' - %s (%s) | opencode: %s | log: %s\n' "$branch_name" "$(basename "$worktree_path")" "$opencode_state" "$log_state"
+      printf ' - %s (%s) | opencode: %s | log: %s | activity: %s\n' "$branch_name" "$(basename "$worktree_path")" "$opencode_state" "$log_state" "$activity_state"
     else
-      printf ' - %s | opencode: %s | log: %s\n' "$(basename "$worktree_path")" "$opencode_state" "$log_state"
+      printf ' - %s | opencode: %s | log: %s | activity: %s\n' "$(basename "$worktree_path")" "$opencode_state" "$log_state" "$activity_state"
     fi
   done
   exit 0

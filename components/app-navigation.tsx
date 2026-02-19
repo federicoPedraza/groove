@@ -1,7 +1,7 @@
 "use client";
 
 import { Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, PanelLeft, Settings } from "lucide-react";
+import { ActivitySquare, LayoutDashboard, PanelLeft, Settings } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ function AppNavigation() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const isDashboardActive = pathname === "/";
+  const isDiagnosticsActive = pathname === "/diagnostics";
   const isSettingsActive = pathname === "/settings";
 
   return (
@@ -64,6 +65,19 @@ function AppNavigation() {
               >
                 <LayoutDashboard aria-hidden="true" className="size-4 shrink-0" />
                 {!isSidebarCollapsed && <span>Dashboard</span>}
+              </Link>
+              <Link
+                to="/diagnostics"
+                className={cn(
+                  "relative",
+                  sidebarMenuButtonClassName({
+                    isActive: isDiagnosticsActive,
+                    collapsed: isSidebarCollapsed,
+                  }),
+                )}
+              >
+                <ActivitySquare aria-hidden="true" className="size-4 shrink-0" />
+                {!isSidebarCollapsed && <span>Diagnostics</span>}
               </Link>
               <Link
                 to="/settings"
@@ -104,6 +118,16 @@ function AppNavigation() {
               >
                 <LayoutDashboard aria-hidden="true" className="size-4 shrink-0" />
                 <span>Dashboard</span>
+              </Link>
+              <Link
+                to="/diagnostics"
+                className={sidebarMenuButtonClassName({ isActive: isDiagnosticsActive })}
+                onClick={() => {
+                  setIsMobileSidebarOpen(false);
+                }}
+              >
+                <ActivitySquare aria-hidden="true" className="size-4 shrink-0" />
+                <span>Diagnostics</span>
               </Link>
               <Link
                 to="/settings"

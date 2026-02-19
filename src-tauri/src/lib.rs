@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -15,10 +15,25 @@ use walkdir::WalkDir;
 
 const MAX_DISCOVERY_DEPTH: usize = 4;
 const MAX_DISCOVERY_DIRECTORIES: usize = 2500;
+const SUPPORTED_DEFAULT_TERMINALS: [&str; 8] = [
+    "auto", "ghostty", "warp", "kitty", "gnome", "xterm", "none", "custom",
+];
 
 #[derive(Default)]
 struct WorkspaceEventState {
     worker: Mutex<Option<WorkspaceWorker>>,
+}
+
+#[derive(Default)]
+struct TestingEnvironmentState {
+    runtime: Mutex<TestingEnvironmentRuntimeState>,
+}
+
+#[derive(Default)]
+struct TestingEnvironmentRuntimeState {
+    loaded: bool,
+    persisted: PersistedTestingEnvironmentState,
+    child: Option<Child>,
 }
 
 struct WorkspaceWorker {
@@ -28,11 +43,52 @@ struct WorkspaceWorker {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct TestingEnvironmentTarget {
+    workspace_root: String,
+    worktree: String,
+    worktree_path: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestingEnvironmentInstance {
+    instance_id: String,
+    pid: i32,
+    workspace_root: String,
+    worktree: String,
+    worktree_path: String,
+    command: String,
+    started_at: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedTestingEnvironmentState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<TestingEnvironmentTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    running_instance: Option<TestingEnvironmentInstance>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedWorktreeExecutionState {
+    #[serde(default)]
+    last_executed_at_by_workspace: HashMap<String, HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkspaceMetaContext {
     version: Option<i64>,
     root_name: Option<String>,
     created_at: Option<String>,
     updated_at: Option<String>,
+    default_terminal: Option<String>,
+    terminal_custom_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -42,6 +98,10 @@ struct WorkspaceMeta {
     root_name: String,
     created_at: String,
     updated_at: String,
+    #[serde(default = "default_terminal_auto")]
+    default_terminal: String,
+    #[serde(default)]
+    terminal_custom_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,6 +111,8 @@ struct WorkspaceScanRow {
     branch_guess: String,
     path: String,
     status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_executed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -144,6 +206,52 @@ struct WorkspaceEventsPayload {
     workspace_meta: Option<WorkspaceMetaContext>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceTerminalSettingsPayload {
+    default_terminal: String,
+    terminal_custom_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestingEnvironmentStatusPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestingEnvironmentSetTargetPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: String,
+    auto_start_if_current_running: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestingEnvironmentStartPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestingEnvironmentStopPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeStateRow {
@@ -155,6 +263,22 @@ struct RuntimeStateRow {
     log_state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     log_target: Option<String>,
+    opencode_activity_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    opencode_activity_detail: Option<OpencodeActivityDetail>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpencodeActivityDetail {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    age_s: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    marker: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    log: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -209,6 +333,127 @@ struct WorkspaceEventsResponse {
     error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceTerminalSettingsResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_meta: Option<WorkspaceMeta>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestingEnvironmentResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_worktree: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_path: Option<String>,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pid: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticsProcessRow {
+    pid: i32,
+    process_name: String,
+    command: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticsOpencodeInstancesResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(default)]
+    rows: Vec<DiagnosticsProcessRow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticsStopResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pid: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    already_stopped: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticsStopAllResponse {
+    request_id: String,
+    ok: bool,
+    attempted: usize,
+    stopped: usize,
+    already_stopped: usize,
+    failed: usize,
+    #[serde(default)]
+    errors: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticsNodeAppRow {
+    pid: i32,
+    ppid: i32,
+    cmd: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticsNodeAppsResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(default)]
+    rows: Vec<DiagnosticsNodeAppRow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticsMostConsumingProgramsResponse {
+    request_id: String,
+    ok: bool,
+    output: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ProcessSnapshotRow {
+    pid: i32,
+    ppid: Option<i32>,
+    process_name: Option<String>,
+    command: String,
+}
+
 #[derive(Debug, Clone)]
 struct CandidateRoot {
     root_path: PathBuf,
@@ -232,6 +477,136 @@ struct SnapshotEntry {
 
 fn request_id() -> String {
     Uuid::new_v4().to_string()
+}
+
+fn default_terminal_auto() -> String {
+    "auto".to_string()
+}
+
+fn normalize_default_terminal(value: &str) -> Result<String, String> {
+    let normalized = value.trim().to_lowercase();
+    if SUPPORTED_DEFAULT_TERMINALS.contains(&normalized.as_str()) {
+        Ok(normalized)
+    } else {
+        Err(format!(
+            "defaultTerminal must be one of: {}.",
+            SUPPORTED_DEFAULT_TERMINALS.join(", ")
+        ))
+    }
+}
+
+fn parse_terminal_command_tokens(command: &str) -> Result<Vec<String>, String> {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return Err("terminalCustomCommand must be a non-empty command string.".to_string());
+    }
+
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escaping = false;
+
+    for ch in trimmed.chars() {
+        if escaping {
+            current.push(ch);
+            escaping = false;
+            continue;
+        }
+
+        if ch == '\\' && !in_single_quote {
+            escaping = true;
+            continue;
+        }
+
+        if ch == '\'' && !in_double_quote {
+            in_single_quote = !in_single_quote;
+            continue;
+        }
+
+        if ch == '"' && !in_single_quote {
+            in_double_quote = !in_double_quote;
+            continue;
+        }
+
+        if ch.is_whitespace() && !in_single_quote && !in_double_quote {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+
+        current.push(ch);
+    }
+
+    if escaping {
+        return Err("terminalCustomCommand ends with an unfinished escape (\\).".to_string());
+    }
+    if in_single_quote || in_double_quote {
+        return Err("terminalCustomCommand has an unmatched quote.".to_string());
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    if tokens.is_empty() {
+        return Err("terminalCustomCommand must include an executable command.".to_string());
+    }
+
+    Ok(tokens)
+}
+
+fn parse_custom_terminal_command(
+    command: &str,
+    worktree_path: &Path,
+) -> Result<(String, Vec<String>), String> {
+    let tokens = parse_terminal_command_tokens(command)?;
+    let worktree = worktree_path.display().to_string();
+    let contains_worktree_placeholder = tokens.iter().any(|token| token.contains("{worktree}"));
+
+    let mut resolved_tokens = tokens
+        .into_iter()
+        .map(|token| token.replace("{worktree}", &worktree))
+        .collect::<Vec<_>>();
+    if !contains_worktree_placeholder {
+        resolved_tokens.push(worktree);
+    }
+
+    let Some((program, args)) = resolved_tokens.split_first() else {
+        return Err("terminalCustomCommand must include an executable command.".to_string());
+    };
+
+    Ok((program.to_string(), args.to_vec()))
+}
+
+fn run_command_with_worktree_env(
+    binary: &str,
+    args: &[String],
+    cwd: &Path,
+    worktree_path: &Path,
+) -> CommandResult {
+    let output = Command::new(binary)
+        .args(args)
+        .current_dir(cwd)
+        .env("GROOVE_WORKTREE", worktree_path.display().to_string())
+        .output();
+
+    match output {
+        Ok(output) => CommandResult {
+            exit_code: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            error: None,
+        },
+        Err(error) => CommandResult {
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some(format!(
+                "Failed to execute custom command {}: {}",
+                binary, error
+            )),
+        },
+    }
 }
 
 fn is_safe_path_token(value: &str) -> bool {
@@ -363,6 +738,14 @@ fn now_iso() -> String {
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
 
+fn workspace_root_storage_key(workspace_root: &Path) -> String {
+    workspace_root
+        .canonicalize()
+        .unwrap_or_else(|_| workspace_root.to_path_buf())
+        .display()
+        .to_string()
+}
+
 fn branch_guess_from_worktree_name(worktree: &str) -> String {
     worktree.replace('_', "/")
 }
@@ -422,6 +805,101 @@ fn clear_persisted_active_workspace_root(app: &AppHandle) -> Result<(), String> 
     Ok(())
 }
 
+fn worktree_execution_state_file(app: &AppHandle) -> Result<PathBuf, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Failed to resolve app data directory: {error}"))?;
+    fs::create_dir_all(&app_data_dir)
+        .map_err(|error| format!("Failed to create app data directory: {error}"))?;
+    Ok(app_data_dir.join("worktree-executions.json"))
+}
+
+fn read_persisted_worktree_execution_state(
+    app: &AppHandle,
+) -> Result<PersistedWorktreeExecutionState, String> {
+    let state_file = worktree_execution_state_file(app)?;
+    if !path_is_file(&state_file) {
+        return Ok(PersistedWorktreeExecutionState::default());
+    }
+
+    let raw = fs::read_to_string(&state_file)
+        .map_err(|error| format!("Failed to read worktree execution state file: {error}"))?;
+    serde_json::from_str::<PersistedWorktreeExecutionState>(&raw)
+        .map_err(|error| format!("Failed to parse worktree execution state file: {error}"))
+}
+
+fn write_persisted_worktree_execution_state(
+    app: &AppHandle,
+    state: &PersistedWorktreeExecutionState,
+) -> Result<(), String> {
+    let state_file = worktree_execution_state_file(app)?;
+    let body = serde_json::to_string_pretty(state)
+        .map_err(|error| format!("Failed to serialize worktree execution state file: {error}"))?;
+    fs::write(&state_file, format!("{body}\n"))
+        .map_err(|error| format!("Failed to write worktree execution state file: {error}"))
+}
+
+fn record_worktree_last_executed_at(
+    app: &AppHandle,
+    workspace_root: &Path,
+    worktree: &str,
+) -> Result<(), String> {
+    let mut state = read_persisted_worktree_execution_state(app)?;
+    let workspace_key = workspace_root_storage_key(workspace_root);
+    state
+        .last_executed_at_by_workspace
+        .entry(workspace_key)
+        .or_default()
+        .insert(worktree.to_string(), now_iso());
+    write_persisted_worktree_execution_state(app, &state)
+}
+
+fn testing_environment_state_file(app: &AppHandle) -> Result<PathBuf, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Failed to resolve app data directory: {error}"))?;
+    fs::create_dir_all(&app_data_dir)
+        .map_err(|error| format!("Failed to create app data directory: {error}"))?;
+    Ok(app_data_dir.join("testing-environment.json"))
+}
+
+fn read_persisted_testing_environment_state(
+    app: &AppHandle,
+) -> Result<PersistedTestingEnvironmentState, String> {
+    let state_file = testing_environment_state_file(app)?;
+    if !path_is_file(&state_file) {
+        return Ok(PersistedTestingEnvironmentState::default());
+    }
+
+    let raw = fs::read_to_string(&state_file)
+        .map_err(|error| format!("Failed to read testing environment state file: {error}"))?;
+    serde_json::from_str::<PersistedTestingEnvironmentState>(&raw)
+        .map_err(|error| format!("Failed to parse testing environment state file: {error}"))
+}
+
+fn write_persisted_testing_environment_state(
+    app: &AppHandle,
+    state: &PersistedTestingEnvironmentState,
+) -> Result<(), String> {
+    let state_file = testing_environment_state_file(app)?;
+    let body = serde_json::to_string_pretty(state)
+        .map_err(|error| format!("Failed to serialize testing environment state file: {error}"))?;
+    fs::write(&state_file, format!("{body}\n"))
+        .map_err(|error| format!("Failed to write testing environment state file: {error}"))
+}
+
+fn clear_persisted_testing_environment_state(app: &AppHandle) -> Result<(), String> {
+    let state_file = testing_environment_state_file(app)?;
+    if state_file.exists() {
+        fs::remove_file(&state_file)
+            .map_err(|error| format!("Failed to clear testing environment state file: {error}"))?;
+    }
+
+    Ok(())
+}
+
 fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
     let now = now_iso();
     WorkspaceMeta {
@@ -433,6 +911,8 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
             .unwrap_or_else(|| workspace_root.display().to_string()),
         created_at: now.clone(),
         updated_at: now,
+        default_terminal: default_terminal_auto(),
+        terminal_custom_command: None,
     }
 }
 
@@ -468,8 +948,33 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
     match read_workspace_meta_file(&workspace_json) {
         Ok(mut workspace_meta) => {
             let expected_root_name = default_workspace_meta(workspace_root).root_name;
+            let mut did_update = false;
             if workspace_meta.root_name != expected_root_name {
                 workspace_meta.root_name = expected_root_name;
+                did_update = true;
+            }
+
+            if let Ok(normalized) = normalize_default_terminal(&workspace_meta.default_terminal) {
+                if normalized != workspace_meta.default_terminal {
+                    workspace_meta.default_terminal = normalized;
+                    did_update = true;
+                }
+            } else {
+                workspace_meta.default_terminal = default_terminal_auto();
+                did_update = true;
+            }
+
+            let normalized_custom_command = workspace_meta
+                .terminal_custom_command
+                .as_ref()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+            if workspace_meta.terminal_custom_command != normalized_custom_command {
+                workspace_meta.terminal_custom_command = normalized_custom_command;
+                did_update = true;
+            }
+
+            if did_update {
                 workspace_meta.updated_at = now_iso();
                 write_workspace_meta_file(&workspace_json, &workspace_meta)?;
             }
@@ -491,6 +996,7 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
 }
 
 fn scan_workspace_worktrees(
+    app: &AppHandle,
     workspace_root: &Path,
 ) -> Result<(bool, Vec<WorkspaceScanRow>), String> {
     let worktrees_dir = workspace_root.join(".worktrees");
@@ -499,6 +1005,11 @@ fn scan_workspace_worktrees(
     }
 
     let mut rows = Vec::new();
+    let workspace_key = workspace_root_storage_key(workspace_root);
+    let execution_state = read_persisted_worktree_execution_state(app)?;
+    let last_executed_by_worktree = execution_state
+        .last_executed_at_by_workspace
+        .get(&workspace_key);
     let entries = fs::read_dir(&worktrees_dir)
         .map_err(|error| format!("Failed to read {}: {error}", worktrees_dir.display()))?;
 
@@ -519,15 +1030,18 @@ fn scan_workspace_worktrees(
         };
         let worktree = worktree_os_name.to_string_lossy().to_string();
         let status = if path_is_directory(&path.join(".groove")) {
-            "ready"
+            "paused"
         } else {
-            "missing .groove"
+            "corrupted"
         };
 
         rows.push(WorkspaceScanRow {
             branch_guess: branch_guess_from_worktree_name(&worktree),
             path: path.display().to_string(),
             status: status.to_string(),
+            last_executed_at: last_executed_by_worktree
+                .and_then(|entries| entries.get(&worktree))
+                .cloned(),
             worktree,
         });
     }
@@ -559,7 +1073,7 @@ fn build_workspace_context(
         }
     };
 
-    let (has_worktrees_directory, rows) = match scan_workspace_worktrees(workspace_root) {
+    let (has_worktrees_directory, rows) = match scan_workspace_worktrees(app, workspace_root) {
         Ok(result) => result,
         Err(error) => {
             return WorkspaceContextResponse {
@@ -628,8 +1142,22 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         .get("updatedAt")
         .and_then(|v| v.as_str())
         .map(|v| v.to_string());
+    let default_terminal = obj
+        .get("defaultTerminal")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+    let terminal_custom_command = obj
+        .get("terminalCustomCommand")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
 
-    if version.is_none() && root_name.is_none() && created_at.is_none() && updated_at.is_none() {
+    if version.is_none()
+        && root_name.is_none()
+        && created_at.is_none()
+        && updated_at.is_none()
+        && default_terminal.is_none()
+        && terminal_custom_command.is_none()
+    {
         return None;
     }
 
@@ -638,6 +1166,8 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         root_name,
         created_at,
         updated_at,
+        default_terminal,
+        terminal_custom_command,
     })
 }
 
@@ -993,6 +1523,61 @@ fn parse_log_segment(value: &str) -> (String, Option<String>) {
     ("unknown".to_string(), None)
 }
 
+fn parse_activity_segment(value: &str) -> (String, Option<OpencodeActivityDetail>) {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return ("unknown".to_string(), None);
+    }
+
+    let mut tokens = normalized.split_whitespace();
+    let raw_state = tokens.next().unwrap_or("unknown").to_lowercase();
+    let state = match raw_state.as_str() {
+        "thinking" | "idle" | "finished" | "error" | "unknown" => raw_state,
+        _ => "unknown".to_string(),
+    };
+
+    let mut reason = None;
+    let mut age_s = None;
+    let mut marker = None;
+    let mut log = None;
+
+    for token in tokens {
+        let Some((key, raw_value)) = token.split_once('=') else {
+            continue;
+        };
+
+        let value = raw_value.trim();
+        if value.is_empty() || value == "na" {
+            continue;
+        }
+
+        match key {
+            "reason" => reason = Some(value.to_string()),
+            "age_s" => {
+                if let Ok(parsed) = value.parse::<u64>() {
+                    age_s = Some(parsed);
+                }
+            }
+            "marker" => marker = Some(value.to_string()),
+            "log" => log = Some(value.to_string()),
+            _ => {}
+        }
+    }
+
+    let detail = if reason.is_some() || age_s.is_some() || marker.is_some() || log.is_some() {
+        Some(OpencodeActivityDetail {
+            reason,
+            age_s,
+            marker,
+            log,
+        })
+    } else {
+        None
+    };
+
+    (state, detail)
+}
+
 fn parse_worktree_header(
     value: &str,
     known_worktrees: &HashSet<String>,
@@ -1062,6 +1647,8 @@ fn parse_groove_list_output(
         let mut opencode_instance_id = None;
         let mut log_state = "unknown".to_string();
         let mut log_target = None;
+        let mut opencode_activity_state = "unknown".to_string();
+        let mut opencode_activity_detail = None;
 
         for segment in segments.into_iter().skip(1) {
             let Some((key, value)) = segment.split_once(':') else {
@@ -1080,6 +1667,11 @@ fn parse_groove_list_output(
                 log_state = state;
                 log_target = target;
             }
+            if key == "activity" {
+                let (state, detail) = parse_activity_segment(value);
+                opencode_activity_state = state;
+                opencode_activity_detail = detail;
+            }
         }
 
         rows.insert(
@@ -1091,6 +1683,8 @@ fn parse_groove_list_output(
                 opencode_instance_id,
                 log_state,
                 log_target,
+                opencode_activity_state,
+                opencode_activity_detail,
             },
         );
     }
@@ -1167,46 +1761,621 @@ fn should_treat_as_already_stopped(stderr: &str) -> bool {
     lower.contains("no such process")
         || lower.contains("not found")
         || lower.contains("cannot find")
+        || lower.contains("not running")
+}
+
+fn wait_for_process_exit(pid: i32, timeout_ms: u64) -> bool {
+    let start = std::time::Instant::now();
+    while start.elapsed().as_millis() < u128::from(timeout_ms) {
+        if !is_process_running(pid) {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(120));
+    }
+    !is_process_running(pid)
 }
 
 fn stop_process_by_pid(pid: i32) -> Result<(bool, i32), String> {
+    if pid <= 0 {
+        return Err("PID must be a positive integer.".to_string());
+    }
+
+    if !is_process_running(pid) {
+        return Ok((true, pid));
+    }
+
     #[cfg(target_os = "windows")]
     {
-        let output = Command::new("taskkill")
-            .args(["/PID", &pid.to_string()])
+        let graceful = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T"])
             .output()
             .map_err(|error| format!("Failed to execute taskkill: {error}"))?;
 
-        if output.status.success() {
+        if !graceful.status.success() {
+            let stderr = String::from_utf8_lossy(&graceful.stderr).to_string();
+            if !should_treat_as_already_stopped(&stderr) {
+                let force = Command::new("taskkill")
+                    .args(["/F", "/PID", &pid.to_string(), "/T"])
+                    .output()
+                    .map_err(|error| format!("Failed to execute taskkill /F: {error}"))?;
+                if !force.status.success() {
+                    let force_stderr = String::from_utf8_lossy(&force.stderr).to_string();
+                    if !should_treat_as_already_stopped(&force_stderr) {
+                        return Err(format!("Failed to stop PID {pid}: {force_stderr}"));
+                    }
+                }
+            }
+        }
+
+        if wait_for_process_exit(pid, 1800) {
             return Ok((false, pid));
         }
 
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        if should_treat_as_already_stopped(&stderr) {
-            return Ok((true, pid));
+        let force = Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string(), "/T"])
+            .output()
+            .map_err(|error| format!("Failed to execute taskkill /F: {error}"))?;
+        if !force.status.success() {
+            let force_stderr = String::from_utf8_lossy(&force.stderr).to_string();
+            if !should_treat_as_already_stopped(&force_stderr) {
+                return Err(format!("Failed to force-stop PID {pid}: {force_stderr}"));
+            }
         }
 
-        return Err(format!("Failed to stop PID {pid}: {stderr}"));
+        if wait_for_process_exit(pid, 1500) {
+            return Ok((false, pid));
+        }
+
+        return Err(format!(
+            "PID {pid} is still running after taskkill escalation."
+        ));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let send_signal = |signal: &str, target_group: bool| -> Result<(), String> {
+            let target = if target_group {
+                format!("-{pid}")
+            } else {
+                pid.to_string()
+            };
+            let output = Command::new("kill")
+                .args([signal, "--", &target])
+                .output()
+                .map_err(|error| {
+                    format!("Failed to execute kill {signal} for {target}: {error}")
+                })?;
+            if output.status.success() {
+                return Ok(());
+            }
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            if should_treat_as_already_stopped(&stderr) {
+                return Ok(());
+            }
+            Err(format!("kill {signal} {target} failed: {stderr}"))
+        };
+
+        let _ = send_signal("-TERM", true);
+        let _ = send_signal("-TERM", false);
+
+        if wait_for_process_exit(pid, 1500) {
+            return Ok((false, pid));
+        }
+
+        let _ = send_signal("-KILL", true);
+        let _ = send_signal("-KILL", false);
+
+        if wait_for_process_exit(pid, 1500) {
+            return Ok((false, pid));
+        }
+
+        Err(format!(
+            "PID {pid} is still running after TERM/KILL escalation."
+        ))
+    }
+}
+
+fn command_mentions_worktrees(command: &str) -> bool {
+    let normalized = command.to_lowercase();
+    normalized.contains("/.worktree/")
+        || normalized.contains("\\.worktree\\")
+        || normalized.contains("/.worktree\\")
+        || normalized.contains("\\.worktree/")
+        || normalized.contains("/.worktrees/")
+        || normalized.contains("\\.worktrees\\")
+        || normalized.contains("/.worktrees\\")
+        || normalized.contains("\\.worktrees/")
+}
+
+fn is_likely_node_command(process_name: Option<&str>, command: &str) -> bool {
+    let normalized = command.to_lowercase();
+    if normalized.contains(" node ")
+        || normalized.starts_with("node ")
+        || normalized.contains("next dev")
+        || normalized.contains("pnpm run dev")
+        || normalized.contains("vite")
+    {
+        return true;
+    }
+
+    process_name
+        .map(|value| {
+            let lowered = value.to_lowercase();
+            lowered.contains("node") || lowered.contains("next") || lowered.contains("pnpm")
+        })
+        .unwrap_or(false)
+}
+
+fn command_matches_turbo_dev(command: &str) -> bool {
+    command.to_lowercase().contains("next dev --turbo")
+}
+
+fn is_opencode_process(process_name: Option<&str>, command: &str) -> bool {
+    let lowered_process_name = process_name.unwrap_or_default().to_lowercase();
+    let lowered_command = command.to_lowercase();
+    lowered_process_name.contains("opencode") || lowered_command.contains("opencode")
+}
+
+fn is_worktree_node_process(process_name: Option<&str>, command: &str) -> bool {
+    command_mentions_worktrees(command) && is_likely_node_command(process_name, command)
+}
+
+fn stop_pid_set(pids: &[i32]) -> (usize, usize, usize, Vec<String>) {
+    let mut stopped = 0usize;
+    let mut already_stopped = 0usize;
+    let mut failed = 0usize;
+    let mut errors = Vec::new();
+
+    for pid in pids {
+        match stop_process_by_pid(*pid) {
+            Ok((was_already_stopped, _)) => {
+                if was_already_stopped {
+                    already_stopped += 1;
+                } else {
+                    stopped += 1;
+                }
+            }
+            Err(error) => {
+                failed += 1;
+                errors.push(format!("PID {pid}: {error}"));
+            }
+        }
+    }
+
+    (stopped, already_stopped, failed, errors)
+}
+
+fn is_process_running(pid: i32) -> bool {
+    if pid <= 0 {
+        return false;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .output();
+        let Ok(output) = output else {
+            return false;
+        };
+        if !output.status.success() {
+            return false;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
+        !stdout.contains("no tasks are running") && stdout.contains(&format!("\"{pid}\""))
     }
 
     #[cfg(not(target_os = "windows"))]
     {
         let output = Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .output()
-            .map_err(|error| format!("Failed to execute kill: {error}"))?;
+            .args(["-0", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output();
 
-        if output.status.success() {
-            return Ok((false, pid));
-        }
-
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        if should_treat_as_already_stopped(&stderr) {
-            return Ok((true, pid));
-        }
-
-        Err(format!("Failed to stop PID {pid}: {stderr}"))
+        output.map(|value| value.status.success()).unwrap_or(false)
     }
+}
+
+#[cfg(target_os = "windows")]
+fn parse_basic_csv_line(raw: &str) -> Vec<String> {
+    let mut values = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let chars = raw.chars().collect::<Vec<_>>();
+    let mut index = 0usize;
+
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch == '"' {
+            if in_quotes && index + 1 < chars.len() && chars[index + 1] == '"' {
+                current.push('"');
+                index += 2;
+                continue;
+            }
+            in_quotes = !in_quotes;
+            index += 1;
+            continue;
+        }
+
+        if ch == ',' && !in_quotes {
+            values.push(current.trim().to_string());
+            current.clear();
+            index += 1;
+            continue;
+        }
+
+        current.push(ch);
+        index += 1;
+    }
+
+    values.push(current.trim().to_string());
+    values
+}
+
+#[cfg(target_os = "windows")]
+fn list_process_snapshot_rows() -> Result<(Vec<ProcessSnapshotRow>, Option<String>), String> {
+    let command = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Csv -NoTypeInformation";
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", command])
+        .output()
+        .or_else(|_| {
+            Command::new("pwsh")
+                .args(["-NoProfile", "-Command", command])
+                .output()
+        })
+        .map_err(|error| format!("Failed to execute PowerShell process query: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "PowerShell process query failed while listing processes.".to_string()
+        } else {
+            format!("PowerShell process query failed: {stderr}")
+        });
+    }
+
+    let mut rows = Vec::new();
+    for line in String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if line.starts_with("\"ProcessId\"") {
+            continue;
+        }
+
+        let columns = parse_basic_csv_line(line);
+        if columns.len() < 4 {
+            continue;
+        }
+
+        let Some(pid) = columns[0].trim().parse::<i32>().ok() else {
+            continue;
+        };
+        let ppid = columns[1].trim().parse::<i32>().ok();
+        let process_name = columns[2].trim().to_string();
+        let command_line = columns[3].trim().to_string();
+
+        rows.push(ProcessSnapshotRow {
+            pid,
+            ppid,
+            process_name: if process_name.is_empty() {
+                None
+            } else {
+                Some(process_name.clone())
+            },
+            command: if command_line.is_empty() {
+                process_name
+            } else {
+                command_line
+            },
+        });
+    }
+
+    Ok((
+        rows,
+        Some(
+            "Using PowerShell process snapshots for best-effort detection on Windows.".to_string(),
+        ),
+    ))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn list_process_snapshot_rows() -> Result<(Vec<ProcessSnapshotRow>, Option<String>), String> {
+    let output = Command::new("ps")
+        .args(["-eo", "pid=,ppid=,comm=,args="])
+        .output()
+        .map_err(|error| format!("Failed to execute ps: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "ps failed while listing processes.".to_string()
+        } else {
+            format!("ps failed: {stderr}")
+        });
+    }
+
+    let mut rows = Vec::new();
+    for raw in String::from_utf8_lossy(&output.stdout).lines() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let mut tokens = trimmed.split_whitespace();
+        let Some(pid_token) = tokens.next() else {
+            continue;
+        };
+        let Some(ppid_token) = tokens.next() else {
+            continue;
+        };
+        let Some(process_name) = tokens.next() else {
+            continue;
+        };
+
+        let Some(pid) = pid_token.parse::<i32>().ok() else {
+            continue;
+        };
+        let ppid = ppid_token.parse::<i32>().ok();
+
+        let command = tokens.collect::<Vec<_>>().join(" ");
+
+        rows.push(ProcessSnapshotRow {
+            pid,
+            ppid,
+            process_name: Some(process_name.to_string()),
+            command: if command.is_empty() {
+                process_name.to_string()
+            } else {
+                command
+            },
+        });
+    }
+
+    Ok((rows, None))
+}
+
+fn list_opencode_process_rows() -> Result<Vec<DiagnosticsProcessRow>, String> {
+    let (snapshot_rows, _warning) = list_process_snapshot_rows()?;
+    let mut rows = snapshot_rows
+        .into_iter()
+        .filter(|row| is_opencode_process(row.process_name.as_deref(), &row.command))
+        .map(|row| DiagnosticsProcessRow {
+            pid: row.pid,
+            process_name: row.process_name.unwrap_or_else(|| "unknown".to_string()),
+            command: row.command,
+        })
+        .collect::<Vec<_>>();
+
+    rows.sort_by(|left, right| left.pid.cmp(&right.pid));
+    Ok(rows)
+}
+
+fn list_worktree_node_app_rows() -> Result<(Vec<DiagnosticsNodeAppRow>, Option<String>), String> {
+    let (snapshot_rows, warning) = list_process_snapshot_rows()?;
+    let mut rows = snapshot_rows
+        .into_iter()
+        .filter(|row| is_worktree_node_process(row.process_name.as_deref(), &row.command))
+        .filter_map(|row| {
+            let ppid = row.ppid?;
+            Some(DiagnosticsNodeAppRow {
+                pid: row.pid,
+                ppid,
+                cmd: row.command,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    rows.sort_by(|left, right| left.pid.cmp(&right.pid));
+    Ok((rows, warning))
+}
+
+#[cfg(target_os = "windows")]
+fn get_msot_consuming_programs_output() -> Result<String, String> {
+    Err("This command is only supported on Unix-like systems.".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_msot_consuming_programs_output() -> Result<String, String> {
+    let command = r#"ps -eo comm,rss --sort=-rss | awk '{arr[$1]+=$2} END {for (i in arr) printf "%-25s %.1f MB\n", i, arr[i]/1024}' | sort -k2 -nr | head"#;
+    let output = Command::new("sh")
+        .args(["-c", command])
+        .output()
+        .map_err(|error| format!("Failed to execute memory usage query: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Memory usage query failed with a non-zero exit status.".to_string()
+        } else {
+            format!("Memory usage query failed: {stderr}")
+        });
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn ensure_testing_runtime_loaded(
+    app: &AppHandle,
+    runtime: &mut TestingEnvironmentRuntimeState,
+) -> Result<(), String> {
+    if runtime.loaded {
+        return Ok(());
+    }
+
+    runtime.persisted = read_persisted_testing_environment_state(app)?;
+    runtime.loaded = true;
+    Ok(())
+}
+
+fn reconcile_testing_runtime(runtime: &mut TestingEnvironmentRuntimeState) -> bool {
+    let mut changed = false;
+
+    if let Some(child) = runtime.child.as_mut() {
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                runtime.child = None;
+                runtime.persisted.running_instance = None;
+                runtime.persisted.updated_at = Some(now_iso());
+                return true;
+            }
+            Ok(None) => {}
+            Err(_) => {
+                runtime.child = None;
+                changed = true;
+            }
+        }
+    }
+
+    if let Some(instance) = runtime.persisted.running_instance.as_ref() {
+        if instance.pid > 0 && !is_process_running(instance.pid) {
+            runtime.persisted.running_instance = None;
+            runtime.persisted.updated_at = Some(now_iso());
+            changed = true;
+        }
+    }
+
+    changed
+}
+
+fn reconcile_testing_runtime_and_persist(
+    app: &AppHandle,
+    runtime: &mut TestingEnvironmentRuntimeState,
+) -> Result<(), String> {
+    if reconcile_testing_runtime(runtime) {
+        write_persisted_testing_environment_state(app, &runtime.persisted)?;
+    }
+
+    Ok(())
+}
+
+fn build_testing_environment_response(
+    request_id: String,
+    workspace_root: Option<&Path>,
+    state: &PersistedTestingEnvironmentState,
+    error: Option<String>,
+) -> TestingEnvironmentResponse {
+    let workspace_root_string = workspace_root.map(|path| path.display().to_string());
+
+    let target = match (&state.target, workspace_root_string.as_ref()) {
+        (Some(target), Some(root)) if target.workspace_root == *root => Some(target),
+        _ => None,
+    };
+
+    let running_instance = match (&state.running_instance, workspace_root_string.as_ref()) {
+        (Some(instance), Some(root)) if instance.workspace_root == *root => Some(instance),
+        _ => None,
+    };
+
+    let status = if running_instance.is_some() {
+        "running"
+    } else if target.is_some() {
+        "stopped"
+    } else {
+        "none"
+    }
+    .to_string();
+
+    TestingEnvironmentResponse {
+        request_id,
+        ok: error.is_none(),
+        workspace_root: workspace_root_string,
+        target_worktree: target.map(|value| value.worktree.clone()),
+        target_path: target.map(|value| value.worktree_path.clone()),
+        status,
+        instance_id: running_instance.map(|value| value.instance_id.clone()),
+        pid: running_instance.map(|value| value.pid),
+        started_at: running_instance.map(|value| value.started_at.clone()),
+        error,
+    }
+}
+
+fn stop_running_testing_instance(
+    runtime: &mut TestingEnvironmentRuntimeState,
+) -> Result<Option<TestingEnvironmentInstance>, String> {
+    let Some(instance) = runtime.persisted.running_instance.clone() else {
+        if let Some(mut child) = runtime.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        return Ok(None);
+    };
+
+    if let Some(mut child) = runtime.child.take() {
+        if i32::try_from(child.id()).ok() == Some(instance.pid) {
+            let _ = child.kill();
+            let _ = child.wait();
+        } else if is_process_running(instance.pid) {
+            stop_process_by_pid(instance.pid)?;
+        }
+    } else if is_process_running(instance.pid) {
+        stop_process_by_pid(instance.pid)?;
+    }
+
+    runtime.persisted.running_instance = None;
+    runtime.persisted.updated_at = Some(now_iso());
+    Ok(Some(instance))
+}
+
+fn testing_instance_is_effectively_running(instance: &TestingEnvironmentInstance) -> bool {
+    if instance.pid <= 0 {
+        return true;
+    }
+
+    is_process_running(instance.pid)
+}
+
+fn start_testing_instance_for_target(
+    target: &TestingEnvironmentTarget,
+    runtime: &mut TestingEnvironmentRuntimeState,
+) -> Result<(), String> {
+    if let Some(existing) = runtime.persisted.running_instance.clone() {
+        let existing_is_same_target = existing.workspace_root == target.workspace_root
+            && existing.worktree == target.worktree
+            && existing.worktree_path == target.worktree_path;
+
+        if existing_is_same_target && testing_instance_is_effectively_running(&existing) {
+            return Ok(());
+        }
+
+        if existing.pid > 0 && is_process_running(existing.pid) {
+            stop_process_by_pid(existing.pid)?;
+        }
+        runtime.persisted.running_instance = None;
+    }
+
+    let mut command = Command::new("pnpm");
+    command
+        .args(["run", "dev"])
+        .current_dir(Path::new(&target.worktree_path))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    let child = command
+        .spawn()
+        .map_err(|error| format!("Failed to start local testing environment: {error}"))?;
+
+    let raw_pid = child.id();
+    let pid = i32::try_from(raw_pid)
+        .map_err(|_| format!("Started process PID {raw_pid} is out of supported range."))?;
+
+    runtime.persisted.running_instance = Some(TestingEnvironmentInstance {
+        instance_id: format!("local-{pid}-{}", Uuid::new_v4()),
+        pid,
+        workspace_root: target.workspace_root.clone(),
+        worktree: target.worktree.clone(),
+        worktree_path: target.worktree_path.clone(),
+        command: "pnpm run dev".to_string(),
+        started_at: now_iso(),
+    });
+    runtime.child = Some(child);
+    runtime.persisted.updated_at = Some(now_iso());
+
+    Ok(())
 }
 
 fn snapshot_entry(path: &Path) -> SnapshotEntry {
@@ -1330,8 +2499,21 @@ fn workspace_get_active(app: AppHandle) -> WorkspaceContextResponse {
 }
 
 #[tauri::command]
-fn workspace_clear_active(app: AppHandle) -> WorkspaceContextResponse {
+fn workspace_clear_active(
+    app: AppHandle,
+    testing_state: State<TestingEnvironmentState>,
+) -> WorkspaceContextResponse {
     let request_id = request_id();
+
+    if let Ok(mut runtime) = testing_state.runtime.lock() {
+        if ensure_testing_runtime_loaded(&app, &mut runtime).is_ok() {
+            let _ = stop_running_testing_instance(&mut runtime);
+            runtime.persisted = PersistedTestingEnvironmentState::default();
+            runtime.loaded = true;
+            let _ = clear_persisted_testing_environment_state(&app);
+        }
+    }
+
     match clear_persisted_active_workspace_root(&app) {
         Ok(_) => WorkspaceContextResponse {
             request_id,
@@ -1355,6 +2537,118 @@ fn workspace_clear_active(app: AppHandle) -> WorkspaceContextResponse {
             cancelled: None,
             error: Some(error),
         },
+    }
+}
+
+#[tauri::command]
+fn workspace_update_terminal_settings(
+    app: AppHandle,
+    payload: WorkspaceTerminalSettingsPayload,
+) -> WorkspaceTerminalSettingsResponse {
+    let request_id = request_id();
+
+    let default_terminal = match normalize_default_terminal(&payload.default_terminal) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let terminal_custom_command = payload
+        .terminal_custom_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+
+    if default_terminal == "custom" && terminal_custom_command.is_none() {
+        return WorkspaceTerminalSettingsResponse {
+            request_id,
+            ok: false,
+            workspace_root: None,
+            workspace_meta: None,
+            error: Some(
+                "terminalCustomCommand is required when defaultTerminal is set to custom."
+                    .to_string(),
+            ),
+        };
+    }
+
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some("No active workspace selected.".to_string()),
+            }
+        }
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match validate_workspace_root_path(&persisted_root) {
+        Ok(root) => root,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(persisted_root),
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let (mut workspace_meta, _) = match ensure_workspace_meta(&workspace_root) {
+        Ok(result) => result,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    workspace_meta.default_terminal = default_terminal;
+    workspace_meta.terminal_custom_command = terminal_custom_command;
+    workspace_meta.updated_at = now_iso();
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    if let Err(error) = write_workspace_meta_file(&workspace_json, &workspace_meta) {
+        return WorkspaceTerminalSettingsResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            workspace_meta: None,
+            error: Some(error),
+        };
+    }
+
+    WorkspaceTerminalSettingsResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        workspace_meta: Some(workspace_meta),
+        error: None,
     }
 }
 
@@ -1621,9 +2915,26 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
     }
 
     let result = run_command(&groove_binary_path(&app), &args, &workspace_root);
+    let ok = result.exit_code == Some(0) && result.error.is_none();
+    if ok {
+        let stamped_worktree = payload.worktree.trim();
+        if let Err(error) =
+            record_worktree_last_executed_at(&app, &workspace_root, stamped_worktree)
+        {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: result.exit_code,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                error: Some(error),
+            };
+        }
+    }
+
     GrooveCommandResponse {
         request_id,
-        ok: result.exit_code == Some(0) && result.error.is_none(),
+        ok,
         exit_code: result.exit_code,
         stdout: result.stdout,
         stderr: result.stderr,
@@ -2064,6 +3375,1086 @@ fn groove_stop(app: AppHandle, payload: GrooveStopPayload) -> GrooveStopResponse
 }
 
 #[tauri::command]
+fn testing_environment_get_status(
+    app: AppHandle,
+    state: State<TestingEnvironmentState>,
+    payload: TestingEnvironmentStatusPayload,
+) -> TestingEnvironmentResponse {
+    let request_id = request_id();
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(known_worktrees) => known_worktrees,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let mut runtime = match state.runtime.lock() {
+        Ok(guard) => guard,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(format!(
+                    "Failed to acquire testing environment lock: {error}"
+                )),
+            }
+        }
+    };
+
+    if let Err(error) = ensure_testing_runtime_loaded(&app, &mut runtime) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    if let Err(error) = reconcile_testing_runtime_and_persist(&app, &mut runtime) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+    build_testing_environment_response(request_id, Some(&workspace_root), &runtime.persisted, None)
+}
+
+#[tauri::command]
+fn testing_environment_set_target(
+    app: AppHandle,
+    state: State<TestingEnvironmentState>,
+    payload: TestingEnvironmentSetTargetPayload,
+) -> TestingEnvironmentResponse {
+    let request_id = request_id();
+
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return TestingEnvironmentResponse {
+            request_id,
+            ok: false,
+            workspace_root: None,
+            target_worktree: None,
+            target_path: None,
+            status: "none".to_string(),
+            instance_id: None,
+            pid: None,
+            started_at: None,
+            error: Some("worktree is required and must be a non-empty string.".to_string()),
+        };
+    }
+    if !is_safe_path_token(worktree) {
+        return TestingEnvironmentResponse {
+            request_id,
+            ok: false,
+            workspace_root: None,
+            target_worktree: None,
+            target_path: None,
+            status: "none".to_string(),
+            instance_id: None,
+            pid: None,
+            started_at: None,
+            error: Some("worktree contains unsafe characters or path segments.".to_string()),
+        };
+    }
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(known_worktrees) => known_worktrees,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        Some(worktree),
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let worktree_path = match ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees") {
+        Ok(path) => path,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let mut runtime = match state.runtime.lock() {
+        Ok(guard) => guard,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(format!(
+                    "Failed to acquire testing environment lock: {error}"
+                )),
+            }
+        }
+    };
+
+    if let Err(error) = ensure_testing_runtime_loaded(&app, &mut runtime) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    if let Err(error) = reconcile_testing_runtime_and_persist(&app, &mut runtime) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    let current_target = runtime.persisted.target.clone();
+    let current_running = runtime.persisted.running_instance.clone();
+    let switching_target = current_target
+        .as_ref()
+        .map(|target| {
+            target.workspace_root != workspace_root.display().to_string()
+                || target.worktree != worktree
+        })
+        .unwrap_or(false);
+
+    let previous_had_running_instance = current_running
+        .as_ref()
+        .map(testing_instance_is_effectively_running)
+        .unwrap_or(false);
+
+    if switching_target && previous_had_running_instance {
+        if let Err(error) = stop_running_testing_instance(&mut runtime) {
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(error),
+            );
+        }
+    }
+
+    runtime.persisted.target = Some(TestingEnvironmentTarget {
+        workspace_root: workspace_root.display().to_string(),
+        worktree: worktree.to_string(),
+        worktree_path: worktree_path.display().to_string(),
+        updated_at: now_iso(),
+    });
+    runtime.persisted.updated_at = Some(now_iso());
+
+    if switching_target
+        && previous_had_running_instance
+        && payload.auto_start_if_current_running.unwrap_or(false)
+    {
+        if let Some(target) = runtime.persisted.target.clone() {
+            if let Err(error) = start_testing_instance_for_target(&target, &mut runtime) {
+                return build_testing_environment_response(
+                    request_id,
+                    Some(&workspace_root),
+                    &runtime.persisted,
+                    Some(error),
+                );
+            }
+        }
+    }
+
+    if let Err(error) = write_persisted_testing_environment_state(&app, &runtime.persisted) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    build_testing_environment_response(request_id, Some(&workspace_root), &runtime.persisted, None)
+}
+
+#[tauri::command]
+fn testing_environment_start(
+    app: AppHandle,
+    state: State<TestingEnvironmentState>,
+    payload: TestingEnvironmentStartPayload,
+) -> TestingEnvironmentResponse {
+    let request_id = request_id();
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(known_worktrees) => known_worktrees,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let required_worktree = payload
+        .worktree
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    if let Some(worktree) = required_worktree {
+        if !is_safe_path_token(worktree) {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some("worktree contains unsafe characters or path segments.".to_string()),
+            };
+        }
+    }
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        required_worktree,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let mut runtime = match state.runtime.lock() {
+        Ok(guard) => guard,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(format!(
+                    "Failed to acquire testing environment lock: {error}"
+                )),
+            }
+        }
+    };
+
+    if let Err(error) = ensure_testing_runtime_loaded(&app, &mut runtime) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    if let Err(error) = reconcile_testing_runtime_and_persist(&app, &mut runtime) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    if let Some(worktree) = required_worktree {
+        let worktree_path = match ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees") {
+            Ok(path) => path,
+            Err(error) => {
+                return build_testing_environment_response(
+                    request_id,
+                    Some(&workspace_root),
+                    &runtime.persisted,
+                    Some(error),
+                );
+            }
+        };
+
+        runtime.persisted.target = Some(TestingEnvironmentTarget {
+            workspace_root: workspace_root.display().to_string(),
+            worktree: worktree.to_string(),
+            worktree_path: worktree_path.display().to_string(),
+            updated_at: now_iso(),
+        });
+        runtime.persisted.updated_at = Some(now_iso());
+    }
+
+    let Some(target) = runtime.persisted.target.clone() else {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some("Select a testing environment target before running locally.".to_string()),
+        );
+    };
+
+    if target.workspace_root != workspace_root.display().to_string() {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(
+                "Current testing target belongs to another workspace. Select a target again."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if runtime.persisted.running_instance.is_some() {
+        if let Err(error) = stop_running_testing_instance(&mut runtime) {
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(error),
+            );
+        }
+    }
+
+    if let Err(error) = start_testing_instance_for_target(&target, &mut runtime) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    if let Err(error) = write_persisted_testing_environment_state(&app, &runtime.persisted) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    if let Err(error) = record_worktree_last_executed_at(&app, &workspace_root, &target.worktree) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    build_testing_environment_response(request_id, Some(&workspace_root), &runtime.persisted, None)
+}
+
+#[tauri::command]
+fn testing_environment_start_separate_terminal(
+    app: AppHandle,
+    state: State<TestingEnvironmentState>,
+    payload: TestingEnvironmentStartPayload,
+) -> TestingEnvironmentResponse {
+    let request_id = request_id();
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(known_worktrees) => known_worktrees,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let required_worktree = payload
+        .worktree
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    if let Some(worktree) = required_worktree {
+        if !is_safe_path_token(worktree) {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some("worktree contains unsafe characters or path segments.".to_string()),
+            };
+        }
+    }
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        required_worktree,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let mut runtime = match state.runtime.lock() {
+        Ok(guard) => guard,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(format!(
+                    "Failed to acquire testing environment lock: {error}"
+                )),
+            }
+        }
+    };
+
+    if let Err(error) = ensure_testing_runtime_loaded(&app, &mut runtime) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    if let Err(error) = reconcile_testing_runtime_and_persist(&app, &mut runtime) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    if let Some(worktree) = required_worktree {
+        let worktree_path = match ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees") {
+            Ok(path) => path,
+            Err(error) => {
+                return build_testing_environment_response(
+                    request_id,
+                    Some(&workspace_root),
+                    &runtime.persisted,
+                    Some(error),
+                );
+            }
+        };
+
+        runtime.persisted.target = Some(TestingEnvironmentTarget {
+            workspace_root: workspace_root.display().to_string(),
+            worktree: worktree.to_string(),
+            worktree_path: worktree_path.display().to_string(),
+            updated_at: now_iso(),
+        });
+        runtime.persisted.updated_at = Some(now_iso());
+    }
+
+    let Some(target) = runtime.persisted.target.clone() else {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(
+                "Select a testing environment target before running locally on a separate terminal."
+                    .to_string(),
+            ),
+        );
+    };
+
+    if target.workspace_root != workspace_root.display().to_string() {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(
+                "Current testing target belongs to another workspace. Select a target again."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if let Err(error) = write_persisted_testing_environment_state(&app, &runtime.persisted) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    let workspace_meta = match ensure_workspace_meta(&workspace_root) {
+        Ok((meta, _)) => meta,
+        Err(error) => {
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(error),
+            )
+        }
+    };
+    let default_terminal = normalize_default_terminal(&workspace_meta.default_terminal)
+        .unwrap_or_else(|_| default_terminal_auto());
+
+    let (result, command_for_state) = if default_terminal == "custom" {
+        let Some(custom_command) = workspace_meta
+            .terminal_custom_command
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(
+                    "Default terminal is set to custom, but terminalCustomCommand is empty."
+                        .to_string(),
+                ),
+            );
+        };
+
+        let parsed_command =
+            match parse_custom_terminal_command(custom_command, Path::new(&target.worktree_path)) {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    return build_testing_environment_response(
+                        request_id,
+                        Some(&workspace_root),
+                        &runtime.persisted,
+                        Some(error),
+                    );
+                }
+            };
+        let (program, args) = parsed_command;
+        let command_for_state = std::iter::once(program.as_str())
+            .chain(args.iter().map(|value| value.as_str()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        (
+            run_command_with_worktree_env(
+                &program,
+                &args,
+                &workspace_root,
+                Path::new(&target.worktree_path),
+            ),
+            command_for_state,
+        )
+    } else {
+        let args = vec![
+            "run".to_string(),
+            target.worktree.clone(),
+            "--terminal".to_string(),
+            default_terminal,
+        ];
+        (
+            run_command(&groove_binary_path(&app), &args, &workspace_root),
+            format!("groove {}", args.join(" ")),
+        )
+    };
+
+    if result.exit_code != Some(0) || result.error.is_some() {
+        let output_line = result
+            .stderr
+            .lines()
+            .chain(result.stdout.lines())
+            .map(str::trim)
+            .find(|value| !value.is_empty())
+            .map(str::to_string);
+        let detail = result
+            .error
+            .or_else(|| output_line)
+            .unwrap_or_else(|| "groove run failed.".to_string());
+
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(format!(
+                "Failed to run local testing in a separate terminal for {}: {}",
+                target.worktree, detail
+            )),
+        );
+    }
+
+    if let Err(error) = record_worktree_last_executed_at(&app, &workspace_root, &target.worktree) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    runtime.persisted.running_instance = Some(TestingEnvironmentInstance {
+        instance_id: format!("separate-terminal-{}", Uuid::new_v4()),
+        pid: 0,
+        workspace_root: target.workspace_root.clone(),
+        worktree: target.worktree.clone(),
+        worktree_path: target.worktree_path.clone(),
+        command: command_for_state,
+        started_at: now_iso(),
+    });
+    runtime.child = None;
+    runtime.persisted.updated_at = Some(now_iso());
+
+    if let Err(error) = write_persisted_testing_environment_state(&app, &runtime.persisted) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    build_testing_environment_response(request_id, Some(&workspace_root), &runtime.persisted, None)
+}
+
+#[tauri::command]
+fn testing_environment_stop(
+    app: AppHandle,
+    state: State<TestingEnvironmentState>,
+    payload: TestingEnvironmentStopPayload,
+) -> TestingEnvironmentResponse {
+    let request_id = request_id();
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(known_worktrees) => known_worktrees,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let mut runtime = match state.runtime.lock() {
+        Ok(guard) => guard,
+        Err(error) => {
+            return TestingEnvironmentResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                target_worktree: None,
+                target_path: None,
+                status: "none".to_string(),
+                instance_id: None,
+                pid: None,
+                started_at: None,
+                error: Some(format!(
+                    "Failed to acquire testing environment lock: {error}"
+                )),
+            }
+        }
+    };
+
+    if let Err(error) = ensure_testing_runtime_loaded(&app, &mut runtime) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    if let Err(error) = reconcile_testing_runtime_and_persist(&app, &mut runtime) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    if let Some(instance) = runtime.persisted.running_instance.as_ref() {
+        if instance.workspace_root == workspace_root.display().to_string() {
+            if let Err(error) = stop_running_testing_instance(&mut runtime) {
+                return build_testing_environment_response(
+                    request_id,
+                    Some(&workspace_root),
+                    &runtime.persisted,
+                    Some(error),
+                );
+            }
+        }
+    }
+
+    if let Err(error) = write_persisted_testing_environment_state(&app, &runtime.persisted) {
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
+    }
+
+    build_testing_environment_response(request_id, Some(&workspace_root), &runtime.persisted, None)
+}
+
+#[tauri::command]
+fn diagnostics_list_opencode_instances() -> DiagnosticsOpencodeInstancesResponse {
+    let request_id = request_id();
+
+    match list_opencode_process_rows() {
+        Ok(rows) => DiagnosticsOpencodeInstancesResponse {
+            request_id,
+            ok: true,
+            rows,
+            error: None,
+        },
+        Err(error) => DiagnosticsOpencodeInstancesResponse {
+            request_id,
+            ok: false,
+            rows: Vec::new(),
+            error: Some(error),
+        },
+    }
+}
+
+#[tauri::command]
+fn diagnostics_stop_process(pid: i32) -> DiagnosticsStopResponse {
+    let request_id = request_id();
+    if pid <= 0 {
+        return DiagnosticsStopResponse {
+            request_id,
+            ok: false,
+            pid: None,
+            already_stopped: None,
+            error: Some("pid must be a positive integer.".to_string()),
+        };
+    }
+
+    match stop_process_by_pid(pid) {
+        Ok((already_stopped, stopped_pid)) => DiagnosticsStopResponse {
+            request_id,
+            ok: true,
+            pid: Some(stopped_pid),
+            already_stopped: Some(already_stopped),
+            error: None,
+        },
+        Err(error) => DiagnosticsStopResponse {
+            request_id,
+            ok: false,
+            pid: Some(pid),
+            already_stopped: None,
+            error: Some(error),
+        },
+    }
+}
+
+#[tauri::command]
+fn diagnostics_stop_all_opencode_instances() -> DiagnosticsStopAllResponse {
+    let request_id = request_id();
+
+    let rows = match list_opencode_process_rows() {
+        Ok(rows) => rows,
+        Err(error) => {
+            return DiagnosticsStopAllResponse {
+                request_id,
+                ok: false,
+                attempted: 0,
+                stopped: 0,
+                already_stopped: 0,
+                failed: 0,
+                errors: Vec::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let unique_pids = rows
+        .into_iter()
+        .map(|row| row.pid)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    let (stopped, already_stopped, failed, errors) = stop_pid_set(&unique_pids);
+    let has_errors = !errors.is_empty();
+
+    DiagnosticsStopAllResponse {
+        request_id,
+        ok: failed == 0,
+        attempted: unique_pids.len(),
+        stopped,
+        already_stopped,
+        failed,
+        errors,
+        error: if has_errors {
+            Some(format!("Failed to stop {} process(es).", failed))
+        } else {
+            None
+        },
+    }
+}
+
+#[tauri::command]
+fn diagnostics_list_worktree_node_apps() -> DiagnosticsNodeAppsResponse {
+    let request_id = request_id();
+
+    match list_worktree_node_app_rows() {
+        Ok((rows, warning)) => DiagnosticsNodeAppsResponse {
+            request_id,
+            ok: true,
+            rows,
+            warning,
+            error: None,
+        },
+        Err(error) => DiagnosticsNodeAppsResponse {
+            request_id,
+            ok: false,
+            rows: Vec::new(),
+            warning: None,
+            error: Some(error),
+        },
+    }
+}
+
+#[tauri::command]
+fn diagnostics_clean_all_dev_servers() -> DiagnosticsStopAllResponse {
+    let request_id = request_id();
+    let (snapshot_rows, _warning) = match list_process_snapshot_rows() {
+        Ok(value) => value,
+        Err(error) => {
+            return DiagnosticsStopAllResponse {
+                request_id,
+                ok: false,
+                attempted: 0,
+                stopped: 0,
+                already_stopped: 0,
+                failed: 0,
+                errors: Vec::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let pids = snapshot_rows
+        .into_iter()
+        .filter(|row| {
+            is_opencode_process(row.process_name.as_deref(), &row.command)
+                || is_worktree_node_process(row.process_name.as_deref(), &row.command)
+                || command_matches_turbo_dev(&row.command)
+        })
+        .map(|row| row.pid)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    let (stopped, already_stopped, failed, errors) = stop_pid_set(&pids);
+
+    DiagnosticsStopAllResponse {
+        request_id,
+        ok: failed == 0,
+        attempted: pids.len(),
+        stopped,
+        already_stopped,
+        failed,
+        errors,
+        error: if failed == 0 {
+            None
+        } else {
+            Some(format!(
+                "Failed to clean all target processes: {} process(es).",
+                failed
+            ))
+        },
+    }
+}
+
+#[tauri::command]
+fn diagnostics_get_msot_consuming_programs() -> DiagnosticsMostConsumingProgramsResponse {
+    let request_id = request_id();
+
+    match get_msot_consuming_programs_output() {
+        Ok(output) => DiagnosticsMostConsumingProgramsResponse {
+            request_id,
+            ok: true,
+            output,
+            error: None,
+        },
+        Err(error) => DiagnosticsMostConsumingProgramsResponse {
+            request_id,
+            ok: false,
+            output: String::new(),
+            error: Some(error),
+        },
+    }
+}
+
+#[tauri::command]
 fn workspace_events(
     app: AppHandle,
     state: State<WorkspaceEventState>,
@@ -2205,16 +4596,29 @@ fn workspace_events(
 pub fn run() {
     tauri::Builder::default()
         .manage(WorkspaceEventState::default())
+        .manage(TestingEnvironmentState::default())
         .invoke_handler(tauri::generate_handler![
             workspace_pick_and_open,
             workspace_open,
             workspace_get_active,
             workspace_clear_active,
+            workspace_update_terminal_settings,
             groove_list,
             groove_new,
             groove_restore,
             groove_rm,
             groove_stop,
+            testing_environment_get_status,
+            testing_environment_set_target,
+            testing_environment_start,
+            testing_environment_start_separate_terminal,
+            testing_environment_stop,
+            diagnostics_list_opencode_instances,
+            diagnostics_stop_process,
+            diagnostics_stop_all_opencode_instances,
+            diagnostics_list_worktree_node_apps,
+            diagnostics_clean_all_dev_servers,
+            diagnostics_get_msot_consuming_programs,
             workspace_events
         ])
         .run(tauri::generate_context!())

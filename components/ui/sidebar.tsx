@@ -5,7 +5,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const sidebarVariants = cva(
-  "hidden shrink-0 rounded-xl border bg-card text-card-foreground shadow-xs md:flex md:flex-col md:sticky md:top-4 md:h-[calc(100vh-2rem)] transition-[width] duration-200",
+  "hidden shrink-0 rounded-xl border bg-card text-card-foreground shadow-xs md:flex md:flex-col md:sticky md:top-4 md:self-start md:max-h-[calc(100vh-2rem)] transition-[width] duration-200",
   {
     variants: {
       collapsed: {

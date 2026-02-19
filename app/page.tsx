@@ -1,17 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
-  CircleCheck,
+  CirclePause,
   CircleStop,
   Copy,
+  FlaskConical,
   FolderOpen,
   Loader2,
+  Octagon,
+  OctagonPause,
+  OctagonX,
   Plus,
   Play,
   RefreshCw,
+  Terminal,
   Trash2,
   Wrench,
   X,
@@ -34,11 +39,17 @@ import {
   grooveStop,
   listenWorkspaceChange,
   listenWorkspaceReady,
+  testingEnvironmentGetStatus,
+  testingEnvironmentStartSeparateTerminal,
+  testingEnvironmentSetTarget,
+  testingEnvironmentStart,
+  testingEnvironmentStop,
   workspaceClearActive,
   workspaceEvents,
   workspaceGetActive,
   workspaceOpen,
   workspacePickAndOpen,
+  type TestingEnvironmentResponse,
   type WorkspaceContextResponse,
   type WorkspaceRow,
 } from "@/src/lib/ipc";
@@ -50,9 +61,12 @@ type WorkspaceMeta = {
   rootName: string;
   createdAt: string;
   updatedAt: string;
+  defaultTerminal?: "auto" | "ghostty" | "warp" | "kitty" | "gnome" | "xterm" | "none" | "custom";
+  terminalCustomCommand?: string | null;
 };
 
 type WorktreeRow = WorkspaceRow;
+type WorktreeStatus = WorkspaceRow["status"];
 type OpencodeState = "running" | "not-running" | "unknown";
 
 type RuntimeStateRow = {
@@ -93,6 +107,8 @@ type StopApiResponse = {
   error?: string;
 };
 
+type TestingEnvironmentState = TestingEnvironmentResponse;
+
 type ActiveWorkspace = {
   workspaceRoot: string;
   workspaceMeta: WorkspaceMeta;
@@ -100,11 +116,11 @@ type ActiveWorkspace = {
   hasWorktreesDirectory: boolean;
 };
 
-const READY_STATUS_CLASSES = "border-emerald-700/30 bg-emerald-500/15 text-emerald-800";
-const MISSING_STATUS_CLASSES = "border-amber-700/35 bg-amber-500/15 text-amber-900";
-const OPENCODE_RUNNING_CLASSES = "border-emerald-700/30 bg-emerald-500/15 text-emerald-800";
-const OPENCODE_NOT_RUNNING_CLASSES = "border-slate-600/25 bg-slate-400/10 text-slate-700";
-const OPENCODE_UNKNOWN_CLASSES = "border-amber-700/35 bg-amber-500/15 text-amber-900";
+const READY_STATUS_CLASSES = "border-green-700/30 bg-green-500/15 text-green-800";
+const CLOSING_STATUS_CLASSES = "border-rose-700/35 bg-rose-500/15 text-rose-900";
+const PAUSED_STATUS_CLASSES = "border-yellow-700/35 bg-yellow-500/15 text-yellow-900";
+const CORRUPTED_STATUS_CLASSES = "border-orange-700/35 bg-orange-500/15 text-orange-900";
+const SOFT_RED_BUTTON_CLASSES = "bg-rose-600 text-white hover:bg-rose-500 [&_svg]:text-white";
 
 function describeWorkspaceContextError(result: WorkspaceContextResponse): string {
   if (result.error && result.error.trim().length > 0) {
@@ -137,18 +153,55 @@ function shouldPromptForceCutRetry(result: CutGrooveApiResponse): boolean {
   return /contains modified or untracked files/.test(combinedOutput) && /use --force to delete it/.test(combinedOutput);
 }
 
-function getOpencodeStateLabel(state: OpencodeState): string {
-  return state === "not-running" ? "not running" : state;
+function deriveWorktreeStatus(worktreeStatus: WorktreeRow["status"], runtimeRow: RuntimeStateRow | undefined): WorktreeStatus {
+  if (worktreeStatus === "corrupted") {
+    return "corrupted";
+  }
+
+  if (worktreeStatus === "closing") {
+    return "closing";
+  }
+
+  return runtimeRow?.opencodeState === "running" ? "ready" : "paused";
 }
 
-function getOpencodeBadgeClasses(state: OpencodeState): string {
-  if (state === "running") {
-    return OPENCODE_RUNNING_CLASSES;
+function getWorktreeStatusBadgeClasses(status: WorktreeStatus): string {
+  if (status === "ready") {
+    return READY_STATUS_CLASSES;
   }
-  if (state === "not-running") {
-    return OPENCODE_NOT_RUNNING_CLASSES;
+  if (status === "closing") {
+    return CLOSING_STATUS_CLASSES;
   }
-  return OPENCODE_UNKNOWN_CLASSES;
+  if (status === "paused") {
+    return PAUSED_STATUS_CLASSES;
+  }
+  return CORRUPTED_STATUS_CLASSES;
+}
+
+function getWorktreeStatusTitle(status: WorktreeStatus): string {
+  if (status === "ready") {
+    return "Workspace is valid and opencode is running.";
+  }
+  if (status === "closing") {
+    return "Workspace is currently closing.";
+  }
+  if (status === "paused") {
+    return "Workspace is valid, but opencode is not running.";
+  }
+  return "Workspace is invalid or missing groove metadata.";
+}
+
+function getWorktreeStatusIcon(status: WorktreeStatus) {
+  if (status === "ready") {
+    return <Octagon aria-hidden="true" />;
+  }
+  if (status === "closing") {
+    return <OctagonX aria-hidden="true" />;
+  }
+  if (status === "paused") {
+    return <OctagonPause aria-hidden="true" />;
+  }
+  return <AlertTriangle aria-hidden="true" />;
 }
 
 function clientDebugLog(event: string, details?: Record<string, unknown>): void {
@@ -162,6 +215,50 @@ function clientDebugLog(event: string, details?: Record<string, unknown>): void 
   });
 }
 
+function parseLastExecutedAt(value: string | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getRelativeAgeGroupLabel(timestamp: Date, now: Date): string {
+  const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const valueStart = new Date(timestamp.getFullYear(), timestamp.getMonth(), timestamp.getDate());
+  const dayDiff = Math.floor((nowStart.getTime() - valueStart.getTime()) / 86_400_000);
+
+  if (dayDiff <= 0) {
+    return "Today";
+  }
+  if (dayDiff === 1) {
+    return "Yesterday";
+  }
+  if (now.getFullYear() === timestamp.getFullYear() && now.getMonth() === timestamp.getMonth()) {
+    return `${String(dayDiff)} days ago`;
+  }
+
+  const monthDiff = (now.getFullYear() - timestamp.getFullYear()) * 12 + (now.getMonth() - timestamp.getMonth());
+  if (monthDiff > 0 && now.getFullYear() === timestamp.getFullYear()) {
+    return `${String(monthDiff)} months ago`;
+  }
+
+  const yearDiff = now.getFullYear() - timestamp.getFullYear();
+  return `${String(Math.max(yearDiff, 1))} years ago`;
+}
+
+type GroupedWorktreeItem =
+  | {
+      type: "section";
+      label: string;
+      key: string;
+    }
+  | {
+      type: "row";
+      row: WorktreeRow;
+      key: string;
+    };
+
 export default function Home() {
   const [activeWorkspace, setActiveWorkspace] = useState<ActiveWorkspace | null>(null);
   const [worktreeRows, setWorktreeRows] = useState<WorktreeRow[]>([]);
@@ -172,11 +269,16 @@ export default function Home() {
   const [pendingRestoreActions, setPendingRestoreActions] = useState<string[]>([]);
   const [pendingCutGrooveActions, setPendingCutGrooveActions] = useState<string[]>([]);
   const [pendingStopActions, setPendingStopActions] = useState<string[]>([]);
+  const [pendingPlayActions, setPendingPlayActions] = useState<string[]>([]);
+  const [pendingTestActions, setPendingTestActions] = useState<string[]>([]);
   const [copiedBranchPath, setCopiedBranchPath] = useState<string | null>(null);
   const [isCloseWorkspaceConfirmOpen, setIsCloseWorkspaceConfirmOpen] = useState(false);
   const [cutConfirmRow, setCutConfirmRow] = useState<WorktreeRow | null>(null);
   const [forceCutConfirmRow, setForceCutConfirmRow] = useState<WorktreeRow | null>(null);
+  const [switchTestingTargetConfirmRow, setSwitchTestingTargetConfirmRow] = useState<WorktreeRow | null>(null);
   const [runtimeStateByWorktree, setRuntimeStateByWorktree] = useState<Record<string, RuntimeStateRow>>({});
+  const [testingEnvironment, setTestingEnvironment] = useState<TestingEnvironmentState | null>(null);
+  const [isTestingInstancePending, setIsTestingInstancePending] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createBranch, setCreateBranch] = useState("");
   const [createBase, setCreateBase] = useState("");
@@ -192,6 +294,55 @@ export default function Home() {
   const workspaceRoot = activeWorkspace?.workspaceRoot ?? null;
   const forceCutActionKey = forceCutConfirmRow ? `${forceCutConfirmRow.path}:cut` : null;
   const forceCutConfirmLoading = forceCutActionKey !== null && pendingCutGrooveActions.includes(forceCutActionKey);
+  const testingTargetWorktree = testingEnvironment?.targetWorktree;
+  const testingInstanceIsRunning = testingEnvironment?.status === "running";
+  const switchTestingTargetActionKey = switchTestingTargetConfirmRow ? `${switchTestingTargetConfirmRow.path}:test` : null;
+  const switchTestingTargetConfirmLoading =
+    switchTestingTargetActionKey !== null && pendingTestActions.includes(switchTestingTargetActionKey);
+  const testingTargetRow = testingTargetWorktree ? worktreeRows.find((row) => row.worktree === testingTargetWorktree) : null;
+
+  const groupedWorktreeItems = useMemo<GroupedWorktreeItem[]>(() => {
+    const sortedRows = [...worktreeRows].sort((left, right) => {
+      const leftDate = parseLastExecutedAt(left.lastExecutedAt);
+      const rightDate = parseLastExecutedAt(right.lastExecutedAt);
+      const leftTime = leftDate?.getTime() ?? Number.NEGATIVE_INFINITY;
+      const rightTime = rightDate?.getTime() ?? Number.NEGATIVE_INFINITY;
+
+      if (leftTime !== rightTime) {
+        return rightTime - leftTime;
+      }
+      const byWorktree = left.worktree.localeCompare(right.worktree);
+      if (byWorktree !== 0) {
+        return byWorktree;
+      }
+      return left.path.localeCompare(right.path);
+    });
+
+    const now = new Date();
+    const items: GroupedWorktreeItem[] = [];
+    let activeGroup: string | null = null;
+
+    for (const row of sortedRows) {
+      const rowDate = parseLastExecutedAt(row.lastExecutedAt);
+      const groupLabel = rowDate ? getRelativeAgeGroupLabel(rowDate, now) : "No activity yet";
+      if (groupLabel !== activeGroup) {
+        activeGroup = groupLabel;
+        items.push({
+          type: "section",
+          label: groupLabel,
+          key: `section:${groupLabel}`,
+        });
+      }
+
+      items.push({
+        type: "row",
+        row,
+        key: `row:${row.path}`,
+      });
+    }
+
+    return items;
+  }, [worktreeRows]);
 
   const applyWorkspaceContext = useCallback((result: WorkspaceContextResponse): void => {
     if (!result.workspaceRoot || !result.workspaceMeta || typeof result.hasWorktreesDirectory !== "boolean") {
@@ -335,9 +486,35 @@ export default function Home() {
     }
   }, [workspaceMeta, workspaceRoot, worktreeRows]);
 
+  const fetchTestingEnvironmentState = useCallback(async (): Promise<void> => {
+    if (!workspaceRoot || !workspaceMeta) {
+      setTestingEnvironment(null);
+      return;
+    }
+
+    try {
+      const result = await testingEnvironmentGetStatus({
+        rootName: workspaceMeta.rootName,
+        knownWorktrees: worktreeRows.map((row) => row.worktree),
+        workspaceMeta,
+      });
+      if (!result.ok) {
+        setTestingEnvironment(null);
+        return;
+      }
+      setTestingEnvironment(result);
+    } catch {
+      setTestingEnvironment(null);
+    }
+  }, [workspaceMeta, workspaceRoot, worktreeRows]);
+
   useEffect(() => {
     void fetchRuntimeState();
   }, [fetchRuntimeState]);
+
+  useEffect(() => {
+    void fetchTestingEnvironmentState();
+  }, [fetchTestingEnvironmentState]);
 
   useEffect(() => {
     if (!workspaceRoot || !workspaceMeta || realtimeUnavailableRef.current) {
@@ -352,6 +529,7 @@ export default function Home() {
         try {
           unlisten();
         } catch {
+          // Ignore listener cleanup errors during unmount.
         }
       }
     };
@@ -596,8 +774,8 @@ export default function Home() {
     if (!workspaceMeta) {
       return;
     }
-    const actionKey = `${row.path}:stop`;
-    setPendingStopActions((prev) => (prev.includes(actionKey) ? prev : [...prev, actionKey]));
+    const actionKey = `${row.path}:play`;
+    setPendingPlayActions((prev) => (prev.includes(actionKey) ? prev : [...prev, actionKey]));
 
     try {
       const result = (await grooveRestore({
@@ -624,7 +802,142 @@ export default function Home() {
     } catch {
       toast.error(`Play groove request failed for ${row.branchGuess}.`);
     } finally {
-      setPendingStopActions((prev) => prev.filter((candidate) => candidate !== actionKey));
+      setPendingPlayActions((prev) => prev.filter((candidate) => candidate !== actionKey));
+    }
+  };
+
+  const runSetTestingTargetAction = async (row: WorktreeRow, autoStartIfCurrentRunning = false): Promise<void> => {
+    if (!workspaceMeta) {
+      return;
+    }
+    const actionKey = `${row.path}:test`;
+    setPendingTestActions((prev) => (prev.includes(actionKey) ? prev : [...prev, actionKey]));
+
+    try {
+      const result = await testingEnvironmentSetTarget({
+        rootName: workspaceMeta.rootName,
+        knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+        workspaceMeta,
+        worktree: row.worktree,
+        autoStartIfCurrentRunning,
+      });
+
+      if (result.ok) {
+        setTestingEnvironment(result);
+        toast.success(`Testing environment set to ${row.worktree}.`);
+        await Promise.all([rescanWorktrees(), fetchRuntimeState(), fetchTestingEnvironmentState()]);
+        return;
+      }
+
+      toast.error(`Failed to set testing target for ${row.worktree}.`, {
+        description: appendRequestId(result.error, result.requestId),
+      });
+    } catch {
+      toast.error(`Testing target request failed for ${row.worktree}.`);
+    } finally {
+      setPendingTestActions((prev) => prev.filter((candidate) => candidate !== actionKey));
+    }
+  };
+
+  const onSelectTestingTarget = (row: WorktreeRow): void => {
+    if (!testingTargetWorktree || testingTargetWorktree === row.worktree) {
+      void runSetTestingTargetAction(row);
+      return;
+    }
+    setSwitchTestingTargetConfirmRow(row);
+  };
+
+  const runStartTestingInstanceAction = async (): Promise<void> => {
+    if (!workspaceMeta || !testingTargetWorktree) {
+      toast.error("Select a testing target before running locally.");
+      return;
+    }
+
+    setIsTestingInstancePending(true);
+    try {
+      const result = await testingEnvironmentStart({
+        rootName: workspaceMeta.rootName,
+        knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+        workspaceMeta,
+      });
+
+      if (result.ok) {
+        setTestingEnvironment(result);
+        toast.success(`Started local testing for ${result.targetWorktree ?? testingTargetWorktree}.`, {
+          description: result.instanceId ? `instance=${result.instanceId}` : undefined,
+        });
+        await fetchTestingEnvironmentState();
+        return;
+      }
+
+      toast.error("Failed to run local testing environment.", {
+        description: appendRequestId(result.error, result.requestId),
+      });
+    } catch {
+      toast.error("Local testing start request failed.");
+    } finally {
+      setIsTestingInstancePending(false);
+    }
+  };
+
+  const runStartTestingInstanceInSeparateTerminalAction = async (): Promise<void> => {
+    if (!workspaceMeta || !testingTargetWorktree) {
+      toast.error("Select a testing target before running locally on a separate terminal.");
+      return;
+    }
+
+    setIsTestingInstancePending(true);
+    try {
+      const result = await testingEnvironmentStartSeparateTerminal({
+        rootName: workspaceMeta.rootName,
+        knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+        workspaceMeta,
+      });
+
+      if (result.ok) {
+        setTestingEnvironment(result);
+        toast.success(`Launched local testing for ${result.targetWorktree ?? testingTargetWorktree} in a separate terminal.`);
+        await fetchTestingEnvironmentState();
+        return;
+      }
+
+      toast.error("Failed to run local testing environment in a separate terminal.", {
+        description: appendRequestId(result.error, result.requestId),
+      });
+    } catch {
+      toast.error("Local testing start request failed for separate terminal.");
+    } finally {
+      setIsTestingInstancePending(false);
+    }
+  };
+
+  const runStopTestingInstanceAction = async (): Promise<void> => {
+    if (!workspaceMeta) {
+      return;
+    }
+
+    setIsTestingInstancePending(true);
+    try {
+      const result = await testingEnvironmentStop({
+        rootName: workspaceMeta.rootName,
+        knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+        workspaceMeta,
+      });
+
+      if (result.ok) {
+        setTestingEnvironment(result);
+        toast.success("Stopped local testing environment.");
+        await fetchTestingEnvironmentState();
+        return;
+      }
+
+      toast.error("Failed to stop local testing environment.", {
+        description: appendRequestId(result.error, result.requestId),
+      });
+    } catch {
+      toast.error("Local testing stop request failed.");
+    } finally {
+      setIsTestingInstancePending(false);
     }
   };
 
@@ -643,8 +956,12 @@ export default function Home() {
       setPendingRestoreActions([]);
       setPendingCutGrooveActions([]);
       setPendingStopActions([]);
+      setPendingPlayActions([]);
+      setPendingTestActions([]);
       setCopiedBranchPath(null);
       setRuntimeStateByWorktree({});
+      setTestingEnvironment(null);
+      setSwitchTestingTargetConfirmRow(null);
       realtimeUnavailableRef.current = false;
       setStatusMessage("Workspace closed. Select a directory to continue.");
       toast.success("Current workspace closed.");
@@ -684,7 +1001,7 @@ export default function Home() {
             <div aria-live="polite" className="space-y-3">
               <header className="flex flex-wrap items-start justify-between gap-3 rounded-xl border bg-card p-4 shadow-xs">
                 <div className="space-y-1">
-                  <h1 className="text-xl font-semibold tracking-tight">Groove</h1>
+                  <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
                   <p className="text-sm text-muted-foreground">
                     Directory: <span className="font-medium text-foreground">{workspaceMeta?.rootName}</span>
                   </p>
@@ -692,25 +1009,20 @@ export default function Home() {
                 </div>
                 <TooltipProvider>
                   <div className="flex flex-wrap gap-2">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="default"
-                          onClick={() => {
-                            setCreateBranch("");
-                            setCreateBase("");
-                            setIsCreateModalOpen(true);
-                          }}
-                          disabled={isBusy || isCreatePending}
-                          size="sm"
-                        >
-                          <Plus aria-hidden="true" className="size-4" />
-                          <span>Create worktree</span>
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Create worktree</TooltipContent>
-                    </Tooltip>
+                    <Button
+                      type="button"
+                      variant="default"
+                      onClick={() => {
+                        setCreateBranch("");
+                        setCreateBase("");
+                        setIsCreateModalOpen(true);
+                      }}
+                      disabled={isBusy || isCreatePending}
+                      size="sm"
+                    >
+                      <Plus aria-hidden="true" className="size-4" />
+                      <span>Create worktree</span>
+                    </Button>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button type="button" onClick={refreshWorktrees} disabled={isBusy} size="sm" className="w-8 px-0" aria-label="Refresh">
@@ -741,6 +1053,72 @@ export default function Home() {
 
               <Card>
                 <CardContent className="space-y-3 pt-6">
+                  <section className="rounded-lg border bg-muted/20 p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <h2 className="text-sm font-semibold tracking-tight">Current Testing Environment</h2>
+                        <p className="text-xs text-muted-foreground">
+                          {testingTargetWorktree
+                            ? `Target: ${testingTargetWorktree}`
+                            : "Target: none selected (pick one with Test in the table)."}
+                        </p>
+                        <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          {testingEnvironment?.status === "running" ? (
+                            <CirclePause aria-hidden="true" className="size-3.5" />
+                          ) : (
+                            <Play aria-hidden="true" className="size-3.5" />
+                          )}
+                          <span>{testingEnvironment?.status === "running" ? "Running" : "Not running"}</span>
+                          {testingEnvironment?.instanceId ? <span>{`(instance=${testingEnvironment.instanceId})`}</span> : null}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {testingEnvironment?.status === "running" ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              void runStopTestingInstanceAction();
+                            }}
+                            disabled={isTestingInstancePending}
+                          >
+                            {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CircleStop aria-hidden="true" className="size-4" />}
+                            <span>Stop local</span>
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              type="button"
+                              variant="default"
+                              size="sm"
+                              onClick={() => {
+                                void runStartTestingInstanceAction();
+                              }}
+                              disabled={isTestingInstancePending || !testingTargetRow}
+                            >
+                              {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Play aria-hidden="true" className="size-4" />}
+                              <span>Run locally</span>
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              className="h-9 px-4 border border-border/60 transition-colors hover:bg-secondary/70"
+                              onClick={() => {
+                                void runStartTestingInstanceInSeparateTerminalAction();
+                              }}
+                              disabled={isTestingInstancePending || !testingTargetRow}
+                            >
+                              {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Terminal aria-hidden="true" className="size-4" />}
+                              <span>Run separately</span>
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+
                   {!hasWorktreesDirectory ? (
                     <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
                       No <code>.worktrees</code> directory found under this workspace root yet.
@@ -757,135 +1135,235 @@ export default function Home() {
                             <TableHead>Worktree</TableHead>
                             <TableHead>Branch</TableHead>
                             <TableHead>Status</TableHead>
-                            <TableHead>Opencode</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {worktreeRows.map((row) => {
+                          {groupedWorktreeItems.map((item) => {
+                            if (item.type === "section") {
+                              return (
+                                <TableRow key={item.key} className="bg-muted/25">
+                                  <TableCell colSpan={4} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {item.label}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            }
+
+                            const { row } = item;
                             const restoreActionKey = `${row.path}:restore`;
                             const cutActionKey = `${row.path}:cut`;
                             const stopActionKey = `${row.path}:stop`;
+                            const playActionKey = `${row.path}:play`;
+                            const testActionKey = `${row.path}:test`;
                             const branchCopied = copiedBranchPath === row.path;
                             const restorePending = pendingRestoreActions.includes(restoreActionKey);
                             const cutPending = pendingCutGrooveActions.includes(cutActionKey);
                             const stopPending = pendingStopActions.includes(stopActionKey);
-                            const rowPending = restorePending || cutPending || stopPending;
+                            const playPending = pendingPlayActions.includes(playActionKey);
+                            const testPending = pendingTestActions.includes(testActionKey);
+                            const rowPending = restorePending || cutPending || stopPending || playPending || testPending;
                             const runtimeRow = runtimeStateByWorktree[row.worktree];
-                            const showRuntimePlaceholder = row.status === "missing .groove";
+                            const status = deriveWorktreeStatus(row.status, runtimeRow);
                             const opencodeState = runtimeRow?.opencodeState ?? "unknown";
                             const opencodeInstanceId = runtimeRow?.opencodeInstanceId;
-                            const hasRunningOpencodeInstance = !showRuntimePlaceholder && opencodeState === "running" && typeof opencodeInstanceId === "string" && opencodeInstanceId.trim().length > 0;
+                            const hasRunningOpencodeInstance = status !== "corrupted" && opencodeState === "running" && typeof opencodeInstanceId === "string" && opencodeInstanceId.trim().length > 0;
+                            const isCurrentTestingTarget = testingTargetWorktree === row.worktree;
 
                             return (
-                              <TableRow key={row.path}>
-                                <TableCell>{row.worktree}</TableCell>
+                              <TableRow key={item.key} className={isCurrentTestingTarget ? "bg-muted/25" : undefined}>
                                 <TableCell>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      void copyBranchName(row);
-                                    }}
-                                    className="group inline-flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                    aria-label={`Copy branch name ${row.branchGuess}`}
-                                  >
-                                    <span className="truncate">{row.branchGuess}</span>
-                                    {branchCopied ? (
-                                      <Check aria-hidden="true" className="size-3.5 shrink-0 text-emerald-700" />
-                                    ) : (
-                                      <Copy aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
-                                    )}
-                                  </button>
+                                  <span className="inline-flex items-center gap-1.5">
+                                    {isCurrentTestingTarget ? <FlaskConical aria-hidden="true" className="size-3.5 text-muted-foreground" /> : null}
+                                    <span>{row.worktree}</span>
+                                  </span>
                                 </TableCell>
                                 <TableCell>
-                                  <Badge variant="outline" className={row.status === "ready" ? READY_STATUS_CLASSES : MISSING_STATUS_CLASSES}>
-                                    {row.status === "ready" ? <CircleCheck aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
-                                    {row.status}
+                                  <div className="flex items-center gap-2 px-2 py-1">
+                                    <span className="min-w-0 flex-1 truncate select-text">{row.branchGuess}</span>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 shrink-0 p-0 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                                      onClick={() => {
+                                        void copyBranchName(row);
+                                      }}
+                                      aria-label={`Copy branch name ${row.branchGuess}`}
+                                    >
+                                      {branchCopied ? (
+                                        <Check aria-hidden="true" className="size-3.5 text-emerald-700" />
+                                      ) : (
+                                        <Copy aria-hidden="true" className="size-3.5" />
+                                      )}
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline" className={getWorktreeStatusBadgeClasses(status)} title={getWorktreeStatusTitle(status)}>
+                                    {getWorktreeStatusIcon(status)}
+                                    {status}
                                   </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  {showRuntimePlaceholder ? (
-                                    <span className="text-muted-foreground">-</span>
-                                  ) : (
-                                    <div className="flex items-center gap-2">
-                                      <Badge variant="outline" className={getOpencodeBadgeClasses(opencodeState)}>
-                                        {getOpencodeStateLabel(opencodeState)}
-                                      </Badge>
-                                      {opencodeInstanceId ? (
-                                        <span className="font-mono text-xs text-muted-foreground" title={`instance=${opencodeInstanceId}`}>
-                                          {opencodeInstanceId}
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                  )}
                                 </TableCell>
                                 <TableCell>
                                   <TooltipProvider>
                                     <div className="flex items-center justify-end gap-1">
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            type="button"
-                                            variant="default"
-                                            size="sm"
-                                            className="h-8 w-8 p-0"
-                                            onClick={() => {
-                                              void runRestoreAction(row);
-                                            }}
-                                            aria-label={`Run restore for ${row.worktree}`}
-                                            disabled={rowPending}
-                                          >
-                                            {restorePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Wrench aria-hidden="true" className="size-4" />}
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Run restore</TooltipContent>
-                                      </Tooltip>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            type="button"
-                                            variant="secondary"
-                                            size="sm"
-                                            className="h-8 w-8 p-0"
-                                            onClick={() => {
-                                              if (hasRunningOpencodeInstance) {
-                                                void runStopAction(row, runtimeRow);
-                                              } else {
-                                                void runPlayGrooveAction(row);
-                                              }
-                                            }}
-                                            aria-label={`${hasRunningOpencodeInstance ? "Stop opencode" : "Play groove"} for ${row.worktree}`}
-                                            disabled={rowPending}
-                                          >
-                                            {stopPending ? (
-                                              <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-                                            ) : hasRunningOpencodeInstance ? (
-                                              <CircleStop aria-hidden="true" className="size-4" />
-                                            ) : (
-                                              <Play aria-hidden="true" className="size-4" />
-                                            )}
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>{hasRunningOpencodeInstance ? "Stop opencode" : "Play groove"}</TooltipContent>
-                                      </Tooltip>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            type="button"
-                                            variant="destructive"
-                                            size="sm"
-                                            className="h-8 w-8 p-0"
-                                            onClick={() => {
-                                              setCutConfirmRow(row);
-                                            }}
-                                            aria-label={`Remove worktree ${row.worktree}`}
-                                            disabled={rowPending}
-                                          >
-                                            {cutPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Trash2 aria-hidden="true" className="size-4" />}
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Remove worktree</TooltipContent>
-                                      </Tooltip>
+                                      {status === "corrupted" && (
+                                        <>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant="default"
+                                                size="sm"
+                                                className="h-8 w-8 p-0"
+                                                onClick={() => {
+                                                  void runRestoreAction(row);
+                                                }}
+                                                aria-label={`Repair ${row.worktree}`}
+                                                disabled={rowPending}
+                                              >
+                                                {restorePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Wrench aria-hidden="true" className="size-4" />}
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Repair</TooltipContent>
+                                          </Tooltip>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant="destructive"
+                                                size="sm"
+                                                className={`h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`}
+                                                onClick={() => {
+                                                  setCutConfirmRow(row);
+                                                }}
+                                                aria-label={`Remove worktree ${row.worktree}`}
+                                                disabled={rowPending}
+                                              >
+                                                {cutPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Trash2 aria-hidden="true" className="size-4" />}
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Remove worktree</TooltipContent>
+                                          </Tooltip>
+                                        </>
+                                      )}
+                                      {status === "paused" && (
+                                        <>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant="secondary"
+                                                size="sm"
+                                                className="h-8 w-8 p-0 transition-colors hover:bg-green-500/20 hover:text-green-700"
+                                                onClick={() => {
+                                                  void runPlayGrooveAction(row);
+                                                }}
+                                                aria-label={`Play groove for ${row.worktree}`}
+                                                disabled={rowPending}
+                                              >
+                                                {playPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Play aria-hidden="true" className="size-4" />}
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Play groove</TooltipContent>
+                                          </Tooltip>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant={isCurrentTestingTarget ? "secondary" : "outline"}
+                                                size="sm"
+                                                className="h-8 w-8 p-0 transition-colors hover:bg-cyan-500/20 hover:text-cyan-700"
+                                                onClick={() => {
+                                                  onSelectTestingTarget(row);
+                                                }}
+                                                aria-label={`Set testing target to ${row.worktree}`}
+                                                disabled={rowPending}
+                                              >
+                                                {testPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <FlaskConical aria-hidden="true" className="size-4" />}
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>{isCurrentTestingTarget ? "Current test target" : "Set testing"}</TooltipContent>
+                                          </Tooltip>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant="destructive"
+                                                size="sm"
+                                                className={`h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`}
+                                                onClick={() => {
+                                                  setCutConfirmRow(row);
+                                                }}
+                                                aria-label={`Remove worktree ${row.worktree}`}
+                                                disabled={rowPending}
+                                              >
+                                                {cutPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Trash2 aria-hidden="true" className="size-4" />}
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Remove worktree</TooltipContent>
+                                          </Tooltip>
+                                        </>
+                                      )}
+                                      {status === "ready" && (
+                                        <>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant="secondary"
+                                                size="sm"
+                                                className="h-8 w-8 p-0"
+                                                onClick={() => {
+                                                  void runStopAction(row, runtimeRow);
+                                                }}
+                                                aria-label={`Stop groove for ${row.worktree}`}
+                                                disabled={rowPending || !hasRunningOpencodeInstance}
+                                              >
+                                                {stopPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <CircleStop aria-hidden="true" className="size-4" />}
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Stop groove</TooltipContent>
+                                          </Tooltip>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant={isCurrentTestingTarget ? "secondary" : "outline"}
+                                                size="sm"
+                                                className="h-8 w-8 p-0 transition-colors hover:bg-cyan-500/20 hover:text-cyan-700"
+                                                onClick={() => {
+                                                  onSelectTestingTarget(row);
+                                                }}
+                                                aria-label={`Set testing target to ${row.worktree}`}
+                                                disabled={rowPending}
+                                              >
+                                                {testPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <FlaskConical aria-hidden="true" className="size-4" />}
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>{isCurrentTestingTarget ? "Current test target" : "Set testing"}</TooltipContent>
+                                          </Tooltip>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant="destructive"
+                                                size="sm"
+                                                className={`h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`}
+                                                onClick={() => {
+                                                  setCutConfirmRow(row);
+                                                }}
+                                                aria-label={`Remove worktree ${row.worktree}`}
+                                                disabled={rowPending}
+                                              >
+                                                {cutPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Trash2 aria-hidden="true" className="size-4" />}
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Remove worktree</TooltipContent>
+                                          </Tooltip>
+                                        </>
+                                      )}
                                     </div>
                                   </TooltipProvider>
                                 </TableCell>
@@ -966,6 +1444,37 @@ export default function Home() {
         }}
         onCancel={() => {
           setForceCutConfirmRow(null);
+        }}
+      />
+
+      <ConfirmModal
+        open={switchTestingTargetConfirmRow !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSwitchTestingTargetConfirmRow(null);
+          }
+        }}
+        title="Switch testing target?"
+        description={
+          switchTestingTargetConfirmRow
+            ? testingInstanceIsRunning
+              ? `Testing is currently running for "${testingTargetWorktree}". This will stop it, switch to "${switchTestingTargetConfirmRow.worktree}", and start local testing there.`
+              : `Testing target is currently "${testingTargetWorktree}". This will switch target to "${switchTestingTargetConfirmRow.worktree}".`
+            : "Switch to the selected testing target."
+        }
+        confirmLabel={testingInstanceIsRunning ? "Stop and switch" : "Switch target"}
+        cancelLabel="Cancel"
+        loading={switchTestingTargetConfirmLoading}
+        onConfirm={() => {
+          if (!switchTestingTargetConfirmRow) {
+            return;
+          }
+          const selectedRow = switchTestingTargetConfirmRow;
+          setSwitchTestingTargetConfirmRow(null);
+          void runSetTestingTargetAction(selectedRow, testingInstanceIsRunning);
+        }}
+        onCancel={() => {
+          setSwitchTestingTargetConfirmRow(null);
         }}
       />
 

@@ -1,18 +1,36 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+export type DefaultTerminal = "auto" | "ghostty" | "warp" | "kitty" | "gnome" | "xterm" | "none" | "custom";
+
 type WorkspaceMeta = {
   version: number;
   rootName: string;
   createdAt: string;
   updatedAt: string;
+  defaultTerminal?: DefaultTerminal;
+  terminalCustomCommand?: string | null;
+};
+
+export type WorkspaceTerminalSettingsPayload = {
+  defaultTerminal: DefaultTerminal;
+  terminalCustomCommand?: string | null;
+};
+
+export type WorkspaceTerminalSettingsResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  workspaceMeta?: WorkspaceMeta;
+  error?: string;
 };
 
 export type WorkspaceRow = {
   worktree: string;
   branchGuess: string;
   path: string;
-  status: "ready" | "missing .groove";
+  status: "paused" | "closing" | "ready" | "corrupted";
+  lastExecutedAt?: string;
 };
 
 export type WorkspaceContextResponse = {
@@ -34,6 +52,13 @@ type RuntimeStateRow = {
   opencodeInstanceId?: string;
   logState: "latest" | "broken-latest" | "none" | "unknown";
   logTarget?: string;
+  opencodeActivityState: "thinking" | "idle" | "finished" | "error" | "unknown";
+  opencodeActivityDetail?: {
+    reason?: string;
+    ageS?: number;
+    marker?: string;
+    log?: string;
+  };
 };
 
 type GrooveListPayload = {
@@ -128,6 +153,99 @@ export type GrooveStopResponse = {
   error?: string;
 };
 
+export type TestingEnvironmentStatusPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+};
+
+export type TestingEnvironmentSetTargetPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree: string;
+  autoStartIfCurrentRunning?: boolean;
+};
+
+export type TestingEnvironmentStartPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree?: string;
+};
+
+export type TestingEnvironmentStopPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+};
+
+export type TestingEnvironmentResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  targetWorktree?: string;
+  targetPath?: string;
+  status: "none" | "stopped" | "running";
+  instanceId?: string;
+  pid?: number;
+  startedAt?: string;
+  error?: string;
+};
+
+export type DiagnosticsProcessRow = {
+  pid: number;
+  processName: string;
+  command: string;
+};
+
+export type DiagnosticsOpencodeInstancesResponse = {
+  requestId?: string;
+  ok: boolean;
+  rows: DiagnosticsProcessRow[];
+  error?: string;
+};
+
+export type DiagnosticsStopResponse = {
+  requestId?: string;
+  ok: boolean;
+  pid?: number;
+  alreadyStopped?: boolean;
+  error?: string;
+};
+
+export type DiagnosticsStopAllResponse = {
+  requestId?: string;
+  ok: boolean;
+  attempted: number;
+  stopped: number;
+  alreadyStopped: number;
+  failed: number;
+  errors: string[];
+  error?: string;
+};
+
+export type DiagnosticsNodeAppRow = {
+  pid: number;
+  ppid: number;
+  cmd: string;
+};
+
+export type DiagnosticsNodeAppsResponse = {
+  requestId?: string;
+  ok: boolean;
+  rows: DiagnosticsNodeAppRow[];
+  warning?: string;
+  error?: string;
+};
+
+export type DiagnosticsMostConsumingProgramsResponse = {
+  requestId?: string;
+  ok: boolean;
+  output: string;
+  error?: string;
+};
+
 export type WorkspaceEventsPayload = {
   rootName?: string;
   knownWorktrees: string[];
@@ -171,6 +289,50 @@ export function workspaceEvents(payload: WorkspaceEventsPayload): Promise<Worksp
   return invoke<WorkspaceEventsResponse>("workspace_events", { payload });
 }
 
+export function testingEnvironmentGetStatus(payload: TestingEnvironmentStatusPayload): Promise<TestingEnvironmentResponse> {
+  return invoke<TestingEnvironmentResponse>("testing_environment_get_status", { payload });
+}
+
+export function testingEnvironmentSetTarget(payload: TestingEnvironmentSetTargetPayload): Promise<TestingEnvironmentResponse> {
+  return invoke<TestingEnvironmentResponse>("testing_environment_set_target", { payload });
+}
+
+export function testingEnvironmentStart(payload: TestingEnvironmentStartPayload): Promise<TestingEnvironmentResponse> {
+  return invoke<TestingEnvironmentResponse>("testing_environment_start", { payload });
+}
+
+export function testingEnvironmentStartSeparateTerminal(payload: TestingEnvironmentStartPayload): Promise<TestingEnvironmentResponse> {
+  return invoke<TestingEnvironmentResponse>("testing_environment_start_separate_terminal", { payload });
+}
+
+export function testingEnvironmentStop(payload: TestingEnvironmentStopPayload): Promise<TestingEnvironmentResponse> {
+  return invoke<TestingEnvironmentResponse>("testing_environment_stop", { payload });
+}
+
+export function diagnosticsListOpencodeInstances(): Promise<DiagnosticsOpencodeInstancesResponse> {
+  return invoke<DiagnosticsOpencodeInstancesResponse>("diagnostics_list_opencode_instances");
+}
+
+export function diagnosticsStopProcess(pid: number): Promise<DiagnosticsStopResponse> {
+  return invoke<DiagnosticsStopResponse>("diagnostics_stop_process", { pid });
+}
+
+export function diagnosticsStopAllOpencodeInstances(): Promise<DiagnosticsStopAllResponse> {
+  return invoke<DiagnosticsStopAllResponse>("diagnostics_stop_all_opencode_instances");
+}
+
+export function diagnosticsListWorktreeNodeApps(): Promise<DiagnosticsNodeAppsResponse> {
+  return invoke<DiagnosticsNodeAppsResponse>("diagnostics_list_worktree_node_apps");
+}
+
+export function diagnosticsCleanAllDevServers(): Promise<DiagnosticsStopAllResponse> {
+  return invoke<DiagnosticsStopAllResponse>("diagnostics_clean_all_dev_servers");
+}
+
+export function diagnosticsGetMsotConsumingPrograms(): Promise<DiagnosticsMostConsumingProgramsResponse> {
+  return invoke<DiagnosticsMostConsumingProgramsResponse>("diagnostics_get_msot_consuming_programs");
+}
+
 export function listenWorkspaceChange(
   callback: (event: WorkspaceEvent) => void,
 ): Promise<UnlistenFn> {
@@ -199,4 +361,10 @@ export function workspaceGetActive(): Promise<WorkspaceContextResponse> {
 
 export function workspaceClearActive(): Promise<WorkspaceContextResponse> {
   return invoke<WorkspaceContextResponse>("workspace_clear_active");
+}
+
+export function workspaceUpdateTerminalSettings(
+  payload: WorkspaceTerminalSettingsPayload,
+): Promise<WorkspaceTerminalSettingsResponse> {
+  return invoke<WorkspaceTerminalSettingsResponse>("workspace_update_terminal_settings", { payload });
 }

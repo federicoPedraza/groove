@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { AlertTriangle, LayoutDashboard, PanelLeft, Settings } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
+import { LayoutDashboard, PanelLeft, Settings } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -19,19 +18,12 @@ import {
   sidebarMenuButtonClassName,
 } from "@/components/ui/sidebar";
 import {
-  Tooltip,
-  TooltipContent,
   TooltipProvider,
-  TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-type AppNavigationProps = {
-  showSettingsWarning: boolean;
-};
-
-function AppNavigation({ showSettingsWarning }: AppNavigationProps) {
-  const pathname = usePathname();
+function AppNavigation() {
+  const { pathname } = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
@@ -64,7 +56,7 @@ function AppNavigation({ showSettingsWarning }: AppNavigationProps) {
           <TooltipProvider>
             <SidebarMenu>
               <Link
-                href="/"
+                to="/"
                 className={sidebarMenuButtonClassName({
                   isActive: isDashboardActive,
                   collapsed: isSidebarCollapsed,
@@ -74,7 +66,7 @@ function AppNavigation({ showSettingsWarning }: AppNavigationProps) {
                 {!isSidebarCollapsed && <span>Dashboard</span>}
               </Link>
               <Link
-                href="/settings"
+                to="/settings"
                 className={cn(
                   "relative",
                   sidebarMenuButtonClassName({
@@ -85,25 +77,6 @@ function AppNavigation({ showSettingsWarning }: AppNavigationProps) {
               >
                 <Settings aria-hidden="true" className="size-4 shrink-0" />
                 {!isSidebarCollapsed && <span>Settings</span>}
-                {showSettingsWarning && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span
-                        className={cn(
-                          "inline-flex text-amber-600",
-                          isSidebarCollapsed
-                            ? "absolute right-1.5 top-1.5"
-                            : "ml-auto",
-                        )}
-                        role="img"
-                        aria-label="Workspace root override not set"
-                      >
-                        <AlertTriangle aria-hidden="true" className="size-4" />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>Workspace root override not set</TooltipContent>
-                  </Tooltip>
-                )}
               </Link>
             </SidebarMenu>
           </TooltipProvider>
@@ -123,7 +96,7 @@ function AppNavigation({ showSettingsWarning }: AppNavigationProps) {
           <TooltipProvider>
             <SidebarMenu>
               <Link
-                href="/"
+                to="/"
                 className={sidebarMenuButtonClassName({ isActive: isDashboardActive })}
                 onClick={() => {
                   setIsMobileSidebarOpen(false);
@@ -133,7 +106,7 @@ function AppNavigation({ showSettingsWarning }: AppNavigationProps) {
                 <span>Dashboard</span>
               </Link>
               <Link
-                href="/settings"
+                to="/settings"
                 className={sidebarMenuButtonClassName({ isActive: isSettingsActive })}
                 onClick={() => {
                   setIsMobileSidebarOpen(false);
@@ -141,16 +114,6 @@ function AppNavigation({ showSettingsWarning }: AppNavigationProps) {
               >
                 <Settings aria-hidden="true" className="size-4 shrink-0" />
                 <span>Settings</span>
-                {showSettingsWarning && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="ml-auto inline-flex text-amber-600" role="img" aria-label="Workspace root override not set">
-                        <AlertTriangle aria-hidden="true" className="size-4" />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>Workspace root override not set</TooltipContent>
-                  </Tooltip>
-                )}
               </Link>
             </SidebarMenu>
           </TooltipProvider>

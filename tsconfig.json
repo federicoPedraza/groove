@@ -1,34 +1,31 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
+    "target": "ES2021",
+    "useDefineForClassFields": true,
+    "lib": ["ES2021", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    "allowJs": false,
     "esModuleInterop": true,
-    "module": "esnext",
+    "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
+    "types": ["vite/client"],
     "paths": {
       "@/*": ["./*"]
     }
   },
   "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    "src",
+    "components",
+    "lib",
+    "app/page.tsx",
+    "app/settings/page.tsx",
+    "vite.config.ts"
   ],
   "exclude": ["node_modules"]
 }

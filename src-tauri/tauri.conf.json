@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Groove",
+  "version": "0.1.0",
+  "identifier": "dev.groove.app",
+  "build": {
+    "beforeDevCommand": "npm run dev -- --port 1420",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Groove",
+        "width": 1200,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 640,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'",
+      "devCsp": "default-src 'self' http://localhost:1420 http://127.0.0.1:1420; connect-src 'self' ipc: http://ipc.localhost http://localhost:1420 http://127.0.0.1:1420 ws://localhost:1420 ws://127.0.0.1:1420; img-src 'self' asset: data: blob: http://localhost:1420 http://127.0.0.1:1420; style-src 'self' 'unsafe-inline' http://localhost:1420 http://127.0.0.1:1420; font-src 'self' data: http://localhost:1420 http://127.0.0.1:1420; script-src 'self' 'unsafe-eval' http://localhost:1420 http://127.0.0.1:1420"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": [
+      "binaries/groove"
+    ],
+    "icon": []
+  }
+}

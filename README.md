@@ -1,74 +1,76 @@
 # Groove
 
-Groove is a Next.js app that manages lightweight workspace state directly inside a user-selected local directory.
+Groove now runs as a **Tauri 2 + Vite + React** desktop app with a Rust command layer and bundled `groove` sidecar support.
+
+## Current app stack
+
+- Frontend: React + TypeScript + Vite
+- Desktop shell: Tauri 2
+- Native backend: Rust Tauri commands
+- Routing: `react-router-dom`
+- Existing Next.js files remain in the repo for reference/parity migration, but the active dev/build path is Tauri + Vite.
 
 ## What Groove does
 
-- Lets the user pick a local folder with the File System Access API.
-- Creates and uses a hidden `.groove` directory inside that folder.
-- Stores workspace metadata in `.groove/workspace.json`.
-- Includes a simple save/retrieve demo for notes in `.groove/data.json`.
+- Lets users pick a local folder and maintain `.groove/workspace.json` metadata.
+- Scans `.worktrees`, shows status/runtime state, and offers Restore / Play / Stop / Remove actions.
+- Uses native desktop workspace selection/storage (Rust + Tauri command layer), not browser File System Access APIs.
+- Calls the `groove` CLI through Rust commands:
+  - `groove_list`
+  - `groove_restore`
+  - `groove_rm`
+  - `groove_stop`
+  - `workspace_events` (filesystem polling emitter)
 
-## Browser requirement
+## Sidecar bundling
 
-Groove requires the File System Access API, currently available in modern Chromium-based browsers (for example Chrome, Edge, or Brave).
+Tauri is configured to bundle the sidecar from `src-tauri/binaries/groove` via `externalBin`.
 
-Browsers without this API can load the app UI but cannot select directories or persist local workspace files.
+Expected sidecar filenames at build time include target triples, for example:
 
-## Workspace files
+- Linux: `groove-x86_64-unknown-linux-gnu`
+- macOS Intel: `groove-x86_64-apple-darwin`
+- macOS Apple Silicon: `groove-aarch64-apple-darwin`
+- Windows: `groove-x86_64-pc-windows-msvc.exe`
 
-After selecting a directory, Groove ensures these files exist:
-
-- `.groove/workspace.json`
-  - `version` (number)
-  - `rootName` (string)
-  - `createdAt` (ISO datetime string)
-  - `updatedAt` (ISO datetime string)
-- `.groove/data.json`
-  - `notes` (string)
-  - `updatedAt` (ISO datetime string)
-
-If `workspace.json` or `data.json` is missing or corrupt, Groove recreates it safely with defaults.
-
-## CLI restore command
-
-Use `groove restore` to repair Groove workspace metadata for a specific worktree or branch.
-
-```bash
-groove restore <worktree-or-branch> [--dir <worktrees_dir>] [--opencode-log-file <path>]
-```
-
-`restore` is a maintenance command: it fixes missing/corrupt Groove files and records diagnostics, but it does not launch editor or coding tools.
-
-The web UI worktree table can also run restore locally through the app server process (same command and flags), so you can trigger it directly from Actions.
-
-The web UI also includes a destructive `Cut groove` action that maps to:
-
-```bash
-groove rm <branch> [--dir <worktrees_dir>]
-```
-
-When restore is triggered from the UI, Groove auto-resolves the workspace root from selected workspace context (`rootName`, known worktree list, and workspace metadata when available) by default.
-
-If auto-resolve is ambiguous or fails, you can set **Workspace root override (absolute path)** in the UI. When provided, this absolute `workspaceRoot` is sent to the restore API and used directly instead of auto-resolution.
-
-## Realtime workspace updates
-
-- The app also exposes an SSE endpoint at `GET /api/groove/events`.
-- It watches active workspace filesystem paths (`.worktrees` and `.groove`, plus known worktree `.groove` paths) and triggers UI rescans on change.
-- Groove currently does not expose a formal event bus API from the CLI script, so realtime updates are filesystem-driven.
+At runtime, backend command resolution checks `GROOVE_BIN` first, then bundled/resource paths.
 
 ## Run locally
 
 ```bash
 npm install
+npm run tauri:dev
+```
+
+For frontend-only iteration:
+
+```bash
 npm run dev
 ```
 
-Then open `http://localhost:3000` in a supported browser.
+## Build
 
-## Current limitations
+Frontend build:
 
-- Workspace handles are kept in memory only (no persisted handle between sessions).
-- The demo data model is intentionally minimal and currently stores only notes text.
-- Non-Chromium browsers do not support directory access yet.
+```bash
+npm run build
+```
+
+Rust check:
+
+```bash
+npm run check:rust
+```
+
+Desktop bundles:
+
+```bash
+npm run tauri:build
+```
+
+## Notes
+
+- Workspace root for Groove commands is inferred from the selected active workspace, with metadata-based auto-resolution as fallback.
+- Active workspace is persisted as a path string under Tauri app data (`active-workspace.json`) for restore on reopen.
+- Path-safety and payload validation in Rust mirror the previous API route semantics as closely as possible.
+- Realtime updates are filesystem-driven and emitted as Tauri events.

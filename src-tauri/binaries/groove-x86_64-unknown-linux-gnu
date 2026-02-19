@@ -1,0 +1,725 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+prompt=""
+prompt_provided="false"
+base_ref="HEAD"
+worktrees_dir=".worktrees"
+open_terminal="auto"
+start_dev="false"
+deps_warning_shown="false"
+opencode_log_mode="auto"
+opencode_log_file=""
+resolved_opencode_log_enabled="false"
+resolved_opencode_log_file=""
+
+usage() {
+  cat <<'EOF'
+usage:
+  groove new <branch> [-p <prompt>] [--base <ref>] [--dir <worktrees_dir>] [--terminal auto|ghostty|warp|kitty|gnome|xterm|none] [--no-console] [--dev] [--opencode-log|--no-opencode-log] [--opencode-log-file <path>]
+  groove create <branch> [--base <ref>] [--dir <worktrees_dir>]
+  groove go <branch> [-p <prompt>] [--dir <worktrees_dir>] [--terminal auto|ghostty|warp|kitty|gnome|xterm|none] [--no-console] [--dev] [--opencode-log|--no-opencode-log] [--opencode-log-file <path>]
+  groove open <branch> [-p <prompt>] [--dir <worktrees_dir>] [--terminal auto|ghostty|warp|kitty|gnome|xterm|none] [--no-console] [--dev] [--opencode-log|--no-opencode-log] [--opencode-log-file <path>]
+  groove run <worktree-or-branch> [--dir <worktrees_dir>] [--terminal auto|ghostty|warp|kitty|gnome|xterm|none] [--no-console]
+  groove list [--dir <worktrees_dir>]
+  groove rm <branch> [--dir <worktrees_dir>]
+  groove restore <worktree-or-branch> [--dir <worktrees_dir>] [--opencode-log-file <path>]
+
+notes:
+  create creates (or reuses) a worktree and branch without launching terminals or opencode.
+  run launches 'pnpm run dev' in an existing worktree.
+  go/open launches opencode in an existing worktree (and optionally starts dev with --dev).
+  restore repairs .groove state for an existing worktree without launching terminals or processes.
+  --prompt/-p and --dev are supported for 'groove new', 'groove go', and 'groove open'.
+  opencode logging defaults to on for 'groove new', off for 'groove go/open'.
+  --opencode-log/--no-opencode-log and --opencode-log-file are supported for 'groove new', 'groove go', and 'groove open'.
+  --opencode-log-file is also supported for 'groove restore'.
+  optional env overrides: GROOVE_OPENCODE_LOG and GROOVE_OPENCODE_LOG_FILE.
+  --no-console is an alias for '--terminal none'.
+  --base is only supported for 'groove new' and 'groove create'.
+EOF
+}
+
+safe_branch_name() {
+  echo "$1" | tr ' /' '__'
+}
+
+parse_dir_only_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --dir)
+      worktrees_dir="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "unknown arg: $1" >&2
+      usage
+      exit 1
+      ;;
+    esac
+  done
+}
+
+parse_restore_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --dir)
+      worktrees_dir="${2:-}"
+      shift 2
+      ;;
+    --opencode-log-file)
+      opencode_log_file="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "unknown arg: $1" >&2
+      usage
+      exit 1
+      ;;
+    esac
+  done
+}
+
+parse_create_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --base)
+      base_ref="${2:-}"
+      shift 2
+      ;;
+    --dir)
+      worktrees_dir="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "unknown arg: $1" >&2
+      usage
+      exit 1
+      ;;
+    esac
+  done
+}
+
+parse_launch_args() {
+  local mode="$1"
+  shift
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    -p | --prompt)
+      if [[ "$mode" != "new" && "$mode" != "go" && "$mode" != "open" ]]; then
+        echo "--prompt/-p is only supported for 'groove new', 'groove go', and 'groove open'" >&2
+        usage
+        exit 1
+      fi
+      prompt="${2:-}"
+      prompt_provided="true"
+      shift 2
+      ;;
+    --base)
+      if [[ "$mode" != "new" ]]; then
+        if [[ "$mode" == "go" || "$mode" == "open" ]]; then
+          echo "--base is not supported for 'groove go/open'; it only applies when creating a worktree with 'groove new'" >&2
+        else
+          echo "--base is only supported for 'groove new'" >&2
+        fi
+        usage
+        exit 1
+      fi
+      base_ref="${2:-}"
+      shift 2
+      ;;
+    --dir)
+      worktrees_dir="${2:-}"
+      shift 2
+      ;;
+    --terminal)
+      open_terminal="${2:-}"
+      shift 2
+      ;;
+    --no-console)
+      open_terminal="none"
+      shift
+      ;;
+    --dev)
+      if [[ "$mode" != "new" && "$mode" != "go" && "$mode" != "open" ]]; then
+        echo "--dev is only supported for 'groove new', 'groove go', and 'groove open'" >&2
+        usage
+        exit 1
+      fi
+      start_dev="true"
+      shift
+      ;;
+    --opencode-log)
+      if [[ "$mode" != "new" && "$mode" != "go" && "$mode" != "open" ]]; then
+        echo "--opencode-log is only supported for 'groove new', 'groove go', and 'groove open'" >&2
+        usage
+        exit 1
+      fi
+      opencode_log_mode="true"
+      shift
+      ;;
+    --no-opencode-log)
+      if [[ "$mode" != "new" && "$mode" != "go" && "$mode" != "open" ]]; then
+        echo "--no-opencode-log is only supported for 'groove new', 'groove go', and 'groove open'" >&2
+        usage
+        exit 1
+      fi
+      opencode_log_mode="false"
+      shift
+      ;;
+    --opencode-log-file)
+      if [[ "$mode" != "new" && "$mode" != "go" && "$mode" != "open" ]]; then
+        echo "--opencode-log-file is only supported for 'groove new', 'groove go', and 'groove open'" >&2
+        usage
+        exit 1
+      fi
+      opencode_log_file="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "unknown arg: $1" >&2
+      usage
+      exit 1
+      ;;
+    esac
+  done
+}
+
+normalize_bool() {
+  local value="${1,,}"
+  case "$value" in
+  1 | true | yes | on) echo "true" ;;
+  0 | false | no | off) echo "false" ;;
+  *) echo "" ;;
+  esac
+}
+
+resolve_opencode_log_file_path() {
+  local raw_path="$1"
+  if [[ "$raw_path" == /* ]]; then
+    printf '%s' "$raw_path"
+  else
+    printf '%s' "$repo_root/$raw_path"
+  fi
+}
+
+worktree_is_registered() {
+  local worktree_path="$1"
+  [[ -d "$worktree_path" ]] && git worktree list --porcelain | grep -Fxq "worktree $worktree_path"
+}
+
+latest_valid_log_symlink_exists() {
+  local log_dir="$1"
+  local latest_link="$log_dir/latest.log"
+  [[ -L "$latest_link" && -e "$latest_link" ]]
+}
+
+newest_opencode_log_file() {
+  local log_dir="$1"
+  local newest=""
+  local log_file=""
+
+  shopt -s nullglob
+  for log_file in "$log_dir"/opencode-*.log; do
+    [[ -f "$log_file" ]] || continue
+    if [[ -z "$newest" || "$log_file" -nt "$newest" ]]; then
+      newest="$log_file"
+    fi
+  done
+  shopt -u nullglob
+
+  printf '%s' "$newest"
+}
+
+opencode_runtime_state_for_worktree() {
+  local worktree_path="$1"
+  local proc_dir=""
+  local pid=""
+  local proc_cwd=""
+  local proc_comm=""
+
+  if [[ ! -d /proc || ! -r /proc/self/stat ]]; then
+    printf '%s' "unknown"
+    return
+  fi
+
+  shopt -s nullglob
+  for proc_dir in /proc/[0-9]*; do
+    pid="${proc_dir##*/}"
+
+    proc_cwd="$(readlink "$proc_dir/cwd" 2>/dev/null || true)"
+    [[ "$proc_cwd" == "$worktree_path" ]] || continue
+
+    proc_comm=""
+    if [[ -r "$proc_dir/comm" ]]; then
+      IFS= read -r proc_comm < "$proc_dir/comm" || true
+    fi
+
+    if [[ "$proc_comm" == "opencode" ]]; then
+      shopt -u nullglob
+      printf '%s' "running instance=$pid"
+      return
+    fi
+  done
+  shopt -u nullglob
+
+  printf '%s' "not-running"
+}
+
+log_runtime_state_for_worktree() {
+  local worktree_path="$1"
+  local log_dir="$worktree_path/.groove/logs"
+  local latest_link="$log_dir/latest.log"
+  local latest_target=""
+
+  if [[ -L "$latest_link" ]]; then
+    if [[ -e "$latest_link" ]]; then
+      latest_target="$(readlink "$latest_link" 2>/dev/null || true)"
+      if [[ -n "$latest_target" ]]; then
+        printf '%s' "latest->$(basename "$latest_target")"
+      else
+        printf '%s' "latest->$(basename "$latest_link")"
+      fi
+    else
+      printf '%s' "broken-latest"
+    fi
+    return
+  fi
+
+  printf '%s' "none"
+}
+
+repair_latest_opencode_symlink() {
+  local log_dir="$1"
+  local forced_log_path="${2:-}"
+  local latest_link="$log_dir/latest.log"
+  local log_target=""
+
+  if [[ -n "$forced_log_path" ]]; then
+    log_target="$(resolve_opencode_log_file_path "$forced_log_path")"
+    mkdir -p "$(dirname "$log_target")"
+    ln -sfn "$log_target" "$latest_link"
+    echo "updated $latest_link -> $log_target"
+    return
+  fi
+
+  if latest_valid_log_symlink_exists "$log_dir"; then
+    echo "kept existing $latest_link -> $(readlink "$latest_link")"
+    return
+  fi
+
+  log_target="$(newest_opencode_log_file "$log_dir")"
+  if [[ -n "$log_target" ]]; then
+    ln -sfn "$log_target" "$latest_link"
+    echo "updated $latest_link -> $log_target"
+    return
+  fi
+
+  echo "note: no opencode logs found in $log_dir; left latest.log unset"
+}
+
+resolve_opencode_logging() {
+  local launch_mode="$1"
+  local env_log="${GROOVE_OPENCODE_LOG:-}"
+  local env_log_file="${GROOVE_OPENCODE_LOG_FILE:-}"
+  local resolved_bool=""
+
+  resolved_opencode_log_enabled="false"
+  resolved_opencode_log_file=""
+
+  if [[ "$launch_mode" == "run" ]]; then
+    return
+  fi
+
+  if [[ -z "$opencode_log_file" && -n "$env_log_file" ]]; then
+    opencode_log_file="$env_log_file"
+  fi
+
+  if [[ "$opencode_log_mode" == "true" || "$opencode_log_mode" == "false" ]]; then
+    resolved_bool="$opencode_log_mode"
+  elif [[ -n "$env_log" ]]; then
+    resolved_bool="$(normalize_bool "$env_log")"
+    if [[ -z "$resolved_bool" ]]; then
+      echo "warning: ignoring invalid GROOVE_OPENCODE_LOG='$env_log' (expected true/false)" >&2
+    fi
+  fi
+
+  if [[ -z "$resolved_bool" ]]; then
+    if [[ "$launch_mode" == "new" ]]; then
+      resolved_bool="true"
+    else
+      resolved_bool="false"
+    fi
+  fi
+
+  if [[ "$resolved_bool" != "true" ]]; then
+    return
+  fi
+
+  local log_dir="$wt_path/.groove/logs"
+  local ts
+  ts="$(date +%Y%m%d-%H%M%S)"
+
+  if [[ -n "$opencode_log_file" ]]; then
+    resolved_opencode_log_file="$(resolve_opencode_log_file_path "$opencode_log_file")"
+  else
+    resolved_opencode_log_file="$log_dir/opencode-$ts.log"
+  fi
+
+  mkdir -p "$log_dir"
+  mkdir -p "$(dirname "$resolved_opencode_log_file")"
+  ln -sfn "$resolved_opencode_log_file" "$log_dir/latest.log"
+
+  resolved_opencode_log_enabled="true"
+}
+
+link_into_worktree_if_src_exists() {
+  local rel_path="$1"
+  local src="$repo_root/$rel_path"
+  local dst="$wt_path/$rel_path"
+
+  if [[ -e "$src" ]]; then
+    rm -rf "$dst"
+    ln -s "$src" "$dst"
+  fi
+}
+
+prepare_worktree_runtime() {
+  link_into_worktree_if_src_exists ".env"
+  link_into_worktree_if_src_exists ".env.local"
+  link_into_worktree_if_src_exists ".convex"
+  link_into_worktree_if_src_exists "node_modules"
+
+  if [[ ! -e "$repo_root/node_modules" && ! -e "$wt_path/node_modules" && "$deps_warning_shown" == "false" ]]; then
+    echo "warning: dependencies are missing (no node_modules in repo root or worktree); commands like 'next' may fail until you install dependencies in the repo root" >&2
+    deps_warning_shown="true"
+  fi
+}
+
+ensure_worktree_exists() {
+  mkdir -p "$wt_root"
+
+  if git worktree list --porcelain | grep -Fxq "worktree $wt_path"; then
+    return
+  fi
+
+  if git show-ref --verify --quiet "refs/heads/$target_name"; then
+    git worktree add "$wt_path" "$target_name"
+  else
+    git worktree add -b "$target_name" "$wt_path" "$base_ref"
+  fi
+}
+
+shell_join_argv() {
+  local joined
+  printf -v joined '%q ' "$@"
+  printf '%s' "${joined% }"
+}
+
+launch_in_terminal() {
+  local launch_label="$1"
+  local launch_mode="$2"
+  local cmd_cd="cd $(shell_join_argv "${wt_path}")"
+  local cmd_dev="pnpm run dev"
+  local opencode_bin="${OPENCODE_BIN:-opencode}"
+  local opencode_prompt_flag="${OPENCODE_PROMPT_FLAG:---prompt}"
+  local opencode_cmd=""
+  local cmd_launch=""
+  local wrapped_opencode_cmd=""
+  local wrapped_exec_cmd=""
+  local -a opencode_argv=()
+  local -a launch_argv=()
+
+  if [[ "${launch_mode}" == "run" ]]; then
+    cmd_launch="${cmd_cd}; exec ${cmd_dev}"
+  else
+    opencode_argv=("${opencode_bin}")
+    if [[ "${prompt_provided}" == "true" ]]; then
+      opencode_argv+=("${opencode_prompt_flag}" "${prompt}")
+    fi
+
+    opencode_cmd="$(shell_join_argv "${opencode_argv[@]}")"
+
+    if [[ "${resolved_opencode_log_enabled}" == "true" ]]; then
+      launch_argv=(script -q -f -c "${opencode_cmd}" "${resolved_opencode_log_file}")
+    else
+      launch_argv=("${opencode_argv[@]}")
+    fi
+
+    wrapped_opencode_cmd="$(shell_join_argv "${launch_argv[@]}")"
+    wrapped_exec_cmd="exec ${wrapped_opencode_cmd}"
+
+    cmd_launch="${cmd_cd}; ${wrapped_exec_cmd}"
+    if [[ "${start_dev}" == "true" ]]; then
+      cmd_launch="${cmd_cd}; (${cmd_dev}) & ${wrapped_exec_cmd}"
+    fi
+  fi
+
+  spawn_none() { bash -lc "${cmd_launch}"; }
+
+  spawn_detached() {
+    nohup "$@" </dev/null >/dev/null 2>&1 &
+  }
+
+  spawn_ghostty() {
+    if command -v ghostty >/dev/null 2>&1; then
+      spawn_detached ghostty "--title=groove:${launch_label}" -e bash -lc "${cmd_launch}"
+      exit 0
+    fi
+    return 1
+  }
+
+  spawn_warp() {
+    if command -v warp-terminal >/dev/null 2>&1; then
+      if spawn_detached warp-terminal --working-directory "${wt_path}" --command "${cmd_launch}"; then
+        exit 0
+      fi
+      if spawn_detached warp-terminal --command "cd \"${wt_path}\"; ${cmd_launch}"; then
+        exit 0
+      fi
+    fi
+
+    if command -v warp >/dev/null 2>&1; then
+      if spawn_detached warp --working-directory "${wt_path}" --command "${cmd_launch}"; then
+        exit 0
+      fi
+      if spawn_detached warp --command "cd \"${wt_path}\"; ${cmd_launch}"; then
+        exit 0
+      fi
+    fi
+
+    return 1
+  }
+
+  spawn_kitty() {
+    if command -v kitty >/dev/null 2>&1; then
+      spawn_detached kitty --single-instance --title "groove:${launch_label}" bash -lc "${cmd_launch}"
+      exit 0
+    fi
+    return 1
+  }
+
+  spawn_gnome() {
+    if command -v gnome-terminal >/dev/null 2>&1; then
+      spawn_detached gnome-terminal --title="groove:${launch_label}" -- bash -lc "${cmd_launch}"
+      exit 0
+    fi
+    return 1
+  }
+
+  spawn_xterm() {
+    if command -v xterm >/dev/null 2>&1; then
+      spawn_detached xterm -T "groove:${launch_label}" -e bash -lc "${cmd_launch}"
+      exit 0
+    fi
+    return 1
+  }
+
+  case "$open_terminal" in
+  none) spawn_none ;;
+  warp) spawn_warp || (
+    echo "warp not found" >&2
+    exit 1
+  ) ;;
+  kitty) spawn_kitty || (
+    echo "kitty not found" >&2
+    exit 1
+  ) ;;
+  gnome) spawn_gnome || (
+    echo "gnome-terminal not found" >&2
+    exit 1
+  ) ;;
+  xterm) spawn_xterm || (
+    echo "xterm not found" >&2
+    exit 1
+  ) ;;
+  ghostty) spawn_ghostty || (
+    echo "ghostty not found" >&2
+    exit 1
+  ) ;;
+  auto)
+    spawn_ghostty || spawn_warp || spawn_kitty || spawn_gnome || spawn_xterm || spawn_none
+    ;;
+  *)
+    echo "invalid --terminal: $open_terminal" >&2
+    exit 1
+    ;;
+  esac
+}
+
+first_positional="${1:-}"
+if [[ -z "${first_positional}" || "${first_positional}" == "-h" || "${first_positional}" == "--help" ]]; then
+  usage
+  exit 1
+fi
+shift || true
+
+if [[ "${first_positional}" == "list" ]]; then
+  parse_dir_only_args "$@"
+
+  repo_root="$(git rev-parse --show-toplevel)"
+  wt_root="$repo_root/$worktrees_dir"
+
+  if [[ ! -d "$wt_root" ]]; then
+    echo "No groove worktrees found in $worktrees_dir"
+    exit 0
+  fi
+
+  shopt -s nullglob
+  worktree_entries=("$wt_root"/*)
+  shopt -u nullglob
+
+  if [[ ${#worktree_entries[@]} -eq 0 ]]; then
+    echo "No groove worktrees found in $worktrees_dir"
+    exit 0
+  fi
+
+  echo "Groove worktrees in $worktrees_dir:"
+  for worktree_path in "${worktree_entries[@]}"; do
+    [[ -d "$worktree_path" ]] || continue
+    branch_name="$(git -C "$worktree_path" branch --show-current 2>/dev/null || true)"
+    opencode_state="$(opencode_runtime_state_for_worktree "$worktree_path")"
+    log_state="$(log_runtime_state_for_worktree "$worktree_path")"
+    if [[ -n "$branch_name" ]]; then
+      printf ' - %s (%s) | opencode: %s | log: %s\n' "$branch_name" "$(basename "$worktree_path")" "$opencode_state" "$log_state"
+    else
+      printf ' - %s | opencode: %s | log: %s\n' "$(basename "$worktree_path")" "$opencode_state" "$log_state"
+    fi
+  done
+  exit 0
+fi
+
+if [[ "${first_positional}" == "rm" ]]; then
+  branch_to_remove="${1:-}"
+  if [[ -z "$branch_to_remove" ]]; then
+    echo "missing branch for rm" >&2
+    usage
+    exit 1
+  fi
+  shift || true
+
+  parse_dir_only_args "$@"
+
+  repo_root="$(git rev-parse --show-toplevel)"
+  wt_root="$repo_root/$worktrees_dir"
+  safe_branch="$(safe_branch_name "$branch_to_remove")"
+  wt_path="$wt_root/$safe_branch"
+
+  if ! git worktree list --porcelain | grep -Fxq "worktree $wt_path"; then
+    echo "No groove worktree found for '$branch_to_remove' at $wt_path" >&2
+    exit 1
+  fi
+
+  git worktree remove "$wt_path"
+  echo "Removed groove worktree: $wt_path"
+  exit 0
+fi
+
+if [[ "${first_positional}" == "restore" ]]; then
+  target_name="${1:-}"
+  if [[ -z "$target_name" ]]; then
+    echo "missing worktree-or-branch for restore" >&2
+    usage
+    exit 1
+  fi
+  shift || true
+
+  parse_restore_args "$@"
+
+  repo_root="$(git rev-parse --show-toplevel)"
+  wt_root="$repo_root/$worktrees_dir"
+  safe_branch="$(safe_branch_name "$target_name")"
+  wt_path="$wt_root/$safe_branch"
+
+  if ! worktree_is_registered "$wt_path"; then
+    echo "No groove worktree found for '$target_name' at $wt_path" >&2
+    echo "Run 'groove new $target_name' to create it first." >&2
+    exit 1
+  fi
+
+  mkdir -p "$wt_path/.groove" "$wt_path/.groove/logs"
+  repair_latest_opencode_symlink "$wt_path/.groove/logs" "$opencode_log_file"
+
+  echo "Restored groove metadata in $wt_path/.groove"
+  exit 0
+fi
+
+if [[ "${first_positional}" == "create" ]]; then
+  target_name="${1:-}"
+  if [[ -z "$target_name" ]]; then
+    echo "missing branch for create" >&2
+    usage
+    exit 1
+  fi
+  shift || true
+
+  parse_create_args "$@"
+
+  repo_root="$(git rev-parse --show-toplevel)"
+  cd "$repo_root"
+
+  safe_branch="$(safe_branch_name "$target_name")"
+  wt_root="$repo_root/$worktrees_dir"
+  wt_path="$wt_root/$safe_branch"
+
+  ensure_worktree_exists
+  prepare_worktree_runtime
+  mkdir -p "$wt_path/.groove" "$wt_path/.groove/logs"
+  repair_latest_opencode_symlink "$wt_path/.groove/logs"
+
+  echo "Created groove worktree: $wt_path"
+  exit 0
+fi
+
+if [[ "${first_positional}" != "new" && "${first_positional}" != "go" && "${first_positional}" != "open" && "${first_positional}" != "run" ]]; then
+  echo "usage error: use 'groove new <branch>', 'groove create <branch>', 'groove go <branch>', 'groove open <branch>', 'groove run <worktree-or-branch>', or 'groove restore <worktree-or-branch>'" >&2
+  usage
+  exit 1
+fi
+
+target_name="${1:-}"
+if [[ -z "$target_name" ]]; then
+  if [[ "${first_positional}" == "new" ]]; then
+    echo "missing branch for new" >&2
+  elif [[ "${first_positional}" == "go" || "${first_positional}" == "open" ]]; then
+    echo "missing branch for ${first_positional}" >&2
+  else
+    echo "missing worktree-or-branch for run" >&2
+  fi
+  usage
+  exit 1
+fi
+shift || true
+
+parse_launch_args "${first_positional}" "$@"
+
+if [[ "${first_positional}" == "open" ]]; then
+  first_positional="go"
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+safe_branch="$(safe_branch_name "$target_name")"
+wt_root="$repo_root/$worktrees_dir"
+wt_path="$wt_root/$safe_branch"
+
+if [[ "${first_positional}" == "new" ]]; then
+  ensure_worktree_exists
+else
+  if ! worktree_is_registered "$wt_path"; then
+    echo "No groove worktree found for '$target_name' at $wt_path" >&2
+    echo "Run 'groove new $target_name' to create it first." >&2
+    exit 1
+  fi
+fi
+
+prepare_worktree_runtime
+resolve_opencode_logging "${first_positional}"
+
+if [[ "${resolved_opencode_log_enabled}" == "true" ]]; then
+  echo "opencode log: ${resolved_opencode_log_file}"
+fi
+
+launch_in_terminal "$target_name" "${first_positional}"

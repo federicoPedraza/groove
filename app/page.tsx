@@ -9,6 +9,7 @@ import {
   Copy,
   FolderOpen,
   Loader2,
+  Plus,
   Play,
   RefreshCw,
   Trash2,
@@ -18,6 +19,7 @@ import {
 import { toast } from "sonner";
 
 import { AppNavigation } from "@/components/app-navigation";
+import { CreateWorktreeModal } from "@/components/create-worktree-modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +28,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   grooveList,
+  grooveNew,
   grooveRestore,
   grooveRm,
   grooveStop,
@@ -174,6 +177,10 @@ export default function Home() {
   const [cutConfirmRow, setCutConfirmRow] = useState<WorktreeRow | null>(null);
   const [forceCutConfirmRow, setForceCutConfirmRow] = useState<WorktreeRow | null>(null);
   const [runtimeStateByWorktree, setRuntimeStateByWorktree] = useState<Record<string, RuntimeStateRow>>({});
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createBranch, setCreateBranch] = useState("");
+  const [createBase, setCreateBase] = useState("");
+  const [isCreatePending, setIsCreatePending] = useState(false);
 
   const runtimeFetchCounterRef = useRef(0);
   const eventRescanTimeoutRef = useRef<number | null>(null);
@@ -461,6 +468,49 @@ export default function Home() {
     }
   };
 
+  const runCreateWorktreeAction = async (): Promise<void> => {
+    if (!workspaceMeta) {
+      return;
+    }
+
+    const branch = createBranch.trim();
+    const base = createBase.trim();
+    if (!branch) {
+      toast.error("Branch name is required.");
+      return;
+    }
+
+    setIsCreatePending(true);
+    try {
+      const result = await grooveNew({
+        rootName: workspaceMeta.rootName,
+        knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+        workspaceMeta,
+        branch,
+        ...(base ? { base } : {}),
+      });
+      const shortOutput = summarizeRestoreOutput(result.stdout, result.stderr);
+      if (result.ok) {
+        setIsCreateModalOpen(false);
+        setCreateBranch("");
+        setCreateBase("");
+        toast.success(`Created worktree for ${branch}.`, {
+          description: appendRequestId(shortOutput, result.requestId),
+        });
+        await Promise.all([rescanWorktrees(), fetchRuntimeState()]);
+        return;
+      }
+
+      toast.error(`Create worktree failed for ${branch}.`, {
+        description: appendRequestId(result.error ?? shortOutput ?? `Exit code: ${String(result.exitCode)}`, result.requestId),
+      });
+    } catch {
+      toast.error(`Create worktree request failed for ${branch}.`);
+    } finally {
+      setIsCreatePending(false);
+    }
+  };
+
   const runCutGrooveAction = async (row: WorktreeRow, force = false): Promise<void> => {
     if (!workspaceMeta) {
       return;
@@ -642,6 +692,25 @@ export default function Home() {
                 </div>
                 <TooltipProvider>
                   <div className="flex flex-wrap gap-2">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="default"
+                          onClick={() => {
+                            setCreateBranch("");
+                            setCreateBase("");
+                            setIsCreateModalOpen(true);
+                          }}
+                          disabled={isBusy || isCreatePending}
+                          size="sm"
+                        >
+                          <Plus aria-hidden="true" className="size-4" />
+                          <span>Create worktree</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Create worktree</TooltipContent>
+                    </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button type="button" onClick={refreshWorktrees} disabled={isBusy} size="sm" className="w-8 px-0" aria-label="Refresh">
@@ -914,6 +983,33 @@ export default function Home() {
         }}
         onCancel={() => {
           setIsCloseWorkspaceConfirmOpen(false);
+        }}
+      />
+
+      <CreateWorktreeModal
+        open={isCreateModalOpen}
+        branch={createBranch}
+        base={createBase}
+        loading={isCreatePending}
+        onOpenChange={(open) => {
+          setIsCreateModalOpen(open);
+          if (!open && !isCreatePending) {
+            setCreateBranch("");
+            setCreateBase("");
+          }
+        }}
+        onBranchChange={setCreateBranch}
+        onBaseChange={setCreateBase}
+        onSubmit={() => {
+          void runCreateWorktreeAction();
+        }}
+        onCancel={() => {
+          if (isCreatePending) {
+            return;
+          }
+          setIsCreateModalOpen(false);
+          setCreateBranch("");
+          setCreateBase("");
         }}
       />
     </main>

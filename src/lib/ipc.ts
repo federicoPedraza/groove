@@ -64,6 +64,24 @@ export type GrooveRestorePayload = {
   opencodeLogFile?: string;
 };
 
+export type GrooveNewPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  branch: string;
+  base?: string;
+  dir?: string;
+};
+
+export type GrooveNewResponse = {
+  requestId?: string;
+  ok: boolean;
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  error?: string;
+};
+
 export type GrooveRestoreResponse = {
   requestId?: string;
   ok: boolean;
@@ -135,6 +153,10 @@ export function grooveList(payload: GrooveListPayload): Promise<GrooveListRespon
 
 export function grooveRestore(payload: GrooveRestorePayload): Promise<GrooveRestoreResponse> {
   return invoke<GrooveRestoreResponse>("groove_restore", { payload });
+}
+
+export function grooveNew(payload: GrooveNewPayload): Promise<GrooveNewResponse> {
+  return invoke<GrooveNewResponse>("groove_new", { payload });
 }
 
 export function grooveRm(payload: GrooveRmPayload): Promise<GrooveRmResponse> {

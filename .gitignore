@@ -28,6 +28,8 @@
 # misc
 .DS_Store
 *.pem
+/.worktrees/
+/.groove/
 
 # debug
 npm-debug.log*

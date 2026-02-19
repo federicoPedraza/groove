@@ -100,6 +100,18 @@ struct GrooveRestorePayload {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct GrooveNewPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    branch: String,
+    base: Option<String>,
+    dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GrooveRmPayload {
     root_name: Option<String>,
     #[serde(default)]
@@ -1620,6 +1632,132 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
 }
 
 #[tauri::command]
+fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandResponse {
+    let request_id = request_id();
+
+    let branch = payload.branch.trim();
+    if branch.is_empty() {
+        return GrooveCommandResponse {
+            request_id,
+            ok: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some("branch is required and must be a non-empty string.".to_string()),
+        };
+    }
+    if !is_safe_path_token(branch) {
+        return GrooveCommandResponse {
+            request_id,
+            ok: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some("branch contains unsafe characters or path segments.".to_string()),
+        };
+    }
+
+    let base = match payload
+        .base
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => {
+            if !is_safe_path_token(value) {
+                return GrooveCommandResponse {
+                    request_id,
+                    ok: false,
+                    exit_code: None,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    error: Some("base contains unsafe characters or path segments.".to_string()),
+                };
+            }
+            Some(value.to_string())
+        }
+        None => None,
+    };
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(known_worktrees) => known_worktrees,
+        Err(error) => {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let dir = match validate_optional_relative_path(&payload.dir, "dir") {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(primary_error) => {
+            match read_persisted_active_workspace_root(&app)
+                .ok()
+                .flatten()
+                .and_then(|value| validate_workspace_root_path(&value).ok())
+            {
+                Some(active_root) => active_root,
+                None => {
+                    return GrooveCommandResponse {
+                        request_id,
+                        ok: false,
+                        exit_code: None,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(primary_error),
+                    }
+                }
+            }
+        }
+    };
+
+    let mut args = vec!["create".to_string(), branch.to_string()];
+    if let Some(base) = base {
+        args.push("--base".to_string());
+        args.push(base);
+    }
+    if let Some(dir) = dir {
+        args.push("--dir".to_string());
+        args.push(dir);
+    }
+
+    let result = run_command(&groove_binary_path(&app), &args, &workspace_root);
+    GrooveCommandResponse {
+        request_id,
+        ok: result.exit_code == Some(0) && result.error.is_none(),
+        exit_code: result.exit_code,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        error: result.error,
+    }
+}
+
+#[tauri::command]
 fn groove_rm(app: AppHandle, payload: GrooveRmPayload) -> GrooveCommandResponse {
     let request_id = request_id();
 
@@ -2073,6 +2211,7 @@ pub fn run() {
             workspace_get_active,
             workspace_clear_active,
             groove_list,
+            groove_new,
             groove_restore,
             groove_rm,
             groove_stop,

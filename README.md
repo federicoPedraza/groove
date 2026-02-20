@@ -8,7 +8,7 @@ Groove now runs as a **Tauri 2 + Vite + React** desktop app with a Rust command 
 - Desktop shell: Tauri 2
 - Native backend: Rust Tauri commands
 - Routing: `react-router-dom`
-- Existing Next.js files remain in the repo for reference/parity migration, but the active dev/build path is Tauri + Vite.
+- The active dev/build path is Tauri + Vite.
 
 ## What Groove does
 

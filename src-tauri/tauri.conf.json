@@ -27,10 +27,18 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "appimage",
+      "deb",
+      "dmg"
+    ],
+    "publisher": "Groove",
+    "shortDescription": "Desktop workspace manager for groove worktrees.",
     "externalBin": [
       "binaries/groove"
     ],
-    "icon": []
+    "icon": [
+      "icons/icon.png"
+    ]
   }
 }

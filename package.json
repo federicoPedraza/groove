@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri:build:linux": "tauri build --bundles appimage,deb",
+    "tauri:build:macos": "tauri build --bundles dmg",
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {

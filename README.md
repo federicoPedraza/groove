@@ -68,6 +68,18 @@ Desktop bundles:
 npm run tauri:build
 ```
 
+Installer-focused packaging:
+
+```bash
+# Linux installers (AppImage + deb)
+npm run tauri:build:linux
+
+# macOS installer (dmg)
+npm run tauri:build:macos
+```
+
+RPM and PKG outputs are intentionally postponed for now.
+
 ## Notes
 
 - Workspace root for Groove commands is inferred from the selected active workspace, with metadata-based auto-resolution as fallback.

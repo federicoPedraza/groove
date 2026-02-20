@@ -8,11 +8,6 @@ type DashboardModalsProps = {
   forceCutConfirmRow: WorktreeRow | null;
   setForceCutConfirmRow: (row: WorktreeRow | null) => void;
   forceCutConfirmLoading: boolean;
-  switchTestingTargetConfirmRow: WorktreeRow | null;
-  setSwitchTestingTargetConfirmRow: (row: WorktreeRow | null) => void;
-  switchTestingTargetConfirmLoading: boolean;
-  testingInstanceIsRunning: boolean;
-  testingTargetWorktree: string | undefined;
   isCloseWorkspaceConfirmOpen: boolean;
   setIsCloseWorkspaceConfirmOpen: (open: boolean) => void;
   isBusy: boolean;
@@ -24,7 +19,6 @@ type DashboardModalsProps = {
   setCreateBranch: (value: string) => void;
   setCreateBase: (value: string) => void;
   onRunCutGrooveAction: (row: WorktreeRow, force?: boolean) => void;
-  onRunSetTestingTargetAction: (row: WorktreeRow, autoStartIfCurrentRunning?: boolean) => void;
   onCloseCurrentWorkspace: () => void;
   onRunCreateWorktreeAction: () => void;
 };
@@ -35,11 +29,6 @@ export function DashboardModals({
   forceCutConfirmRow,
   setForceCutConfirmRow,
   forceCutConfirmLoading,
-  switchTestingTargetConfirmRow,
-  setSwitchTestingTargetConfirmRow,
-  switchTestingTargetConfirmLoading,
-  testingInstanceIsRunning,
-  testingTargetWorktree,
   isCloseWorkspaceConfirmOpen,
   setIsCloseWorkspaceConfirmOpen,
   isBusy,
@@ -51,7 +40,6 @@ export function DashboardModals({
   setCreateBranch,
   setCreateBase,
   onRunCutGrooveAction,
-  onRunSetTestingTargetAction,
   onCloseCurrentWorkspace,
   onRunCreateWorktreeAction,
 }: DashboardModalsProps) {
@@ -113,37 +101,6 @@ export function DashboardModals({
         }}
         onCancel={() => {
           setForceCutConfirmRow(null);
-        }}
-      />
-
-      <ConfirmModal
-        open={switchTestingTargetConfirmRow !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSwitchTestingTargetConfirmRow(null);
-          }
-        }}
-        title="Switch testing target?"
-        description={
-          switchTestingTargetConfirmRow
-            ? testingInstanceIsRunning
-              ? `Testing is currently running for "${testingTargetWorktree}". This will stop it, switch to "${switchTestingTargetConfirmRow.worktree}", and start local testing there.`
-              : `Testing target is currently "${testingTargetWorktree}". This will switch target to "${switchTestingTargetConfirmRow.worktree}".`
-            : "Switch to the selected testing target."
-        }
-        confirmLabel={testingInstanceIsRunning ? "Stop and switch" : "Switch target"}
-        cancelLabel="Cancel"
-        loading={switchTestingTargetConfirmLoading}
-        onConfirm={() => {
-          if (!switchTestingTargetConfirmRow) {
-            return;
-          }
-          const selectedRow = switchTestingTargetConfirmRow;
-          setSwitchTestingTargetConfirmRow(null);
-          onRunSetTestingTargetAction(selectedRow, testingInstanceIsRunning);
-        }}
-        onCancel={() => {
-          setSwitchTestingTargetConfirmRow(null);
         }}
       />
 

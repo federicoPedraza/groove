@@ -51,6 +51,12 @@ export type StopApiResponse = {
 
 export type TestingEnvironmentState = TestingEnvironmentResponse;
 
+export type TestingEnvironmentColor = {
+  iconClassName: string;
+  cardBorderClassName: string;
+  cardBackgroundClassName: string;
+};
+
 export type ActiveWorkspace = {
   workspaceRoot: string;
   workspaceMeta: WorkspaceMeta;

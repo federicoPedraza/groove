@@ -10,6 +10,7 @@ import type { DiagnosticsProcessRow } from "@/src/lib/ipc";
 type OpencodeInstancesCardProps = {
   opencodeRows: DiagnosticsProcessRow[];
   pendingStopPids: number[];
+  hasLoadedSnapshots: boolean;
   isLoadingOpencode: boolean;
   isClosingAll: boolean;
   opencodeError: string | null;
@@ -21,6 +22,7 @@ type OpencodeInstancesCardProps = {
 export function OpencodeInstancesCard({
   opencodeRows,
   pendingStopPids,
+  hasLoadedSnapshots,
   isLoadingOpencode,
   isClosingAll,
   opencodeError,
@@ -65,7 +67,11 @@ export function OpencodeInstancesCard({
 
         {!opencodeError && opencodeRows.length === 0 && (
           <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-            {isLoadingOpencode ? "Checking for OpenCode processes..." : "No running OpenCode processes found."}
+            {isLoadingOpencode
+              ? "Checking for OpenCode processes..."
+              : hasLoadedSnapshots
+                ? "No running OpenCode processes found."
+                : "Process snapshots are not loaded yet. Click Refresh to load OpenCode instances."}
           </p>
         )}
 

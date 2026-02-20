@@ -26,9 +26,11 @@ export default function Home() {
     isCloseWorkspaceConfirmOpen,
     cutConfirmRow,
     forceCutConfirmRow,
-    switchTestingTargetConfirmRow,
     runtimeStateByWorktree,
-    testingEnvironment,
+    testingEnvironments,
+    testingEnvironmentColorByWorktree,
+    testingTargetWorktrees,
+    testingRunningWorktrees,
     isTestingInstancePending,
     isCreateModalOpen,
     createBranch,
@@ -37,15 +39,10 @@ export default function Home() {
     workspaceMeta,
     workspaceRoot,
     forceCutConfirmLoading,
-    testingTargetWorktree,
-    testingInstanceIsRunning,
-    switchTestingTargetConfirmLoading,
-    testingTargetRow,
     groupedWorktreeItems,
     setIsCloseWorkspaceConfirmOpen,
     setCutConfirmRow,
     setForceCutConfirmRow,
-    setSwitchTestingTargetConfirmRow,
     setIsCreateModalOpen,
     setCreateBranch,
     setCreateBase,
@@ -57,7 +54,6 @@ export default function Home() {
     runCutGrooveAction,
     runStopAction,
     runPlayGrooveAction,
-    runSetTestingTargetAction,
     onSelectTestingTarget,
     runStartTestingInstanceAction,
     runStartTestingInstanceInSeparateTerminalAction,
@@ -117,19 +113,17 @@ export default function Home() {
           <Card>
             <CardContent className="space-y-3 pt-6">
               <TestingEnvironmentPanel
-                testingTargetWorktree={testingTargetWorktree}
-                testingStatus={testingEnvironment?.status}
-                testingInstanceId={testingEnvironment?.instanceId}
-                hasTestingTargetRow={Boolean(testingTargetRow)}
+                environments={testingEnvironments}
+                testingEnvironmentColorByWorktree={testingEnvironmentColorByWorktree}
                 isTestingInstancePending={isTestingInstancePending}
-                onStop={() => {
-                  void runStopTestingInstanceAction();
+                onStop={(worktree) => {
+                  void runStopTestingInstanceAction(worktree);
                 }}
-                onRunLocal={() => {
-                  void runStartTestingInstanceAction();
+                onRunLocal={(worktree) => {
+                  void runStartTestingInstanceAction(worktree);
                 }}
-                onRunSeparate={() => {
-                  void runStartTestingInstanceInSeparateTerminalAction();
+                onRunSeparate={(worktree) => {
+                  void runStartTestingInstanceInSeparateTerminalAction(worktree);
                 }}
               />
 
@@ -151,7 +145,9 @@ export default function Home() {
                   pendingPlayActions={pendingPlayActions}
                   pendingTestActions={pendingTestActions}
                   runtimeStateByWorktree={runtimeStateByWorktree}
-                  testingTargetWorktree={testingTargetWorktree}
+                  testingTargetWorktrees={testingTargetWorktrees}
+                  testingRunningWorktrees={testingRunningWorktrees}
+                  testingEnvironmentColorByWorktree={testingEnvironmentColorByWorktree}
                   onCopyBranchName={(row) => {
                     void copyBranchName(row);
                   }}
@@ -188,11 +184,6 @@ export default function Home() {
         forceCutConfirmRow={forceCutConfirmRow}
         setForceCutConfirmRow={setForceCutConfirmRow}
         forceCutConfirmLoading={forceCutConfirmLoading}
-        switchTestingTargetConfirmRow={switchTestingTargetConfirmRow}
-        setSwitchTestingTargetConfirmRow={setSwitchTestingTargetConfirmRow}
-        switchTestingTargetConfirmLoading={switchTestingTargetConfirmLoading}
-        testingInstanceIsRunning={testingInstanceIsRunning}
-        testingTargetWorktree={testingTargetWorktree}
         isCloseWorkspaceConfirmOpen={isCloseWorkspaceConfirmOpen}
         setIsCloseWorkspaceConfirmOpen={setIsCloseWorkspaceConfirmOpen}
         isBusy={isBusy}
@@ -205,9 +196,6 @@ export default function Home() {
         setCreateBase={setCreateBase}
         onRunCutGrooveAction={(row, force) => {
           void runCutGrooveAction(row, force);
-        }}
-        onRunSetTestingTargetAction={(row, autoStartIfCurrentRunning) => {
-          void runSetTestingTargetAction(row, autoStartIfCurrentRunning);
         }}
         onCloseCurrentWorkspace={() => {
           void closeCurrentWorkspace();

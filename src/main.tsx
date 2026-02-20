@@ -6,11 +6,13 @@ import { Toaster } from "@/components/ui/sonner";
 import { App } from "@/src/App";
 import "@/app/globals.css";
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <BrowserRouter>
-      <App />
-      <Toaster richColors closeButton />
-    </BrowserRouter>
-  </StrictMode>,
+const disableStrictModeForPerf = import.meta.env.DEV && import.meta.env.VITE_DISABLE_STRICT_MODE === "true";
+
+const appTree = (
+  <BrowserRouter>
+    <App />
+    <Toaster richColors closeButton />
+  </BrowserRouter>
 );
+
+createRoot(document.getElementById("root")!).render(disableStrictModeForPerf ? appTree : <StrictMode>{appTree}</StrictMode>);

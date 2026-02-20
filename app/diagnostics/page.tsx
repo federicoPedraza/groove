@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { DiagnosticsHeader } from "@/components/pages/diagnostics/diagnostics-header";
@@ -26,8 +26,9 @@ import {
 export default function DiagnosticsPage() {
   const [opencodeRows, setOpencodeRows] = useState<DiagnosticsProcessRow[]>([]);
   const [nodeAppRows, setNodeAppRows] = useState<DiagnosticsNodeAppRow[]>([]);
-  const [isLoadingOpencode, setIsLoadingOpencode] = useState(true);
-  const [isLoadingNodeApps, setIsLoadingNodeApps] = useState(true);
+  const [isLoadingOpencode, setIsLoadingOpencode] = useState(false);
+  const [isLoadingNodeApps, setIsLoadingNodeApps] = useState(false);
+  const [hasLoadedProcessSnapshots, setHasLoadedProcessSnapshots] = useState(false);
   const [isClosingAll, setIsClosingAll] = useState(false);
   const [isCleaningAllDevServers, setIsCleaningAllDevServers] = useState(false);
   const [pendingStopPids, setPendingStopPids] = useState<number[]>([]);
@@ -39,6 +40,7 @@ export default function DiagnosticsPage() {
   const [isLoadingMostConsumingPrograms, setIsLoadingMostConsumingPrograms] = useState(false);
 
   const loadOpencodeRows = useCallback(async (showLoading = true): Promise<DiagnosticsProcessRow[]> => {
+    setHasLoadedProcessSnapshots(true);
     if (showLoading) {
       setIsLoadingOpencode(true);
     }
@@ -65,6 +67,7 @@ export default function DiagnosticsPage() {
   }, []);
 
   const loadNodeAppRows = useCallback(async (showLoading = true): Promise<DiagnosticsNodeAppRow[]> => {
+    setHasLoadedProcessSnapshots(true);
     if (showLoading) {
       setIsLoadingNodeApps(true);
     }
@@ -94,9 +97,10 @@ export default function DiagnosticsPage() {
     }
   }, []);
 
-  useEffect(() => {
-    void Promise.all([loadOpencodeRows(), loadNodeAppRows()]);
-  }, [loadOpencodeRows, loadNodeAppRows]);
+  const loadProcessSnapshots = useCallback(async (): Promise<void> => {
+    setHasLoadedProcessSnapshots(true);
+    await Promise.all([loadOpencodeRows(), loadNodeAppRows()]);
+  }, [loadNodeAppRows, loadOpencodeRows]);
 
   const runStopProcessAction = async (pid: number): Promise<void> => {
     setPendingStopPids((prev) => (prev.includes(pid) ? prev : [...prev, pid]));
@@ -228,8 +232,13 @@ export default function DiagnosticsPage() {
   return (
     <PageShell>
       <DiagnosticsHeader
+        isLoadingProcessSnapshots={isLoadingOpencode || isLoadingNodeApps}
+        hasLoadedProcessSnapshots={hasLoadedProcessSnapshots}
         isLoadingMostConsumingPrograms={isLoadingMostConsumingPrograms}
         isCleaningAllDevServers={isCleaningAllDevServers}
+        onLoadProcessSnapshots={() => {
+          void loadProcessSnapshots();
+        }}
         onLoadMostConsumingPrograms={() => {
           void runGetMsotConsumingProgramsAction();
         }}
@@ -249,6 +258,7 @@ export default function DiagnosticsPage() {
       <NodeAppsCard
         nodeAppRows={nodeAppRows}
         pendingStopPids={pendingStopPids}
+        hasLoadedSnapshots={hasLoadedProcessSnapshots}
         isLoadingNodeApps={isLoadingNodeApps}
         isCleaningAllDevServers={isCleaningAllDevServers}
         nodeAppsError={nodeAppsError}
@@ -264,6 +274,7 @@ export default function DiagnosticsPage() {
       <OpencodeInstancesCard
         opencodeRows={opencodeRows}
         pendingStopPids={pendingStopPids}
+        hasLoadedSnapshots={hasLoadedProcessSnapshots}
         isLoadingOpencode={isLoadingOpencode}
         isClosingAll={isClosingAll}
         opencodeError={opencodeError}

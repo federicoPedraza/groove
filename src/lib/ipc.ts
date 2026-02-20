@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import { trackCommandExecution } from "@/lib/command-history";
+
 export type DefaultTerminal = "auto" | "ghostty" | "warp" | "kitty" | "gnome" | "xterm" | "none" | "custom";
 
 type WorkspaceMeta = {
@@ -164,6 +166,7 @@ export type TestingEnvironmentSetTargetPayload = {
   knownWorktrees: string[];
   workspaceMeta?: WorkspaceMeta;
   worktree: string;
+  enabled?: boolean;
   autoStartIfCurrentRunning?: boolean;
 };
 
@@ -178,12 +181,24 @@ export type TestingEnvironmentStopPayload = {
   rootName: string;
   knownWorktrees: string[];
   workspaceMeta?: WorkspaceMeta;
+  worktree?: string;
+};
+
+export type TestingEnvironmentEntry = {
+  worktree: string;
+  worktreePath: string;
+  status: "stopped" | "running";
+  instanceId?: string;
+  pid?: number;
+  port?: number;
+  startedAt?: string;
 };
 
 export type TestingEnvironmentResponse = {
   requestId?: string;
   ok: boolean;
   workspaceRoot?: string;
+  environments: TestingEnvironmentEntry[];
   targetWorktree?: string;
   targetPath?: string;
   status: "none" | "stopped" | "running";
@@ -265,72 +280,81 @@ type WorkspaceEvent = {
   kind?: string;
 };
 
+const UNTRACKED_COMMANDS = new Set<string>(["groove_list", "testing_environment_get_status", "workspace_events", "workspace_get_active"]);
+
+function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (UNTRACKED_COMMANDS.has(command)) {
+    return invoke<T>(command, args);
+  }
+  return trackCommandExecution(command, () => invoke<T>(command, args));
+}
+
 export function grooveList(payload: GrooveListPayload): Promise<GrooveListResponse> {
-  return invoke<GrooveListResponse>("groove_list", { payload });
+  return invokeCommand<GrooveListResponse>("groove_list", { payload });
 }
 
 export function grooveRestore(payload: GrooveRestorePayload): Promise<GrooveRestoreResponse> {
-  return invoke<GrooveRestoreResponse>("groove_restore", { payload });
+  return invokeCommand<GrooveRestoreResponse>("groove_restore", { payload });
 }
 
 export function grooveNew(payload: GrooveNewPayload): Promise<GrooveNewResponse> {
-  return invoke<GrooveNewResponse>("groove_new", { payload });
+  return invokeCommand<GrooveNewResponse>("groove_new", { payload });
 }
 
 export function grooveRm(payload: GrooveRmPayload): Promise<GrooveRmResponse> {
-  return invoke<GrooveRmResponse>("groove_rm", { payload });
+  return invokeCommand<GrooveRmResponse>("groove_rm", { payload });
 }
 
 export function grooveStop(payload: GrooveStopPayload): Promise<GrooveStopResponse> {
-  return invoke<GrooveStopResponse>("groove_stop", { payload });
+  return invokeCommand<GrooveStopResponse>("groove_stop", { payload });
 }
 
 export function workspaceEvents(payload: WorkspaceEventsPayload): Promise<WorkspaceEventsResponse> {
-  return invoke<WorkspaceEventsResponse>("workspace_events", { payload });
+  return invokeCommand<WorkspaceEventsResponse>("workspace_events", { payload });
 }
 
 export function testingEnvironmentGetStatus(payload: TestingEnvironmentStatusPayload): Promise<TestingEnvironmentResponse> {
-  return invoke<TestingEnvironmentResponse>("testing_environment_get_status", { payload });
+  return invokeCommand<TestingEnvironmentResponse>("testing_environment_get_status", { payload });
 }
 
 export function testingEnvironmentSetTarget(payload: TestingEnvironmentSetTargetPayload): Promise<TestingEnvironmentResponse> {
-  return invoke<TestingEnvironmentResponse>("testing_environment_set_target", { payload });
+  return invokeCommand<TestingEnvironmentResponse>("testing_environment_set_target", { payload });
 }
 
 export function testingEnvironmentStart(payload: TestingEnvironmentStartPayload): Promise<TestingEnvironmentResponse> {
-  return invoke<TestingEnvironmentResponse>("testing_environment_start", { payload });
+  return invokeCommand<TestingEnvironmentResponse>("testing_environment_start", { payload });
 }
 
 export function testingEnvironmentStartSeparateTerminal(payload: TestingEnvironmentStartPayload): Promise<TestingEnvironmentResponse> {
-  return invoke<TestingEnvironmentResponse>("testing_environment_start_separate_terminal", { payload });
+  return invokeCommand<TestingEnvironmentResponse>("testing_environment_start_separate_terminal", { payload });
 }
 
 export function testingEnvironmentStop(payload: TestingEnvironmentStopPayload): Promise<TestingEnvironmentResponse> {
-  return invoke<TestingEnvironmentResponse>("testing_environment_stop", { payload });
+  return invokeCommand<TestingEnvironmentResponse>("testing_environment_stop", { payload });
 }
 
 export function diagnosticsListOpencodeInstances(): Promise<DiagnosticsOpencodeInstancesResponse> {
-  return invoke<DiagnosticsOpencodeInstancesResponse>("diagnostics_list_opencode_instances");
+  return invokeCommand<DiagnosticsOpencodeInstancesResponse>("diagnostics_list_opencode_instances");
 }
 
 export function diagnosticsStopProcess(pid: number): Promise<DiagnosticsStopResponse> {
-  return invoke<DiagnosticsStopResponse>("diagnostics_stop_process", { pid });
+  return invokeCommand<DiagnosticsStopResponse>("diagnostics_stop_process", { pid });
 }
 
 export function diagnosticsStopAllOpencodeInstances(): Promise<DiagnosticsStopAllResponse> {
-  return invoke<DiagnosticsStopAllResponse>("diagnostics_stop_all_opencode_instances");
+  return invokeCommand<DiagnosticsStopAllResponse>("diagnostics_stop_all_opencode_instances");
 }
 
 export function diagnosticsListWorktreeNodeApps(): Promise<DiagnosticsNodeAppsResponse> {
-  return invoke<DiagnosticsNodeAppsResponse>("diagnostics_list_worktree_node_apps");
+  return invokeCommand<DiagnosticsNodeAppsResponse>("diagnostics_list_worktree_node_apps");
 }
 
 export function diagnosticsCleanAllDevServers(): Promise<DiagnosticsStopAllResponse> {
-  return invoke<DiagnosticsStopAllResponse>("diagnostics_clean_all_dev_servers");
+  return invokeCommand<DiagnosticsStopAllResponse>("diagnostics_clean_all_dev_servers");
 }
 
 export function diagnosticsGetMsotConsumingPrograms(): Promise<DiagnosticsMostConsumingProgramsResponse> {
-  return invoke<DiagnosticsMostConsumingProgramsResponse>("diagnostics_get_msot_consuming_programs");
+  return invokeCommand<DiagnosticsMostConsumingProgramsResponse>("diagnostics_get_msot_consuming_programs");
 }
 
 export function listenWorkspaceChange(
@@ -348,23 +372,23 @@ export function listenWorkspaceReady(callback: (event: Record<string, unknown>) 
 }
 
 export function workspacePickAndOpen(): Promise<WorkspaceContextResponse> {
-  return invoke<WorkspaceContextResponse>("workspace_pick_and_open");
+  return invokeCommand<WorkspaceContextResponse>("workspace_pick_and_open");
 }
 
 export function workspaceOpen(workspaceRoot: string): Promise<WorkspaceContextResponse> {
-  return invoke<WorkspaceContextResponse>("workspace_open", { workspaceRoot });
+  return invokeCommand<WorkspaceContextResponse>("workspace_open", { workspaceRoot });
 }
 
 export function workspaceGetActive(): Promise<WorkspaceContextResponse> {
-  return invoke<WorkspaceContextResponse>("workspace_get_active");
+  return invokeCommand<WorkspaceContextResponse>("workspace_get_active");
 }
 
 export function workspaceClearActive(): Promise<WorkspaceContextResponse> {
-  return invoke<WorkspaceContextResponse>("workspace_clear_active");
+  return invokeCommand<WorkspaceContextResponse>("workspace_clear_active");
 }
 
 export function workspaceUpdateTerminalSettings(
   payload: WorkspaceTerminalSettingsPayload,
 ): Promise<WorkspaceTerminalSettingsResponse> {
-  return invoke<WorkspaceTerminalSettingsResponse>("workspace_update_terminal_settings", { payload });
+  return invokeCommand<WorkspaceTerminalSettingsResponse>("workspace_update_terminal_settings", { payload });
 }

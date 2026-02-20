@@ -4,15 +4,21 @@ import { Button } from "@/components/ui/button";
 import { SOFT_RED_BUTTON_CLASSES } from "@/components/pages/diagnostics/constants";
 
 type DiagnosticsHeaderProps = {
+  isLoadingProcessSnapshots: boolean;
+  hasLoadedProcessSnapshots: boolean;
   isLoadingMostConsumingPrograms: boolean;
   isCleaningAllDevServers: boolean;
+  onLoadProcessSnapshots: () => void;
   onLoadMostConsumingPrograms: () => void;
   onCleanAll: () => void;
 };
 
 export function DiagnosticsHeader({
+  isLoadingProcessSnapshots,
+  hasLoadedProcessSnapshots,
   isLoadingMostConsumingPrograms,
   isCleaningAllDevServers,
+  onLoadProcessSnapshots,
   onLoadMostConsumingPrograms,
   onCleanAll,
 }: DiagnosticsHeaderProps) {
@@ -24,6 +30,16 @@ export function DiagnosticsHeader({
           <p className="text-sm text-muted-foreground">Inspect and stop local processes that can interfere with Groove workflows.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onLoadProcessSnapshots}
+            disabled={isLoadingProcessSnapshots}
+          >
+            {isLoadingProcessSnapshots ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RefreshCw aria-hidden="true" className="size-4" />}
+            <span>{hasLoadedProcessSnapshots ? "Refresh process snapshots" : "Load process snapshots"}</span>
+          </Button>
           <Button
             type="button"
             size="sm"

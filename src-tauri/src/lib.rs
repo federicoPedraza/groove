@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -15,6 +15,10 @@ use walkdir::WalkDir;
 
 const MAX_DISCOVERY_DEPTH: usize = 4;
 const MAX_DISCOVERY_DIRECTORIES: usize = 2500;
+const SEPARATE_TERMINAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
+const COMMAND_TIMEOUT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const WORKSPACE_EVENTS_POLL_INTERVAL: Duration = Duration::from_millis(1800);
+const WORKSPACE_EVENTS_MIN_EMIT_INTERVAL: Duration = Duration::from_millis(1200);
 const SUPPORTED_DEFAULT_TERMINALS: [&str; 8] = [
     "auto", "ghostty", "warp", "kitty", "gnome", "xterm", "none", "custom",
 ];
@@ -33,7 +37,7 @@ struct TestingEnvironmentState {
 struct TestingEnvironmentRuntimeState {
     loaded: bool,
     persisted: PersistedTestingEnvironmentState,
-    child: Option<Child>,
+    children_by_worktree: HashMap<String, std::process::Child>,
 }
 
 struct WorkspaceWorker {
@@ -55,6 +59,8 @@ struct TestingEnvironmentTarget {
 struct TestingEnvironmentInstance {
     instance_id: String,
     pid: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    port: Option<u16>,
     workspace_root: String,
     worktree: String,
     worktree_path: String,
@@ -65,12 +71,16 @@ struct TestingEnvironmentInstance {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PersistedTestingEnvironmentState {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target: Option<TestingEnvironmentTarget>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    running_instance: Option<TestingEnvironmentInstance>,
+    #[serde(default)]
+    targets: Vec<TestingEnvironmentTarget>,
+    #[serde(default)]
+    running_instances: Vec<TestingEnvironmentInstance>,
     #[serde(skip_serializing_if = "Option::is_none")]
     updated_at: Option<String>,
+    #[serde(default, skip_serializing)]
+    target: Option<TestingEnvironmentTarget>,
+    #[serde(default, skip_serializing)]
+    running_instance: Option<TestingEnvironmentInstance>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -230,6 +240,7 @@ struct TestingEnvironmentSetTargetPayload {
     known_worktrees: Vec<String>,
     workspace_meta: Option<WorkspaceMetaContext>,
     worktree: String,
+    enabled: Option<bool>,
     auto_start_if_current_running: Option<bool>,
 }
 
@@ -250,6 +261,7 @@ struct TestingEnvironmentStopPayload {
     #[serde(default)]
     known_worktrees: Vec<String>,
     workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -348,11 +360,29 @@ struct WorkspaceTerminalSettingsResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct TestingEnvironmentEntry {
+    worktree: String,
+    worktree_path: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instance_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pid: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct TestingEnvironmentResponse {
     request_id: String,
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     workspace_root: Option<String>,
+    #[serde(default)]
+    environments: Vec<TestingEnvironmentEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     target_worktree: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -583,29 +613,105 @@ fn run_command_with_worktree_env(
     args: &[String],
     cwd: &Path,
     worktree_path: &Path,
+    port: Option<u16>,
+    timeout: Duration,
 ) -> CommandResult {
-    let output = Command::new(binary)
+    let mut command = Command::new(binary);
+    command
         .args(args)
         .current_dir(cwd)
-        .env("GROOVE_WORKTREE", worktree_path.display().to_string())
-        .output();
+        .env("GROOVE_WORKTREE", worktree_path.display().to_string());
+    if let Some(port) = port {
+        command.env("PORT", port.to_string());
+    }
 
-    match output {
-        Ok(output) => CommandResult {
-            exit_code: output.status.code(),
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            error: None,
-        },
-        Err(error) => CommandResult {
-            exit_code: None,
-            stdout: String::new(),
-            stderr: String::new(),
-            error: Some(format!(
-                "Failed to execute custom command {}: {}",
-                binary, error
-            )),
-        },
+    run_command_with_timeout(
+        command,
+        timeout,
+        format!("Failed to execute custom command {binary}"),
+        format!("custom command {binary}"),
+    )
+}
+
+fn run_command_with_timeout(
+    mut command: Command,
+    timeout: Duration,
+    spawn_error_context: String,
+    timeout_context: String,
+) -> CommandResult {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            return CommandResult {
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(format!("{spawn_error_context}: {error}")),
+            };
+        }
+    };
+
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                return match child.wait_with_output() {
+                    Ok(output) => CommandResult {
+                        exit_code: output.status.code(),
+                        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                        error: None,
+                    },
+                    Err(error) => CommandResult {
+                        exit_code: None,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(format!(
+                            "Failed to collect command output for {timeout_context}: {error}"
+                        )),
+                    },
+                };
+            }
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    return match child.wait_with_output() {
+                        Ok(output) => CommandResult {
+                            exit_code: output.status.code(),
+                            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                            error: Some(format!(
+                                "Command {timeout_context} timed out after {} seconds and was terminated.",
+                                timeout.as_secs()
+                            )),
+                        },
+                        Err(error) => CommandResult {
+                            exit_code: None,
+                            stdout: String::new(),
+                            stderr: String::new(),
+                            error: Some(format!(
+                                "Command {timeout_context} timed out after {} seconds and could not be reaped: {error}",
+                                timeout.as_secs()
+                            )),
+                        },
+                    };
+                }
+
+                thread::sleep(COMMAND_TIMEOUT_POLL_INTERVAL);
+            }
+            Err(error) => {
+                return CommandResult {
+                    exit_code: None,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    error: Some(format!(
+                        "Failed while waiting for {timeout_context}: {error}"
+                    )),
+                };
+            }
+        }
     }
 }
 
@@ -1476,6 +1582,38 @@ fn run_command(binary: &Path, args: &[String], cwd: &Path) -> CommandResult {
     }
 }
 
+fn run_command_timeout(
+    binary: &Path,
+    args: &[String],
+    cwd: &Path,
+    timeout: Duration,
+    port: Option<u16>,
+) -> CommandResult {
+    let mut command = Command::new(binary);
+    command.args(args).current_dir(cwd);
+    if let Some(port) = port {
+        command.env("PORT", port.to_string());
+    }
+
+    run_command_with_timeout(
+        command,
+        timeout,
+        format!("Failed to execute {}", binary.display()),
+        format!("{}", binary.display()),
+    )
+}
+
+fn allocate_testing_port() -> Result<u16, String> {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|error| format!("Failed to allocate testing environment port: {error}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| format!("Failed to resolve testing environment port: {error}"))?
+        .port();
+    drop(listener);
+    Ok(port)
+}
+
 fn parse_opencode_segment(value: &str) -> (String, Option<String>) {
     let normalized = value.trim().to_lowercase();
     let instance_id = value
@@ -2207,35 +2345,80 @@ fn ensure_testing_runtime_loaded(
     }
 
     runtime.persisted = read_persisted_testing_environment_state(app)?;
+    if runtime.persisted.targets.is_empty() {
+        if let Some(target) = runtime.persisted.target.take() {
+            runtime.persisted.targets.push(target);
+        }
+    }
+    if runtime.persisted.running_instances.is_empty() {
+        if let Some(instance) = runtime.persisted.running_instance.take() {
+            runtime.persisted.running_instances.push(instance);
+        }
+    }
     runtime.loaded = true;
     Ok(())
+}
+
+fn testing_child_key(workspace_root: &str, worktree: &str) -> String {
+    format!("{}::{}", workspace_root, worktree)
 }
 
 fn reconcile_testing_runtime(runtime: &mut TestingEnvironmentRuntimeState) -> bool {
     let mut changed = false;
 
-    if let Some(child) = runtime.child.as_mut() {
+    let mut completed_child_keys: Vec<String> = Vec::new();
+    for (child_key, child) in runtime.children_by_worktree.iter_mut() {
         match child.try_wait() {
-            Ok(Some(_status)) => {
-                runtime.child = None;
-                runtime.persisted.running_instance = None;
-                runtime.persisted.updated_at = Some(now_iso());
-                return true;
-            }
+            Ok(Some(_status)) => completed_child_keys.push(child_key.clone()),
             Ok(None) => {}
-            Err(_) => {
-                runtime.child = None;
-                changed = true;
-            }
+            Err(_) => completed_child_keys.push(child_key.clone()),
         }
     }
 
-    if let Some(instance) = runtime.persisted.running_instance.as_ref() {
-        if instance.pid > 0 && !is_process_running(instance.pid) {
-            runtime.persisted.running_instance = None;
-            runtime.persisted.updated_at = Some(now_iso());
+    for child_key in completed_child_keys {
+        runtime.children_by_worktree.remove(&child_key);
+        let before = runtime.persisted.running_instances.len();
+        runtime.persisted.running_instances.retain(|instance| {
+            testing_child_key(&instance.workspace_root, &instance.worktree) != child_key
+        });
+        if runtime.persisted.running_instances.len() != before {
             changed = true;
         }
+    }
+
+    let before = runtime.persisted.running_instances.len();
+    runtime.persisted.running_instances.retain(|instance| {
+        if instance.pid <= 0 {
+            return true;
+        }
+        is_process_running(instance.pid)
+    });
+    if runtime.persisted.running_instances.len() != before {
+        changed = true;
+    }
+
+    let mut seen_targets = HashSet::<String>::new();
+    let before_targets = runtime.persisted.targets.len();
+    runtime.persisted.targets.retain(|target| {
+        let key = format!("{}::{}", target.workspace_root, target.worktree);
+        seen_targets.insert(key)
+    });
+    if runtime.persisted.targets.len() != before_targets {
+        changed = true;
+    }
+
+    let mut seen_instances = HashSet::<String>::new();
+    let before_instances = runtime.persisted.running_instances.len();
+    runtime.persisted.running_instances.retain(|instance| {
+        let key = format!("{}::{}", instance.workspace_root, instance.worktree);
+        seen_instances.insert(key)
+    });
+    if runtime.persisted.running_instances.len() != before_instances {
+        changed = true;
+    }
+
+    if changed {
+        runtime.persisted.updated_at = Some(now_iso());
     }
 
     changed
@@ -2260,64 +2443,134 @@ fn build_testing_environment_response(
 ) -> TestingEnvironmentResponse {
     let workspace_root_string = workspace_root.map(|path| path.display().to_string());
 
-    let target = match (&state.target, workspace_root_string.as_ref()) {
-        (Some(target), Some(root)) if target.workspace_root == *root => Some(target),
-        _ => None,
-    };
+    let root = workspace_root_string.as_deref();
+    let targets = state
+        .targets
+        .iter()
+        .filter(|target| {
+            root.map(|value| value == target.workspace_root)
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let running_instances = state
+        .running_instances
+        .iter()
+        .filter(|instance| {
+            root.map(|value| value == instance.workspace_root)
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
 
-    let running_instance = match (&state.running_instance, workspace_root_string.as_ref()) {
-        (Some(instance), Some(root)) if instance.workspace_root == *root => Some(instance),
-        _ => None,
-    };
+    let running_by_worktree = running_instances
+        .iter()
+        .map(|instance| (instance.worktree.clone(), instance.clone()))
+        .collect::<HashMap<_, _>>();
 
-    let status = if running_instance.is_some() {
+    let mut environments = targets
+        .iter()
+        .map(|target| {
+            let running_instance = running_by_worktree.get(&target.worktree);
+            TestingEnvironmentEntry {
+                worktree: target.worktree.clone(),
+                worktree_path: target.worktree_path.clone(),
+                status: if running_instance.is_some() {
+                    "running".to_string()
+                } else {
+                    "stopped".to_string()
+                },
+                instance_id: running_instance.map(|value| value.instance_id.clone()),
+                pid: running_instance.map(|value| value.pid),
+                port: running_instance.and_then(|value| value.port),
+                started_at: running_instance.map(|value| value.started_at.clone()),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    for instance in &running_instances {
+        let exists = environments
+            .iter()
+            .any(|environment| environment.worktree == instance.worktree);
+        if exists {
+            continue;
+        }
+        environments.push(TestingEnvironmentEntry {
+            worktree: instance.worktree.clone(),
+            worktree_path: instance.worktree_path.clone(),
+            status: "running".to_string(),
+            instance_id: Some(instance.instance_id.clone()),
+            pid: Some(instance.pid),
+            port: instance.port,
+            started_at: Some(instance.started_at.clone()),
+        });
+    }
+
+    environments.sort_by(|left, right| left.worktree.cmp(&right.worktree));
+
+    let status = if environments
+        .iter()
+        .any(|environment| environment.status == "running")
+    {
         "running"
-    } else if target.is_some() {
-        "stopped"
-    } else {
+    } else if environments.is_empty() {
         "none"
+    } else {
+        "stopped"
     }
     .to_string();
+
+    let primary_target = targets.first();
+    let primary_running = running_instances.first();
 
     TestingEnvironmentResponse {
         request_id,
         ok: error.is_none(),
         workspace_root: workspace_root_string,
-        target_worktree: target.map(|value| value.worktree.clone()),
-        target_path: target.map(|value| value.worktree_path.clone()),
+        environments,
+        target_worktree: primary_target.map(|value| value.worktree.clone()),
+        target_path: primary_target.map(|value| value.worktree_path.clone()),
         status,
-        instance_id: running_instance.map(|value| value.instance_id.clone()),
-        pid: running_instance.map(|value| value.pid),
-        started_at: running_instance.map(|value| value.started_at.clone()),
+        instance_id: primary_running.map(|value| value.instance_id.clone()),
+        pid: primary_running.map(|value| value.pid),
+        started_at: primary_running.map(|value| value.started_at.clone()),
         error,
     }
 }
 
-fn stop_running_testing_instance(
+fn stop_running_testing_instance_for_worktree(
     runtime: &mut TestingEnvironmentRuntimeState,
-) -> Result<Option<TestingEnvironmentInstance>, String> {
-    let Some(instance) = runtime.persisted.running_instance.clone() else {
-        if let Some(mut child) = runtime.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        return Ok(None);
+    workspace_root: &str,
+    worktree: &str,
+) -> Result<bool, String> {
+    let index = runtime
+        .persisted
+        .running_instances
+        .iter()
+        .position(|instance| {
+            instance.workspace_root == workspace_root && instance.worktree == worktree
+        });
+    let Some(index) = index else {
+        runtime
+            .children_by_worktree
+            .remove(&testing_child_key(workspace_root, worktree));
+        return Ok(false);
     };
 
-    if let Some(mut child) = runtime.child.take() {
-        if i32::try_from(child.id()).ok() == Some(instance.pid) {
-            let _ = child.kill();
-            let _ = child.wait();
-        } else if is_process_running(instance.pid) {
-            stop_process_by_pid(instance.pid)?;
-        }
-    } else if is_process_running(instance.pid) {
+    let instance = runtime.persisted.running_instances[index].clone();
+    if let Some(mut child) = runtime
+        .children_by_worktree
+        .remove(&testing_child_key(workspace_root, worktree))
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+    } else if instance.pid > 0 && is_process_running(instance.pid) {
         stop_process_by_pid(instance.pid)?;
     }
 
-    runtime.persisted.running_instance = None;
+    runtime.persisted.running_instances.remove(index);
     runtime.persisted.updated_at = Some(now_iso());
-    Ok(Some(instance))
+    Ok(true)
 }
 
 fn testing_instance_is_effectively_running(instance: &TestingEnvironmentInstance) -> bool {
@@ -2332,25 +2585,33 @@ fn start_testing_instance_for_target(
     target: &TestingEnvironmentTarget,
     runtime: &mut TestingEnvironmentRuntimeState,
 ) -> Result<(), String> {
-    if let Some(existing) = runtime.persisted.running_instance.clone() {
-        let existing_is_same_target = existing.workspace_root == target.workspace_root
-            && existing.worktree == target.worktree
-            && existing.worktree_path == target.worktree_path;
-
-        if existing_is_same_target && testing_instance_is_effectively_running(&existing) {
+    if let Some(existing) = runtime
+        .persisted
+        .running_instances
+        .iter()
+        .find(|instance| {
+            instance.workspace_root == target.workspace_root
+                && instance.worktree == target.worktree
+                && instance.worktree_path == target.worktree_path
+        })
+        .cloned()
+    {
+        if testing_instance_is_effectively_running(&existing) {
             return Ok(());
         }
-
-        if existing.pid > 0 && is_process_running(existing.pid) {
-            stop_process_by_pid(existing.pid)?;
-        }
-        runtime.persisted.running_instance = None;
+        let _ = stop_running_testing_instance_for_worktree(
+            runtime,
+            &target.workspace_root,
+            &target.worktree,
+        )?;
     }
 
     let mut command = Command::new("pnpm");
+    let port = allocate_testing_port()?;
     command
         .args(["run", "dev"])
         .current_dir(Path::new(&target.worktree_path))
+        .env("PORT", port.to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -2363,16 +2624,26 @@ fn start_testing_instance_for_target(
     let pid = i32::try_from(raw_pid)
         .map_err(|_| format!("Started process PID {raw_pid} is out of supported range."))?;
 
-    runtime.persisted.running_instance = Some(TestingEnvironmentInstance {
-        instance_id: format!("local-{pid}-{}", Uuid::new_v4()),
-        pid,
-        workspace_root: target.workspace_root.clone(),
-        worktree: target.worktree.clone(),
-        worktree_path: target.worktree_path.clone(),
-        command: "pnpm run dev".to_string(),
-        started_at: now_iso(),
+    runtime.persisted.running_instances.retain(|instance| {
+        !(instance.workspace_root == target.workspace_root && instance.worktree == target.worktree)
     });
-    runtime.child = Some(child);
+    runtime
+        .persisted
+        .running_instances
+        .push(TestingEnvironmentInstance {
+            instance_id: format!("local-{pid}-{}", Uuid::new_v4()),
+            pid,
+            port: Some(port),
+            workspace_root: target.workspace_root.clone(),
+            worktree: target.worktree.clone(),
+            worktree_path: target.worktree_path.clone(),
+            command: "pnpm run dev".to_string(),
+            started_at: now_iso(),
+        });
+    runtime.children_by_worktree.insert(
+        testing_child_key(&target.workspace_root, &target.worktree),
+        child,
+    );
     runtime.persisted.updated_at = Some(now_iso());
 
     Ok(())
@@ -2507,7 +2778,14 @@ fn workspace_clear_active(
 
     if let Ok(mut runtime) = testing_state.runtime.lock() {
         if ensure_testing_runtime_loaded(&app, &mut runtime).is_ok() {
-            let _ = stop_running_testing_instance(&mut runtime);
+            let instances = runtime.persisted.running_instances.clone();
+            for instance in instances {
+                let _ = stop_running_testing_instance_for_worktree(
+                    &mut runtime,
+                    &instance.workspace_root,
+                    &instance.worktree,
+                );
+            }
             runtime.persisted = PersistedTestingEnvironmentState::default();
             runtime.loaded = true;
             let _ = clear_persisted_testing_environment_state(&app);
@@ -3058,9 +3336,26 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
     }
 
     let result = run_command(&groove_binary_path(&app), &args, &workspace_root);
+    let ok = result.exit_code == Some(0) && result.error.is_none();
+    if ok {
+        let stamped_worktree = branch.replace('/', "_");
+        if let Err(error) =
+            record_worktree_last_executed_at(&app, &workspace_root, &stamped_worktree)
+        {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: result.exit_code,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                error: Some(error),
+            };
+        }
+    }
+
     GrooveCommandResponse {
         request_id,
-        ok: result.exit_code == Some(0) && result.error.is_none(),
+        ok,
         exit_code: result.exit_code,
         stdout: result.stdout,
         stderr: result.stderr,
@@ -3388,6 +3683,7 @@ fn testing_environment_get_status(
                 request_id,
                 ok: false,
                 workspace_root: None,
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3412,6 +3708,7 @@ fn testing_environment_get_status(
                 request_id,
                 ok: false,
                 workspace_root: None,
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3430,6 +3727,7 @@ fn testing_environment_get_status(
                 request_id,
                 ok: false,
                 workspace_root: Some(workspace_root.display().to_string()),
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3470,6 +3768,7 @@ fn testing_environment_set_target(
     payload: TestingEnvironmentSetTargetPayload,
 ) -> TestingEnvironmentResponse {
     let request_id = request_id();
+    let enabled = payload.enabled.unwrap_or(true);
 
     let worktree = payload.worktree.trim();
     if worktree.is_empty() {
@@ -3477,6 +3776,7 @@ fn testing_environment_set_target(
             request_id,
             ok: false,
             workspace_root: None,
+            environments: Vec::new(),
             target_worktree: None,
             target_path: None,
             status: "none".to_string(),
@@ -3491,6 +3791,7 @@ fn testing_environment_set_target(
             request_id,
             ok: false,
             workspace_root: None,
+            environments: Vec::new(),
             target_worktree: None,
             target_path: None,
             status: "none".to_string(),
@@ -3508,6 +3809,7 @@ fn testing_environment_set_target(
                 request_id,
                 ok: false,
                 workspace_root: None,
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3532,24 +3834,7 @@ fn testing_environment_set_target(
                 request_id,
                 ok: false,
                 workspace_root: None,
-                target_worktree: None,
-                target_path: None,
-                status: "none".to_string(),
-                instance_id: None,
-                pid: None,
-                started_at: None,
-                error: Some(error),
-            }
-        }
-    };
-
-    let worktree_path = match ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees") {
-        Ok(path) => path,
-        Err(error) => {
-            return TestingEnvironmentResponse {
-                request_id,
-                ok: false,
-                workspace_root: Some(workspace_root.display().to_string()),
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3568,6 +3853,7 @@ fn testing_environment_set_target(
                 request_id,
                 ok: false,
                 workspace_root: Some(workspace_root.display().to_string()),
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3599,45 +3885,53 @@ fn testing_environment_set_target(
         );
     }
 
-    let current_target = runtime.persisted.target.clone();
-    let current_running = runtime.persisted.running_instance.clone();
-    let switching_target = current_target
-        .as_ref()
-        .map(|target| {
-            target.workspace_root != workspace_root.display().to_string()
-                || target.worktree != worktree
-        })
-        .unwrap_or(false);
+    let workspace_root_string = workspace_root.display().to_string();
+    if enabled {
+        let worktree_path = match ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees") {
+            Ok(path) => path,
+            Err(error) => {
+                return build_testing_environment_response(
+                    request_id,
+                    Some(&workspace_root),
+                    &runtime.persisted,
+                    Some(error),
+                );
+            }
+        };
 
-    let previous_had_running_instance = current_running
-        .as_ref()
-        .map(testing_instance_is_effectively_running)
-        .unwrap_or(false);
+        let target = TestingEnvironmentTarget {
+            workspace_root: workspace_root_string.clone(),
+            worktree: worktree.to_string(),
+            worktree_path: worktree_path.display().to_string(),
+            updated_at: now_iso(),
+        };
 
-    if switching_target && previous_had_running_instance {
-        if let Err(error) = stop_running_testing_instance(&mut runtime) {
-            return build_testing_environment_response(
-                request_id,
-                Some(&workspace_root),
-                &runtime.persisted,
-                Some(error),
-            );
+        let mut replaced = false;
+        for existing in &mut runtime.persisted.targets {
+            if existing.workspace_root == workspace_root_string && existing.worktree == worktree {
+                *existing = target.clone();
+                replaced = true;
+                break;
+            }
         }
-    }
+        if !replaced {
+            runtime.persisted.targets.push(target.clone());
+        }
 
-    runtime.persisted.target = Some(TestingEnvironmentTarget {
-        workspace_root: workspace_root.display().to_string(),
-        worktree: worktree.to_string(),
-        worktree_path: worktree_path.display().to_string(),
-        updated_at: now_iso(),
-    });
-    runtime.persisted.updated_at = Some(now_iso());
+        let has_running_instance_for_target =
+            runtime.persisted.running_instances.iter().any(|instance| {
+                instance.workspace_root == workspace_root_string && instance.worktree == worktree
+            });
+        let has_any_running_in_workspace = runtime
+            .persisted
+            .running_instances
+            .iter()
+            .any(|instance| instance.workspace_root == workspace_root_string);
 
-    if switching_target
-        && previous_had_running_instance
-        && payload.auto_start_if_current_running.unwrap_or(false)
-    {
-        if let Some(target) = runtime.persisted.target.clone() {
+        if payload.auto_start_if_current_running.unwrap_or(false)
+            && has_any_running_in_workspace
+            && !has_running_instance_for_target
+        {
             if let Err(error) = start_testing_instance_for_target(&target, &mut runtime) {
                 return build_testing_environment_response(
                     request_id,
@@ -3647,6 +3941,33 @@ fn testing_environment_set_target(
                 );
             }
         }
+
+        runtime.persisted.updated_at = Some(now_iso());
+        if let Err(error) = record_worktree_last_executed_at(&app, &workspace_root, worktree) {
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(error),
+            );
+        }
+    } else {
+        runtime.persisted.targets.retain(|target| {
+            !(target.workspace_root == workspace_root_string && target.worktree == worktree)
+        });
+        if let Err(error) = stop_running_testing_instance_for_worktree(
+            &mut runtime,
+            &workspace_root_string,
+            worktree,
+        ) {
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(error),
+            );
+        }
+        runtime.persisted.updated_at = Some(now_iso());
     }
 
     if let Err(error) = write_persisted_testing_environment_state(&app, &runtime.persisted) {
@@ -3676,6 +3997,7 @@ fn testing_environment_start(
                 request_id,
                 ok: false,
                 workspace_root: None,
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3699,6 +4021,7 @@ fn testing_environment_start(
                 request_id,
                 ok: false,
                 workspace_root: None,
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3723,6 +4046,7 @@ fn testing_environment_start(
                 request_id,
                 ok: false,
                 workspace_root: None,
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3741,6 +4065,7 @@ fn testing_environment_start(
                 request_id,
                 ok: false,
                 workspace_root: Some(workspace_root.display().to_string()),
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3772,6 +4097,7 @@ fn testing_environment_start(
         );
     }
 
+    let workspace_root_string = workspace_root.display().to_string();
     if let Some(worktree) = required_worktree {
         let worktree_path = match ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees") {
             Ok(path) => path,
@@ -3785,38 +4111,17 @@ fn testing_environment_start(
             }
         };
 
-        runtime.persisted.target = Some(TestingEnvironmentTarget {
-            workspace_root: workspace_root.display().to_string(),
+        let target = TestingEnvironmentTarget {
+            workspace_root: workspace_root_string.clone(),
             worktree: worktree.to_string(),
             worktree_path: worktree_path.display().to_string(),
             updated_at: now_iso(),
+        };
+        runtime.persisted.targets.retain(|existing| {
+            !(existing.workspace_root == workspace_root_string && existing.worktree == worktree)
         });
-        runtime.persisted.updated_at = Some(now_iso());
-    }
-
-    let Some(target) = runtime.persisted.target.clone() else {
-        return build_testing_environment_response(
-            request_id,
-            Some(&workspace_root),
-            &runtime.persisted,
-            Some("Select a testing environment target before running locally.".to_string()),
-        );
-    };
-
-    if target.workspace_root != workspace_root.display().to_string() {
-        return build_testing_environment_response(
-            request_id,
-            Some(&workspace_root),
-            &runtime.persisted,
-            Some(
-                "Current testing target belongs to another workspace. Select a target again."
-                    .to_string(),
-            ),
-        );
-    }
-
-    if runtime.persisted.running_instance.is_some() {
-        if let Err(error) = stop_running_testing_instance(&mut runtime) {
+        runtime.persisted.targets.push(target.clone());
+        if let Err(error) = start_testing_instance_for_target(&target, &mut runtime) {
             return build_testing_environment_response(
                 request_id,
                 Some(&workspace_root),
@@ -3824,27 +4129,57 @@ fn testing_environment_start(
                 Some(error),
             );
         }
+        if let Err(error) = record_worktree_last_executed_at(&app, &workspace_root, worktree) {
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(error),
+            );
+        }
+    } else {
+        let targets = runtime
+            .persisted
+            .targets
+            .iter()
+            .filter(|target| target.workspace_root == workspace_root_string)
+            .cloned()
+            .collect::<Vec<_>>();
+        if targets.is_empty() {
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(
+                    "Select at least one testing environment target before running locally."
+                        .to_string(),
+                ),
+            );
+        }
+        for target in targets {
+            if let Err(error) = start_testing_instance_for_target(&target, &mut runtime) {
+                return build_testing_environment_response(
+                    request_id,
+                    Some(&workspace_root),
+                    &runtime.persisted,
+                    Some(error),
+                );
+            }
+            if let Err(error) =
+                record_worktree_last_executed_at(&app, &workspace_root, &target.worktree)
+            {
+                return build_testing_environment_response(
+                    request_id,
+                    Some(&workspace_root),
+                    &runtime.persisted,
+                    Some(error),
+                );
+            }
+        }
     }
-
-    if let Err(error) = start_testing_instance_for_target(&target, &mut runtime) {
-        return build_testing_environment_response(
-            request_id,
-            Some(&workspace_root),
-            &runtime.persisted,
-            Some(error),
-        );
-    }
+    runtime.persisted.updated_at = Some(now_iso());
 
     if let Err(error) = write_persisted_testing_environment_state(&app, &runtime.persisted) {
-        return build_testing_environment_response(
-            request_id,
-            Some(&workspace_root),
-            &runtime.persisted,
-            Some(error),
-        );
-    }
-
-    if let Err(error) = record_worktree_last_executed_at(&app, &workspace_root, &target.worktree) {
         return build_testing_environment_response(
             request_id,
             Some(&workspace_root),
@@ -3871,6 +4206,7 @@ fn testing_environment_start_separate_terminal(
                 request_id,
                 ok: false,
                 workspace_root: None,
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3894,6 +4230,7 @@ fn testing_environment_start_separate_terminal(
                 request_id,
                 ok: false,
                 workspace_root: None,
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3918,6 +4255,7 @@ fn testing_environment_start_separate_terminal(
                 request_id,
                 ok: false,
                 workspace_root: None,
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3936,6 +4274,7 @@ fn testing_environment_start_separate_terminal(
                 request_id,
                 ok: false,
                 workspace_root: Some(workspace_root.display().to_string()),
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -3967,6 +4306,8 @@ fn testing_environment_start_separate_terminal(
         );
     }
 
+    let workspace_root_string = workspace_root.display().to_string();
+    let mut targets_to_start: Vec<TestingEnvironmentTarget> = Vec::new();
     if let Some(worktree) = required_worktree {
         let worktree_path = match ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees") {
             Ok(path) => path,
@@ -3979,47 +4320,36 @@ fn testing_environment_start_separate_terminal(
                 );
             }
         };
-
-        runtime.persisted.target = Some(TestingEnvironmentTarget {
-            workspace_root: workspace_root.display().to_string(),
+        let target = TestingEnvironmentTarget {
+            workspace_root: workspace_root_string.clone(),
             worktree: worktree.to_string(),
             worktree_path: worktree_path.display().to_string(),
             updated_at: now_iso(),
+        };
+        runtime.persisted.targets.retain(|existing| {
+            !(existing.workspace_root == workspace_root_string && existing.worktree == worktree)
         });
-        runtime.persisted.updated_at = Some(now_iso());
-    }
-
-    let Some(target) = runtime.persisted.target.clone() else {
-        return build_testing_environment_response(
-            request_id,
-            Some(&workspace_root),
-            &runtime.persisted,
-            Some(
-                "Select a testing environment target before running locally on a separate terminal."
-                    .to_string(),
-            ),
-        );
-    };
-
-    if target.workspace_root != workspace_root.display().to_string() {
-        return build_testing_environment_response(
-            request_id,
-            Some(&workspace_root),
-            &runtime.persisted,
-            Some(
-                "Current testing target belongs to another workspace. Select a target again."
-                    .to_string(),
-            ),
-        );
-    }
-
-    if let Err(error) = write_persisted_testing_environment_state(&app, &runtime.persisted) {
-        return build_testing_environment_response(
-            request_id,
-            Some(&workspace_root),
-            &runtime.persisted,
-            Some(error),
-        );
+        runtime.persisted.targets.push(target.clone());
+        targets_to_start.push(target);
+    } else {
+        targets_to_start = runtime
+            .persisted
+            .targets
+            .iter()
+            .filter(|target| target.workspace_root == workspace_root_string)
+            .cloned()
+            .collect::<Vec<_>>();
+        if targets_to_start.is_empty() {
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(
+                    "Select at least one testing environment target before running locally on a separate terminal."
+                        .to_string(),
+                ),
+            );
+        }
     }
 
     let workspace_meta = match ensure_workspace_meta(&workspace_root) {
@@ -4036,26 +4366,40 @@ fn testing_environment_start_separate_terminal(
     let default_terminal = normalize_default_terminal(&workspace_meta.default_terminal)
         .unwrap_or_else(|_| default_terminal_auto());
 
-    let (result, command_for_state) = if default_terminal == "custom" {
-        let Some(custom_command) = workspace_meta
-            .terminal_custom_command
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        else {
-            return build_testing_environment_response(
-                request_id,
-                Some(&workspace_root),
-                &runtime.persisted,
-                Some(
-                    "Default terminal is set to custom, but terminalCustomCommand is empty."
-                        .to_string(),
-                ),
-            );
+    for target in targets_to_start {
+        let port = match allocate_testing_port() {
+            Ok(value) => value,
+            Err(error) => {
+                return build_testing_environment_response(
+                    request_id,
+                    Some(&workspace_root),
+                    &runtime.persisted,
+                    Some(error),
+                );
+            }
         };
+        let (result, command_for_state) = if default_terminal == "custom" {
+            let Some(custom_command) = workspace_meta
+                .terminal_custom_command
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                return build_testing_environment_response(
+                    request_id,
+                    Some(&workspace_root),
+                    &runtime.persisted,
+                    Some(
+                        "Default terminal is set to custom, but terminalCustomCommand is empty."
+                            .to_string(),
+                    ),
+                );
+            };
 
-        let parsed_command =
-            match parse_custom_terminal_command(custom_command, Path::new(&target.worktree_path)) {
+            let parsed_command = match parse_custom_terminal_command(
+                custom_command,
+                Path::new(&target.worktree_path),
+            ) {
                 Ok(parsed) => parsed,
                 Err(error) => {
                     return build_testing_environment_response(
@@ -4066,76 +4410,97 @@ fn testing_environment_start_separate_terminal(
                     );
                 }
             };
-        let (program, args) = parsed_command;
-        let command_for_state = std::iter::once(program.as_str())
-            .chain(args.iter().map(|value| value.as_str()))
-            .collect::<Vec<_>>()
-            .join(" ");
-        (
-            run_command_with_worktree_env(
-                &program,
-                &args,
-                &workspace_root,
-                Path::new(&target.worktree_path),
-            ),
-            command_for_state,
-        )
-    } else {
-        let args = vec![
-            "run".to_string(),
-            target.worktree.clone(),
-            "--terminal".to_string(),
-            default_terminal,
-        ];
-        (
-            run_command(&groove_binary_path(&app), &args, &workspace_root),
-            format!("groove {}", args.join(" ")),
-        )
-    };
+            let (program, args) = parsed_command;
+            let command_for_state = std::iter::once(program.as_str())
+                .chain(args.iter().map(|value| value.as_str()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            (
+                run_command_with_worktree_env(
+                    &program,
+                    &args,
+                    &workspace_root,
+                    Path::new(&target.worktree_path),
+                    Some(port),
+                    SEPARATE_TERMINAL_COMMAND_TIMEOUT,
+                ),
+                command_for_state,
+            )
+        } else {
+            let args = vec![
+                "run".to_string(),
+                target.worktree.clone(),
+                "--terminal".to_string(),
+                default_terminal.clone(),
+            ];
+            (
+                run_command_timeout(
+                    &groove_binary_path(&app),
+                    &args,
+                    &workspace_root,
+                    SEPARATE_TERMINAL_COMMAND_TIMEOUT,
+                    Some(port),
+                ),
+                format!("groove {}", args.join(" ")),
+            )
+        };
 
-    if result.exit_code != Some(0) || result.error.is_some() {
-        let output_line = result
-            .stderr
-            .lines()
-            .chain(result.stdout.lines())
-            .map(str::trim)
-            .find(|value| !value.is_empty())
-            .map(str::to_string);
-        let detail = result
-            .error
-            .or_else(|| output_line)
-            .unwrap_or_else(|| "groove run failed.".to_string());
+        if result.exit_code != Some(0) || result.error.is_some() {
+            let output_line = result
+                .stderr
+                .lines()
+                .chain(result.stdout.lines())
+                .map(str::trim)
+                .find(|value| !value.is_empty())
+                .map(str::to_string);
+            let detail = result
+                .error
+                .or_else(|| output_line)
+                .unwrap_or_else(|| "groove run failed.".to_string());
 
-        return build_testing_environment_response(
-            request_id,
-            Some(&workspace_root),
-            &runtime.persisted,
-            Some(format!(
-                "Failed to run local testing in a separate terminal for {}: {}",
-                target.worktree, detail
-            )),
-        );
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(format!(
+                    "Failed to run local testing in a separate terminal for {}: {}",
+                    target.worktree, detail
+                )),
+            );
+        }
+
+        if let Err(error) =
+            record_worktree_last_executed_at(&app, &workspace_root, &target.worktree)
+        {
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(error),
+            );
+        }
+
+        runtime.persisted.running_instances.retain(|instance| {
+            !(instance.workspace_root == target.workspace_root
+                && instance.worktree == target.worktree)
+        });
+        runtime
+            .persisted
+            .running_instances
+            .push(TestingEnvironmentInstance {
+                instance_id: format!("separate-terminal-{}", Uuid::new_v4()),
+                pid: 0,
+                port: Some(port),
+                workspace_root: target.workspace_root.clone(),
+                worktree: target.worktree.clone(),
+                worktree_path: target.worktree_path.clone(),
+                command: command_for_state,
+                started_at: now_iso(),
+            });
+        runtime
+            .children_by_worktree
+            .remove(&testing_child_key(&target.workspace_root, &target.worktree));
     }
-
-    if let Err(error) = record_worktree_last_executed_at(&app, &workspace_root, &target.worktree) {
-        return build_testing_environment_response(
-            request_id,
-            Some(&workspace_root),
-            &runtime.persisted,
-            Some(error),
-        );
-    }
-
-    runtime.persisted.running_instance = Some(TestingEnvironmentInstance {
-        instance_id: format!("separate-terminal-{}", Uuid::new_v4()),
-        pid: 0,
-        workspace_root: target.workspace_root.clone(),
-        worktree: target.worktree.clone(),
-        worktree_path: target.worktree_path.clone(),
-        command: command_for_state,
-        started_at: now_iso(),
-    });
-    runtime.child = None;
     runtime.persisted.updated_at = Some(now_iso());
 
     if let Err(error) = write_persisted_testing_environment_state(&app, &runtime.persisted) {
@@ -4165,6 +4530,7 @@ fn testing_environment_stop(
                 request_id,
                 ok: false,
                 workspace_root: None,
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -4189,6 +4555,7 @@ fn testing_environment_stop(
                 request_id,
                 ok: false,
                 workspace_root: None,
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -4207,6 +4574,7 @@ fn testing_environment_stop(
                 request_id,
                 ok: false,
                 workspace_root: Some(workspace_root.display().to_string()),
+                environments: Vec::new(),
                 target_worktree: None,
                 target_path: None,
                 status: "none".to_string(),
@@ -4238,9 +4606,39 @@ fn testing_environment_stop(
         );
     }
 
-    if let Some(instance) = runtime.persisted.running_instance.as_ref() {
-        if instance.workspace_root == workspace_root.display().to_string() {
-            if let Err(error) = stop_running_testing_instance(&mut runtime) {
+    let workspace_root_string = workspace_root.display().to_string();
+    if let Some(worktree) = payload
+        .worktree
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Err(error) = stop_running_testing_instance_for_worktree(
+            &mut runtime,
+            &workspace_root_string,
+            worktree,
+        ) {
+            return build_testing_environment_response(
+                request_id,
+                Some(&workspace_root),
+                &runtime.persisted,
+                Some(error),
+            );
+        }
+    } else {
+        let worktrees = runtime
+            .persisted
+            .running_instances
+            .iter()
+            .filter(|instance| instance.workspace_root == workspace_root_string)
+            .map(|instance| instance.worktree.clone())
+            .collect::<Vec<_>>();
+        for worktree in worktrees {
+            if let Err(error) = stop_running_testing_instance_for_worktree(
+                &mut runtime,
+                &workspace_root_string,
+                &worktree,
+            ) {
                 return build_testing_environment_response(
                     request_id,
                     Some(&workspace_root),
@@ -4250,6 +4648,7 @@ fn testing_environment_stop(
             }
         }
     }
+    runtime.persisted.updated_at = Some(now_iso());
 
     if let Err(error) = write_persisted_testing_environment_state(&app, &runtime.persisted) {
         return build_testing_environment_response(
@@ -4547,6 +4946,8 @@ fn workspace_events(
             snapshots.insert(target.clone(), snapshot_entry(target));
         }
 
+        let workspace_root_display = workspace_root_clone.display().to_string();
+
         let _ = app_handle.emit(
             "workspace-ready",
             serde_json::json!({
@@ -4557,6 +4958,11 @@ fn workspace_events(
         );
 
         let mut index: u64 = 0;
+        let mut pending_sources = HashSet::<String>::new();
+        let mut last_emit_at = Instant::now()
+            .checked_sub(WORKSPACE_EVENTS_MIN_EMIT_INTERVAL)
+            .unwrap_or_else(Instant::now);
+
         while !stop_signal.load(Ordering::Relaxed) {
             for target in &poll_targets {
                 let next = snapshot_entry(target);
@@ -4567,19 +4973,37 @@ fn workspace_events(
 
                 if previous.exists != next.exists || previous.mtime_ms != next.mtime_ms {
                     snapshots.insert(target.clone(), next);
-                    index += 1;
-                    let _ = app_handle.emit(
-                        "workspace-change",
-                        serde_json::json!({
-                            "index": index,
-                            "source": target.file_name().map(|v| v.to_string_lossy().to_string()).unwrap_or_default(),
-                            "kind": "filesystem"
-                        }),
-                    );
+                    let source = target
+                        .strip_prefix(&workspace_root_clone)
+                        .map(|value| value.display().to_string())
+                        .unwrap_or_else(|_| target.display().to_string());
+                    pending_sources.insert(source);
                 }
             }
 
-            thread::sleep(Duration::from_millis(1800));
+            if !pending_sources.is_empty()
+                && last_emit_at.elapsed() >= WORKSPACE_EVENTS_MIN_EMIT_INTERVAL
+            {
+                index += 1;
+                let mut sources = pending_sources.drain().collect::<Vec<_>>();
+                sources.sort();
+                let source_count = sources.len();
+
+                let _ = app_handle.emit(
+                    "workspace-change",
+                    serde_json::json!({
+                        "index": index,
+                        "source": sources.first().cloned().unwrap_or_default(),
+                        "sources": sources,
+                        "sourceCount": source_count,
+                        "workspaceRoot": workspace_root_display,
+                        "kind": "filesystem"
+                    }),
+                );
+                last_emit_at = Instant::now();
+            }
+
+            thread::sleep(WORKSPACE_EVENTS_POLL_INTERVAL);
         }
     });
 

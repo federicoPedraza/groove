@@ -2,11 +2,12 @@ import { Check, Copy, FlaskConical } from "lucide-react";
 
 import { WorktreeRowActions } from "@/components/pages/dashboard/worktree-row-actions";
 import { getWorktreeStatusBadgeClasses, getWorktreeStatusIcon, getWorktreeStatusTitle } from "@/components/pages/dashboard/worktree-status";
-import type { RuntimeStateRow, WorktreeRow } from "@/components/pages/dashboard/types";
+import type { RuntimeStateRow, TestingEnvironmentColor, WorktreeRow } from "@/components/pages/dashboard/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { deriveWorktreeStatus } from "@/lib/utils/worktree/status";
 import type { GroupedWorktreeItem } from "@/lib/utils/time/grouping";
 
@@ -19,7 +20,9 @@ type WorktreesTableProps = {
   pendingPlayActions: string[];
   pendingTestActions: string[];
   runtimeStateByWorktree: Record<string, RuntimeStateRow>;
-  testingTargetWorktree: string | undefined;
+  testingTargetWorktrees: string[];
+  testingRunningWorktrees: string[];
+  testingEnvironmentColorByWorktree: Record<string, TestingEnvironmentColor>;
   onCopyBranchName: (row: WorktreeRow) => void;
   onRestoreAction: (row: WorktreeRow) => void;
   onCutConfirm: (row: WorktreeRow) => void;
@@ -37,7 +40,9 @@ export function WorktreesTable({
   pendingPlayActions,
   pendingTestActions,
   runtimeStateByWorktree,
-  testingTargetWorktree,
+  testingTargetWorktrees,
+  testingRunningWorktrees,
+  testingEnvironmentColorByWorktree,
   onCopyBranchName,
   onRestoreAction,
   onCutConfirm,
@@ -83,13 +88,24 @@ export function WorktreesTable({
             const rowPending = restorePending || cutPending || stopPending || playPending || testPending;
             const runtimeRow = runtimeStateByWorktree[row.worktree];
             const status = deriveWorktreeStatus(row.status, runtimeRow);
-            const isCurrentTestingTarget = testingTargetWorktree === row.worktree;
+            const isTestingTarget = testingTargetWorktrees.includes(row.worktree);
+            const isTestingRunning = testingRunningWorktrees.includes(row.worktree);
+            const testingEnvironmentColor = testingEnvironmentColorByWorktree[row.worktree];
 
             return (
-              <TableRow key={item.key} className={isCurrentTestingTarget ? "bg-muted/25" : undefined}>
+              <TableRow key={item.key} className={isTestingTarget ? "bg-muted/25" : undefined}>
                 <TableCell>
                   <span className="inline-flex items-center gap-1.5">
-                    {isCurrentTestingTarget ? <FlaskConical aria-hidden="true" className="size-3.5 text-muted-foreground" /> : null}
+                    {isTestingTarget ? (
+                      <FlaskConical
+                        aria-hidden="true"
+                        className={cn(
+                          "size-3.5",
+                          testingEnvironmentColor?.iconClassName ?? "text-muted-foreground",
+                          !isTestingRunning && "opacity-70",
+                        )}
+                      />
+                    ) : null}
                     <span>{row.worktree}</span>
                   </span>
                 </TableCell>
@@ -128,7 +144,8 @@ export function WorktreesTable({
                       playPending={playPending}
                       testPending={testPending}
                       runtimeRow={runtimeRow}
-                      isCurrentTestingTarget={isCurrentTestingTarget}
+                      isTestingTarget={isTestingTarget}
+                      isTestingRunning={isTestingRunning}
                       onRepair={onRestoreAction}
                       onPlay={onPlayAction}
                       onStop={onStopAction}

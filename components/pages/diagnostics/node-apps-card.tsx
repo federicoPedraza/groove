@@ -9,6 +9,7 @@ import type { DiagnosticsNodeAppRow } from "@/src/lib/ipc";
 type NodeAppsCardProps = {
   nodeAppRows: DiagnosticsNodeAppRow[];
   pendingStopPids: number[];
+  hasLoadedSnapshots: boolean;
   isLoadingNodeApps: boolean;
   isCleaningAllDevServers: boolean;
   nodeAppsError: string | null;
@@ -20,6 +21,7 @@ type NodeAppsCardProps = {
 export function NodeAppsCard({
   nodeAppRows,
   pendingStopPids,
+  hasLoadedSnapshots,
   isLoadingNodeApps,
   isCleaningAllDevServers,
   nodeAppsError,
@@ -55,7 +57,11 @@ export function NodeAppsCard({
 
         {!nodeAppsError && nodeAppRows.length === 0 && (
           <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-            {isLoadingNodeApps ? "Scanning worktree node apps..." : "No matching node apps are currently running in worktrees."}
+            {isLoadingNodeApps
+              ? "Scanning worktree node apps..."
+              : hasLoadedSnapshots
+                ? "No matching node apps are currently running in worktrees."
+                : "Process snapshots are not loaded yet. Click Refresh to load worktree node apps."}
           </p>
         )}
 

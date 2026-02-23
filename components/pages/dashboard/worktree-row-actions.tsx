@@ -153,12 +153,12 @@ export function WorktreeRowActions({
     ? showUnsetTestingPreview
       ? `h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`
       : `h-8 w-8 p-0 ${ACTIVE_TESTING_BUTTON_CLASSES} ${SOFT_RED_BUTTON_CLASSES}`
-    : "h-8 w-8 p-0 transition-colors hover:bg-cyan-500/20 hover:text-cyan-700";
+    : "h-8 w-8 p-0 transition-colors hover:bg-cyan-500/20 hover:text-cyan-700 hover:border-cyan-700/55 dark:hover:text-cyan-200 dark:hover:border-cyan-300/70";
   const branchName = (row.branchGuess || row.worktree).trim();
   const createPrUrl = buildCreatePrUrl(repositoryRemoteUrl, branchName);
   const hasRepositoryRemote = Boolean(repositoryRemoteUrl);
   const pushActionLabel = hasUpstream ? "Push" : "Push (set upstream)";
-  const gitActionIconClasses = "mr-2 size-4 transition-colors group-data-[highlighted]:text-sky-600";
+  const gitActionIconClasses = "mr-2 size-4 transition-colors group-data-[highlighted]:text-sky-600 dark:group-data-[highlighted]:text-sky-300";
 
   const handleOpenBranch = async (): Promise<void> => {
     const result = await ghOpenBranch({

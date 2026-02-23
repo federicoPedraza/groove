@@ -58,7 +58,7 @@ export default function Home() {
     runPlayGrooveAction,
     onSelectTestingTarget,
     runStartTestingInstanceAction,
-    runStartTestingInstanceInSeparateTerminalAction,
+    runOpenTestingTerminalAction,
     runStopTestingInstanceAction,
     runUnsetTestingTargetAction,
     closeCurrentWorkspace,
@@ -125,8 +125,8 @@ export default function Home() {
                 onRunLocal={(worktree) => {
                   void runStartTestingInstanceAction(worktree);
                 }}
-                onRunSeparate={(worktree) => {
-                  void runStartTestingInstanceInSeparateTerminalAction(worktree);
+                onOpenTerminal={(worktree) => {
+                  void runOpenTestingTerminalAction(worktree);
                 }}
                 onRequestUnset={(environment) => {
                   setUnsetTestingEnvironmentConfirm(environment);
@@ -187,6 +187,7 @@ export default function Home() {
       )}
 
       <DashboardModals
+        workspaceRoot={workspaceRoot}
         cutConfirmRow={cutConfirmRow}
         setCutConfirmRow={setCutConfirmRow}
         forceCutConfirmRow={forceCutConfirmRow}
@@ -211,8 +212,8 @@ export default function Home() {
         onCloseCurrentWorkspace={() => {
           void closeCurrentWorkspace();
         }}
-        onRunCreateWorktreeAction={() => {
-          void runCreateWorktreeAction();
+        onRunCreateWorktreeAction={(options) => {
+          void runCreateWorktreeAction(options);
         }}
         onRunUnsetTestingTargetAction={(environment, stopRunningProcessesWhenUnset) => {
           void runUnsetTestingTargetAction(environment, stopRunningProcessesWhenUnset);

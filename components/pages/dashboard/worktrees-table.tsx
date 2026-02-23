@@ -60,7 +60,7 @@ export function WorktreesTable({
         <TableHeader>
           <TableRow>
             <TableHead>Worktree</TableHead>
-            <TableHead>Branch</TableHead>
+            <TableHead className="w-[34%] md:w-[26%]">Branch</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -133,7 +133,7 @@ export function WorktreesTable({
                     <span>{row.worktree}</span>
                   </span>
                 </TableCell>
-                <TableCell>
+                <TableCell className="w-[34%] md:w-[26%]">
                   <div className="flex items-center gap-2 px-2 py-1">
                     <span className="min-w-0 flex-1 truncate select-text">{row.branchGuess}</span>
                     <Button

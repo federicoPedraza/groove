@@ -50,6 +50,11 @@ struct GrooveListCacheState {
 }
 
 #[derive(Default)]
+struct GrooveBinStatusState {
+    status: Mutex<Option<GrooveBinCheckStatus>>,
+}
+
+#[derive(Default)]
 struct TestingEnvironmentRuntimeState {
     loaded: bool,
     persisted: PersistedTestingEnvironmentState,
@@ -605,6 +610,21 @@ struct GitCurrentBranchResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct GitListBranchesResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(default)]
+    branches: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_snippet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GitAheadBehindResponse {
     request_id: String,
     ok: bool,
@@ -915,6 +935,50 @@ struct DiagnosticsMostConsumingProgramsResponse {
     error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveBinCheckStatus {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    configured_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    configured_path_valid: Option<bool>,
+    has_issue: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    issue: Option<String>,
+    effective_binary_path: String,
+    effective_binary_source: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveBinStatusResponse {
+    request_id: String,
+    ok: bool,
+    status: GrooveBinCheckStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveBinRepairResponse {
+    request_id: String,
+    ok: bool,
+    changed: bool,
+    action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cleared_path: Option<String>,
+    status: GrooveBinCheckStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct GrooveBinaryResolution {
+    path: PathBuf,
+    source: String,
+}
+
 #[derive(Debug, Clone)]
 struct ProcessSnapshotRow {
     pid: i32,
@@ -1162,6 +1226,147 @@ fn run_command_with_timeout(
                 };
             }
         }
+    }
+}
+
+fn spawn_terminal_process(
+    binary: &str,
+    args: &[String],
+    cwd: &Path,
+    worktree_path: &Path,
+) -> Result<(), std::io::Error> {
+    let mut command = Command::new(binary);
+    command
+        .args(args)
+        .current_dir(cwd)
+        .env("GROOVE_WORKTREE", worktree_path.display().to_string());
+    command.spawn().map(|_| ())
+}
+
+fn launch_plain_terminal(
+    worktree_path: &Path,
+    default_terminal: &str,
+    terminal_custom_command: Option<&str>,
+) -> Result<String, String> {
+    let worktree = worktree_path.display().to_string();
+
+    if default_terminal == "custom" {
+        let Some(custom_command) = terminal_custom_command
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return Err(
+                "Default terminal is set to custom, but terminalCustomCommand is empty."
+                    .to_string(),
+            );
+        };
+
+        let (program, args) = parse_custom_terminal_command(custom_command, worktree_path)?;
+        spawn_terminal_process(&program, &args, worktree_path, worktree_path).map_err(|error| {
+            format!("Failed to launch terminal command {program}: {error}")
+        })?;
+
+        let command = std::iter::once(program.as_str())
+            .chain(args.iter().map(|value| value.as_str()))
+            .collect::<Vec<_>>()
+            .join(" ");
+        return Ok(command);
+    }
+
+    let normalized_terminal = if default_terminal == "none" {
+        "auto"
+    } else {
+        default_terminal
+    };
+
+    let mut candidates: Vec<(String, Vec<String>)> = match normalized_terminal {
+        "ghostty" => vec![(
+            "ghostty".to_string(),
+            vec!["--working-directory".to_string(), worktree.clone()],
+        )],
+        "warp" => vec![(
+            "warp".to_string(),
+            vec!["--working-directory".to_string(), worktree.clone()],
+        )],
+        "kitty" => vec![(
+            "kitty".to_string(),
+            vec!["--directory".to_string(), worktree.clone()],
+        )],
+        "gnome" => vec![(
+            "gnome-terminal".to_string(),
+            vec![format!("--working-directory={worktree}")],
+        )],
+        "xterm" => vec![("xterm".to_string(), Vec::new())],
+        "auto" => {
+            #[allow(unused_mut)]
+            let mut terminals = vec![
+                (
+                    "ghostty".to_string(),
+                    vec!["--working-directory".to_string(), worktree.clone()],
+                ),
+                (
+                    "warp".to_string(),
+                    vec!["--working-directory".to_string(), worktree.clone()],
+                ),
+                (
+                    "kitty".to_string(),
+                    vec!["--directory".to_string(), worktree.clone()],
+                ),
+                (
+                    "gnome-terminal".to_string(),
+                    vec![format!("--working-directory={worktree}")],
+                ),
+                ("xterm".to_string(), Vec::new()),
+                ("x-terminal-emulator".to_string(), Vec::new()),
+            ];
+            #[cfg(target_os = "macos")]
+            terminals.push((
+                "open".to_string(),
+                vec!["-a".to_string(), "Terminal".to_string(), worktree.clone()],
+            ));
+            #[cfg(target_os = "windows")]
+            terminals.push((
+                "cmd".to_string(),
+                vec![
+                    "/C".to_string(),
+                    "start".to_string(),
+                    "".to_string(),
+                    "cmd".to_string(),
+                ],
+            ));
+            terminals
+        }
+        _ => {
+            return Err(format!(
+                "Unsupported default terminal \"{default_terminal}\" for terminal launch."
+            ))
+        }
+    };
+
+    let mut launch_errors: Vec<String> = Vec::new();
+    for (program, args) in candidates.drain(..) {
+        match spawn_terminal_process(&program, &args, worktree_path, worktree_path) {
+            Ok(()) => {
+                let command = std::iter::once(program.as_str())
+                    .chain(args.iter().map(|value| value.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                return Ok(command);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                launch_errors.push(format!("{program}: {error}"));
+            }
+        }
+    }
+
+    if launch_errors.is_empty() {
+        Err("No supported terminal application was found to open this worktree.".to_string())
+    } else {
+        Err(format!(
+            "Failed to open terminal for this worktree: {}",
+            launch_errors.join(" | ")
+        ))
     }
 }
 
@@ -1458,6 +1663,35 @@ fn clear_worktree_tombstone(
 
     if workspace_tombstones_empty {
         state.tombstones_by_workspace.remove(&workspace_key);
+        changed = true;
+    }
+
+    if changed {
+        write_persisted_worktree_execution_state(app, &state)?;
+    }
+
+    Ok(())
+}
+
+fn clear_worktree_last_executed_at(
+    app: &AppHandle,
+    workspace_root: &Path,
+    worktree: &str,
+) -> Result<(), String> {
+    let mut state = read_persisted_worktree_execution_state(app)?;
+    let workspace_key = workspace_root_storage_key(workspace_root);
+    let mut changed = false;
+    let mut workspace_entries_empty = false;
+
+    if let Some(workspace_entries) = state.last_executed_at_by_workspace.get_mut(&workspace_key) {
+        if workspace_entries.remove(worktree).is_some() {
+            changed = true;
+        }
+        workspace_entries_empty = workspace_entries.is_empty();
+    }
+
+    if workspace_entries_empty {
+        state.last_executed_at_by_workspace.remove(&workspace_key);
         changed = true;
     }
 
@@ -2879,11 +3113,44 @@ fn resolve_workspace_root(
     ))
 }
 
-fn groove_binary_path(app: &AppHandle) -> PathBuf {
+fn configured_groove_bin_path() -> Option<String> {
     if let Ok(from_env) = std::env::var("GROOVE_BIN") {
         if !from_env.trim().is_empty() {
-            return PathBuf::from(from_env);
+            return Some(from_env);
         }
+    }
+
+    None
+}
+
+fn is_attempt_ready_executable(path: &Path) -> bool {
+    if !path.exists() || !path.is_file() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        if let Ok(metadata) = fs::metadata(path) {
+            return metadata.permissions().mode() & 0o111 != 0;
+        }
+
+        false
+    }
+
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+fn resolve_groove_binary(app: &AppHandle) -> GrooveBinaryResolution {
+    if let Some(from_env) = configured_groove_bin_path() {
+        return GrooveBinaryResolution {
+            path: PathBuf::from(from_env),
+            source: "env".to_string(),
+        };
     }
 
     let mut names = vec!["groove".to_string()];
@@ -2921,13 +3188,51 @@ fn groove_binary_path(app: &AppHandle) -> PathBuf {
         for name in &names {
             for candidate in [root.join(name), root.join("binaries").join(name)] {
                 if candidate.exists() && candidate.is_file() {
-                    return candidate;
+                    return GrooveBinaryResolution {
+                        path: candidate,
+                        source: "bundled".to_string(),
+                    };
                 }
             }
         }
     }
 
-    PathBuf::from("groove")
+    GrooveBinaryResolution {
+        path: PathBuf::from("groove"),
+        source: "path".to_string(),
+    }
+}
+
+fn groove_binary_path(app: &AppHandle) -> PathBuf {
+    resolve_groove_binary(app).path
+}
+
+fn evaluate_groove_bin_check_status(app: &AppHandle) -> GrooveBinCheckStatus {
+    let configured_path = configured_groove_bin_path();
+    let configured_path_valid = configured_path
+        .as_ref()
+        .map(|path| is_attempt_ready_executable(Path::new(path)));
+    let has_issue = matches!(configured_path_valid, Some(false));
+
+    let issue = if has_issue {
+        Some(
+            "GROOVE_BIN is set but does not point to an executable file. Repair to clear GROOVE_BIN and use bundled/PATH resolution."
+                .to_string(),
+        )
+    } else {
+        None
+    };
+
+    let resolved = resolve_groove_binary(app);
+
+    GrooveBinCheckStatus {
+        configured_path,
+        configured_path_valid,
+        has_issue,
+        issue,
+        effective_binary_path: resolved.path.display().to_string(),
+        effective_binary_source: resolved.source,
+    }
 }
 
 fn run_command(binary: &Path, args: &[String], cwd: &Path) -> CommandResult {
@@ -3246,6 +3551,25 @@ fn ensure_worktree_in_dir(
     }
 
     Ok(target)
+}
+
+fn is_worktree_missing_error_message(message: &str) -> bool {
+    message.starts_with("Worktree directory not found at \"")
+        || message.contains("No groove worktree found for '")
+}
+
+fn clear_stale_worktree_state(
+    app: &AppHandle,
+    state: &TestingEnvironmentState,
+    workspace_root: &Path,
+    worktree: &str,
+) -> Result<(), String> {
+    let _ = unset_testing_target_for_worktree(app, state, workspace_root, worktree, true)?;
+    clear_worktree_tombstone(app, workspace_root, worktree)?;
+    clear_worktree_last_executed_at(app, workspace_root, worktree)?;
+    invalidate_workspace_context_cache(app, workspace_root);
+    invalidate_groove_list_cache_for_workspace(app, workspace_root);
+    Ok(())
 }
 
 fn resolve_branch_from_worktree(worktree_path: &Path) -> Option<String> {
@@ -4667,6 +4991,141 @@ fn workspace_update_terminal_settings(
 }
 
 #[tauri::command]
+fn workspace_open_terminal(app: AppHandle, payload: TestingEnvironmentStartPayload) -> GrooveCommandResponse {
+    let request_id = request_id();
+
+    let Some(worktree) = payload
+        .worktree
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return GrooveCommandResponse {
+            request_id,
+            ok: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some("worktree is required and must be a non-empty string.".to_string()),
+        };
+    };
+
+    if !is_safe_path_token(worktree) {
+        return GrooveCommandResponse {
+            request_id,
+            ok: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some("worktree contains unsafe characters or path segments.".to_string()),
+        };
+    }
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(known_worktrees) => known_worktrees,
+        Err(error) => {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        Some(worktree),
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let worktree_path = match ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees") {
+        Ok(path) => path,
+        Err(error) => {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_meta = match ensure_workspace_meta(&workspace_root) {
+        Ok((meta, _)) => meta,
+        Err(error) => {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let default_terminal = normalize_default_terminal(&workspace_meta.default_terminal)
+        .unwrap_or_else(|_| default_terminal_auto());
+
+    let launched_command = match launch_plain_terminal(
+        Path::new(&worktree_path),
+        &default_terminal,
+        workspace_meta.terminal_custom_command.as_deref(),
+    ) {
+        Ok(command) => command,
+        Err(error) => {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    if let Err(error) = record_worktree_last_executed_at(&app, &workspace_root, worktree) {
+        return GrooveCommandResponse {
+            request_id,
+            ok: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some(error),
+        };
+    }
+
+    GrooveCommandResponse {
+        request_id,
+        ok: true,
+        exit_code: Some(0),
+        stdout: format!("Opened terminal using: {launched_command}"),
+        stderr: String::new(),
+        error: None,
+    }
+}
+
+#[tauri::command]
 fn git_auth_status(payload: GitAuthStatusPayload) -> GitAuthStatusResponse {
     let request_id = request_id();
     let workspace_root = match validate_workspace_root_path(&payload.workspace_root) {
@@ -4890,6 +5349,67 @@ fn git_current_branch(payload: GitPathPayload) -> GitCurrentBranchResponse {
         ok: true,
         path: Some(worktree_path.display().to_string()),
         branch: first_non_empty_line(&result.stdout),
+        output_snippet: command_output_snippet(&result),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn git_list_branches(payload: GitPathPayload) -> GitListBranchesResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitListBranchesResponse {
+                request_id,
+                ok: false,
+                path: None,
+                branches: Vec::new(),
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_git_command_at_path(&worktree_path, &["branch", "--format=%(refname:short)"]);
+    if let Some(error) = result.error.clone() {
+        return GitListBranchesResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            branches: Vec::new(),
+            output_snippet: command_output_snippet(&result),
+            error: Some(error),
+        };
+    }
+    if result.exit_code != Some(0) {
+        return GitListBranchesResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            branches: Vec::new(),
+            output_snippet: command_output_snippet(&result),
+            error: Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git branch --format failed".to_string()),
+            ),
+        };
+    }
+
+    let branches = result
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    GitListBranchesResponse {
+        request_id,
+        ok: true,
+        path: Some(worktree_path.display().to_string()),
+        branches,
         output_snippet: command_output_snippet(&result),
         error: None,
     }
@@ -7257,6 +7777,36 @@ fn groove_rm(
         match ensure_worktree_in_dir(&workspace_root, &resolution_worktree, &worktree_dir) {
             Ok(path) => path,
             Err(error) => {
+                if is_worktree_missing_error_message(&error) {
+                    if let Err(cleanup_error) = clear_stale_worktree_state(
+                        &app,
+                        &state,
+                        &workspace_root,
+                        &resolution_worktree,
+                    ) {
+                        return GrooveCommandResponse {
+                            request_id,
+                            ok: false,
+                            exit_code: None,
+                            stdout: String::new(),
+                            stderr: String::new(),
+                            error: Some(format!(
+                                "{error} Failed to clear stale groove state: {cleanup_error}"
+                            )),
+                        };
+                    }
+
+                    return GrooveCommandResponse {
+                        request_id,
+                        ok: true,
+                        exit_code: Some(0),
+                        stdout: String::new(),
+                        stderr: format!(
+                            "{error} Removed stale groove entry from local app state."
+                        ),
+                        error: None,
+                    };
+                }
                 return GrooveCommandResponse {
                     request_id,
                     ok: false,
@@ -7293,8 +7843,43 @@ fn groove_rm(
     };
 
     let mut result = run_command(&binary, &args, &workspace_root);
-    let ok = result.exit_code == Some(0) && result.error.is_none();
-    if ok {
+    let mut ok = result.exit_code == Some(0) && result.error.is_none();
+    let mut handled_as_stale = false;
+    if !ok
+        && !path_is_directory(&target_path)
+        && (is_worktree_missing_error_message(&result.stderr)
+            || result
+                .error
+                .as_deref()
+                .map(is_worktree_missing_error_message)
+                .unwrap_or(false))
+    {
+        if let Err(cleanup_error) = clear_stale_worktree_state(
+            &app,
+            &state,
+            &workspace_root,
+            &resolution_worktree,
+        ) {
+            if !result.stderr.trim().is_empty() {
+                result.stderr.push('\n');
+            }
+            result.stderr.push_str(&format!(
+                "Warning: failed to clear stale groove state after missing worktree error: {cleanup_error}"
+            ));
+        } else {
+            ok = true;
+            handled_as_stale = true;
+            result.exit_code = Some(0);
+            result.error = None;
+            if !result.stderr.trim().is_empty() {
+                result.stderr.push('\n');
+            }
+            result
+                .stderr
+                .push_str("Removed stale groove entry from local app state.");
+        }
+    }
+    if ok && !handled_as_stale {
         if let Err(tombstone_error) = record_worktree_tombstone(
             &app,
             &workspace_root,
@@ -8679,6 +9264,79 @@ fn testing_environment_stop(
 }
 
 #[tauri::command]
+fn groove_bin_status(app: AppHandle, state: State<GrooveBinStatusState>) -> GrooveBinStatusResponse {
+    let request_id = request_id();
+
+    match state.status.lock() {
+        Ok(mut stored) => {
+            let status = stored
+                .clone()
+                .unwrap_or_else(|| evaluate_groove_bin_check_status(&app));
+            *stored = Some(status.clone());
+            GrooveBinStatusResponse {
+                request_id,
+                ok: true,
+                status,
+                error: None,
+            }
+        }
+        Err(error) => {
+            let status = evaluate_groove_bin_check_status(&app);
+            GrooveBinStatusResponse {
+                request_id,
+                ok: false,
+                status,
+                error: Some(format!("Failed to persist GROOVE_BIN status: {error}")),
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn groove_bin_repair(app: AppHandle, state: State<GrooveBinStatusState>) -> GrooveBinRepairResponse {
+    let request_id = request_id();
+    let mut changed = false;
+    let mut action = "noop".to_string();
+    let mut cleared_path = None;
+
+    let pre_status = evaluate_groove_bin_check_status(&app);
+    if pre_status.has_issue {
+        if let Some(path) = pre_status.configured_path.clone() {
+            std::env::remove_var("GROOVE_BIN");
+            changed = true;
+            action = "cleared-invalid-env".to_string();
+            cleared_path = Some(path);
+        }
+    }
+
+    let post_status = evaluate_groove_bin_check_status(&app);
+
+    match state.status.lock() {
+        Ok(mut stored) => {
+            *stored = Some(post_status.clone());
+            GrooveBinRepairResponse {
+                request_id,
+                ok: true,
+                changed,
+                action,
+                cleared_path,
+                status: post_status,
+                error: None,
+            }
+        }
+        Err(error) => GrooveBinRepairResponse {
+            request_id,
+            ok: false,
+            changed,
+            action,
+            cleared_path,
+            status: post_status,
+            error: Some(format!("Failed to persist GROOVE_BIN status after repair: {error}")),
+        },
+    }
+}
+
+#[tauri::command]
 fn diagnostics_list_opencode_instances() -> DiagnosticsOpencodeInstancesResponse {
     let request_id = request_id();
 
@@ -9077,15 +9735,34 @@ pub fn run() {
         .manage(TestingEnvironmentState::default())
         .manage(WorkspaceContextCacheState::default())
         .manage(GrooveListCacheState::default())
+        .manage(GrooveBinStatusState::default())
+        .setup(|app| {
+            let status = evaluate_groove_bin_check_status(&app.handle());
+            if status.has_issue {
+                eprintln!(
+                    "[startup-warning] GROOVE_BIN is invalid and may break groove command execution: {}",
+                    status.configured_path.as_deref().unwrap_or("<unset>")
+                );
+            }
+
+            let state = app.state::<GrooveBinStatusState>();
+            if let Ok(mut stored) = state.status.lock() {
+                *stored = Some(status);
+            }
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             workspace_pick_and_open,
             workspace_open,
             workspace_get_active,
             workspace_clear_active,
             workspace_update_terminal_settings,
+            workspace_open_terminal,
             git_auth_status,
             git_status,
             git_current_branch,
+            git_list_branches,
             git_ahead_behind,
             git_pull,
             git_push,
@@ -9117,6 +9794,8 @@ pub fn run() {
             testing_environment_start,
             testing_environment_start_separate_terminal,
             testing_environment_stop,
+            groove_bin_status,
+            groove_bin_repair,
             diagnostics_list_opencode_instances,
             diagnostics_stop_process,
             diagnostics_stop_all_opencode_instances,

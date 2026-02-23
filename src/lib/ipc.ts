@@ -281,6 +281,32 @@ export type WorkspaceEventsResponse = {
   error?: string;
 };
 
+export type GrooveBinCheckStatus = {
+  configuredPath?: string;
+  configuredPathValid?: boolean;
+  hasIssue: boolean;
+  issue?: string;
+  effectiveBinaryPath: string;
+  effectiveBinarySource: "env" | "bundled" | "path" | string;
+};
+
+export type GrooveBinStatusResponse = {
+  requestId?: string;
+  ok: boolean;
+  status: GrooveBinCheckStatus;
+  error?: string;
+};
+
+export type GrooveBinRepairResponse = {
+  requestId?: string;
+  ok: boolean;
+  changed: boolean;
+  action: string;
+  clearedPath?: string;
+  status: GrooveBinCheckStatus;
+  error?: string;
+};
+
 export type GitAuthStatusPayload = {
   workspaceRoot: string;
 };
@@ -326,6 +352,19 @@ export type GitCurrentBranchResponse = {
   ok: boolean;
   path?: string;
   branch?: string;
+  outputSnippet?: string;
+  error?: string;
+};
+
+export type GitListBranchesPayload = {
+  path: string;
+};
+
+export type GitListBranchesResponse = {
+  requestId?: string;
+  ok: boolean;
+  path?: string;
+  branches: string[];
   outputSnippet?: string;
   error?: string;
 };
@@ -535,9 +574,12 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "testing_environment_get_status",
   "workspace_events",
   "workspace_get_active",
+  "groove_bin_status",
+  "groove_bin_repair",
   "git_auth_status",
   "git_status",
   "git_current_branch",
+  "git_list_branches",
   "git_ahead_behind",
   "git_list_file_states",
   "gh_detect_repo",
@@ -785,6 +827,14 @@ export function workspaceGetActive(): Promise<WorkspaceContextResponse> {
   return invokeCommand<WorkspaceContextResponse>("workspace_get_active");
 }
 
+export function grooveBinStatus(): Promise<GrooveBinStatusResponse> {
+  return invokeCommand<GrooveBinStatusResponse>("groove_bin_status");
+}
+
+export function grooveBinRepair(): Promise<GrooveBinRepairResponse> {
+  return invokeCommand<GrooveBinRepairResponse>("groove_bin_repair");
+}
+
 export function workspaceClearActive(): Promise<WorkspaceContextResponse> {
   return invokeCommand<WorkspaceContextResponse>("workspace_clear_active");
 }
@@ -799,6 +849,10 @@ export function gitStatus(payload: GitStatusPayload): Promise<GitStatusResponse>
 
 export function gitCurrentBranch(payload: GitCurrentBranchPayload): Promise<GitCurrentBranchResponse> {
   return invokeCommand<GitCurrentBranchResponse>("git_current_branch", { payload });
+}
+
+export function gitListBranches(payload: GitListBranchesPayload): Promise<GitListBranchesResponse> {
+  return invokeCommand<GitListBranchesResponse>("git_list_branches", { payload });
 }
 
 export function gitAheadBehind(payload: GitAheadBehindPayload): Promise<GitAheadBehindResponse> {
@@ -889,4 +943,8 @@ export function workspaceUpdateTerminalSettings(
   payload: WorkspaceTerminalSettingsPayload,
 ): Promise<WorkspaceTerminalSettingsResponse> {
   return invokeCommand<WorkspaceTerminalSettingsResponse>("workspace_update_terminal_settings", { payload });
+}
+
+export function workspaceOpenTerminal(payload: TestingEnvironmentStartPayload): Promise<GrooveRestoreResponse> {
+  return invokeCommand<GrooveRestoreResponse>("workspace_open_terminal", { payload });
 }

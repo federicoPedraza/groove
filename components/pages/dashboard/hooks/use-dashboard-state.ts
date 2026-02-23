@@ -30,12 +30,12 @@ import {
   testingEnvironmentGetStatus,
   testingEnvironmentSetTarget,
   testingEnvironmentStart,
-  testingEnvironmentStartSeparateTerminal,
   testingEnvironmentStop,
   workspaceClearActive,
   workspaceEvents,
   workspaceGetActive,
   workspaceOpen,
+  workspaceOpenTerminal,
   workspacePickAndOpen,
   type WorkspaceContextResponse,
   type TestingEnvironmentEntry,
@@ -586,13 +586,13 @@ export function useDashboardState() {
     [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
-  const runCreateWorktreeAction = useCallback(async (): Promise<void> => {
+  const runCreateWorktreeAction = useCallback(async (options?: { branchOverride?: string; baseOverride?: string }): Promise<void> => {
     if (!workspaceMeta) {
       return;
     }
 
-    const branch = createBranch.trim();
-    const base = createBase.trim();
+    const branch = (options?.branchOverride ?? createBranch).trim();
+    const base = (options?.baseOverride ?? createBase).trim();
     if (!branch) {
       toast.error("Branch name is required.");
       return;
@@ -885,48 +885,38 @@ export function useDashboardState() {
     }
   }, [fetchTestingEnvironmentState, knownWorktrees, testingTargetWorktrees.length, workspaceMeta]);
 
-  const runStartTestingInstanceInSeparateTerminalAction = useCallback(async (worktree?: string): Promise<void> => {
-    if (!workspaceMeta || (testingTargetWorktrees.length === 0 && !worktree)) {
-      toast.error("Select a testing target before running locally on a separate terminal.");
+  const runOpenTestingTerminalAction = useCallback(async (worktree?: string): Promise<void> => {
+    if (!workspaceMeta || !worktree) {
+      toast.error("Select a testing target before opening a terminal.");
       return;
     }
 
     setIsTestingInstancePending(true);
     try {
-      const result = await testingEnvironmentStartSeparateTerminal({
+      const result = (await workspaceOpenTerminal({
         rootName: workspaceMeta.rootName,
         knownWorktrees,
         workspaceMeta,
-        ...(worktree ? { worktree } : {}),
-      });
+        worktree,
+      })) as RestoreApiResponse;
+      const shortOutput = summarizeRestoreOutput(result.stdout, result.stderr);
 
       if (result.ok) {
-        setTestingEnvironment(result);
-        const targetPorts = result.environments
-          .filter((environment) => environment.status === "running" && typeof environment.port === "number" && environment.port > 0)
-          .filter((environment) => (worktree ? environment.worktree === worktree : true))
-          .map((environment) => `${environment.worktree}:${String(environment.port)}`);
-        toast.success(
-          worktree
-            ? `Launched local testing for ${worktree} in a separate terminal.`
-            : "Launched local testing for selected targets in a separate terminal.",
-          {
-            description: targetPorts.length > 0 ? `Port${targetPorts.length === 1 ? "" : "s"}: ${targetPorts.join(", ")}` : undefined,
-          },
-        );
-        await fetchTestingEnvironmentState();
+        toast.success(`Opened terminal for ${worktree}.`, {
+          description: appendRequestId(shortOutput, result.requestId),
+        });
         return;
       }
 
-      toast.error("Failed to run local testing environment in a separate terminal.", {
-        description: appendRequestId(result.error, result.requestId),
+      toast.error(`Failed to open terminal for ${worktree}.`, {
+        description: appendRequestId(result.error ?? shortOutput ?? `Exit code: ${String(result.exitCode)}`, result.requestId),
       });
     } catch {
-      toast.error("Local testing start request failed for separate terminal.");
+      toast.error("Terminal open request failed.");
     } finally {
       setIsTestingInstancePending(false);
     }
-  }, [fetchTestingEnvironmentState, knownWorktrees, testingTargetWorktrees.length, workspaceMeta]);
+  }, [knownWorktrees, workspaceMeta]);
 
   const runStopTestingInstanceAction = useCallback(async (worktree?: string): Promise<void> => {
     if (!workspaceMeta) {
@@ -1042,7 +1032,7 @@ export function useDashboardState() {
     runUnsetTestingTargetAction,
     onSelectTestingTarget,
     runStartTestingInstanceAction,
-    runStartTestingInstanceInSeparateTerminalAction,
+    runOpenTestingTerminalAction,
     runStopTestingInstanceAction,
     closeCurrentWorkspace,
   };

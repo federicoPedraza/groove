@@ -12,7 +12,7 @@ type TestingEnvironmentPanelProps = {
   isTestingInstancePending: boolean;
   onStop: (worktree: string) => void;
   onRunLocal: (worktree: string) => void;
-  onRunSeparate: (worktree: string) => void;
+  onOpenTerminal: (worktree: string) => void;
   onRequestUnset: (environment: TestingEnvironmentEntry) => void;
 };
 
@@ -22,7 +22,7 @@ export function TestingEnvironmentPanel({
   isTestingInstancePending,
   onStop,
   onRunLocal,
-  onRunSeparate,
+  onOpenTerminal,
   onRequestUnset,
 }: TestingEnvironmentPanelProps) {
   if (environments.length === 0) {
@@ -127,19 +127,24 @@ export function TestingEnvironmentPanel({
                         {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Play aria-hidden="true" className="size-4" />}
                         <span>Run local</span>
                       </Button>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        className="h-9 px-4 border border-border/60 transition-colors hover:bg-secondary/70"
-                        onClick={() => {
-                          onRunSeparate(environment.worktree);
-                        }}
-                        disabled={isTestingInstancePending}
-                      >
-                        {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Terminal aria-hidden="true" className="size-4" />}
-                        <span>Run separate</span>
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="h-9 px-4 border border-border/60 transition-colors hover:bg-secondary/70"
+                            onClick={() => {
+                              onOpenTerminal(environment.worktree);
+                            }}
+                            disabled={isTestingInstancePending}
+                          >
+                            {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Terminal aria-hidden="true" className="size-4" />}
+                            <span>Open terminal</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Open terminal at this worktree</TooltipContent>
+                      </Tooltip>
                     </>
                   )}
                 </div>

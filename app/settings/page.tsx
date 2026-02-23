@@ -8,6 +8,8 @@ import { TerminalSettingsForm } from "@/components/pages/settings/terminal-setti
 import type { SaveState, WorkspaceMeta } from "@/components/pages/settings/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DEFAULT_THEME_MODE, THEME_MODE_OPTIONS, type ThemeMode } from "@/src/lib/theme-constants";
+import { resolveStoredTheme, setTheme } from "@/src/lib/theme";
 import {
   ghAuthStatus,
   ghDetectRepo,
@@ -47,6 +49,7 @@ export default function SettingsPage() {
   const [telemetryEnabled, setTelemetryEnabled] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(DEFAULT_THEME_MODE);
   const [isGitHubCliLoading, setIsGitHubCliLoading] = useState(false);
   const [gitHubCliStatus, setGitHubCliStatus] = useState<GhAuthStatusResponse | null>(null);
   const [gitHubCliRepo, setGitHubCliRepo] = useState<GhDetectRepoResponse | null>(null);
@@ -98,6 +101,11 @@ export default function SettingsPage() {
         setIsGitHubCliLoading(false);
       }
     }
+  }, []);
+
+  useEffect(() => {
+    const resolvedTheme = resolveStoredTheme();
+    setThemeMode(resolvedTheme);
   }, []);
 
   useEffect(() => {
@@ -301,6 +309,11 @@ export default function SettingsPage() {
     await loadGitHubCliStatus(workspaceRoot);
   };
 
+  const onThemeModeChange = (nextTheme: ThemeMode): void => {
+    setThemeMode(nextTheme);
+    setTheme(nextTheme);
+  };
+
   const gitHubCliRepositoryLabel =
     gitHubCliRepo?.nameWithOwner ?? (gitHubCliRepo?.owner && gitHubCliRepo?.repo ? `${gitHubCliRepo.owner}/${gitHubCliRepo.repo}` : null);
   const hideAuthenticatedStatusLabel = gitHubCliStatus?.message === "Authenticated via GitHub CLI session.";
@@ -323,6 +336,42 @@ export default function SettingsPage() {
               No repository connected. Connect one to enable workspace controls.
             </p>
           )}
+
+          <div className="space-y-3 rounded-md border border-dashed px-3 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-medium text-foreground">Theme</h2>
+            </div>
+
+            <p className="text-xs text-muted-foreground">Applies across the app and is saved on this device.</p>
+
+            <div className="space-y-2">
+              {THEME_MODE_OPTIONS.map((option) => {
+                const isSelected = themeMode === option.value;
+
+                return (
+                  <label
+                    key={option.value}
+                    className="flex cursor-pointer items-start gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground transition-colors hover:border-border/80"
+                  >
+                    <input
+                      type="radio"
+                      name="theme-mode"
+                      value={option.value}
+                      checked={isSelected}
+                      onChange={() => {
+                        onThemeModeChange(option.value);
+                      }}
+                      className="mt-0.5"
+                    />
+                    <div className="space-y-0.5">
+                      <span className="block font-medium text-foreground">{option.label}</span>
+                      <span className="block text-xs text-muted-foreground">{option.description}</span>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
 
           <div className="space-y-3 rounded-md border border-dashed px-3 py-3">
             <div className="flex items-center justify-between gap-2">

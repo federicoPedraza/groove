@@ -4,6 +4,7 @@ import { ConfirmModal } from "@/components/ui/confirm-modal";
 import type { TestingEnvironmentEntry } from "@/src/lib/ipc";
 
 type DashboardModalsProps = {
+  workspaceRoot: string | null;
   cutConfirmRow: WorktreeRow | null;
   setCutConfirmRow: (row: WorktreeRow | null) => void;
   forceCutConfirmRow: WorktreeRow | null;
@@ -24,11 +25,12 @@ type DashboardModalsProps = {
   setUnsetTestingEnvironmentConfirm: (environment: TestingEnvironmentEntry | null) => void;
   onRunCutGrooveAction: (row: WorktreeRow, force?: boolean) => void;
   onCloseCurrentWorkspace: () => void;
-  onRunCreateWorktreeAction: () => void;
+  onRunCreateWorktreeAction: (options?: { branchOverride?: string; baseOverride?: string }) => void;
   onRunUnsetTestingTargetAction: (environment: TestingEnvironmentEntry, stopRunningProcessesWhenUnset: boolean) => void;
 };
 
 export function DashboardModals({
+  workspaceRoot,
   cutConfirmRow,
   setCutConfirmRow,
   forceCutConfirmRow,
@@ -174,6 +176,7 @@ export function DashboardModals({
 
       <CreateWorktreeModal
         open={isCreateModalOpen}
+        workspaceRoot={workspaceRoot}
         branch={createBranch}
         base={createBase}
         loading={isCreatePending}

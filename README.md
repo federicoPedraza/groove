@@ -35,6 +35,16 @@ Expected sidecar filenames at build time include target triples, for example:
 
 At runtime, backend command resolution checks `GROOVE_BIN` first, then bundled/resource paths.
 
+## macOS quick setup
+
+From the repo root, run:
+
+```bash
+./bash/setup-macos-fast
+```
+
+This script installs/verifies Homebrew, Node.js LTS, Rust, `create-dmg`, project dependencies, and runs `npm run check:rust`.
+
 ## Run locally
 
 ```bash

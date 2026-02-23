@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "setup:macos": "./bash/setup-macos-fast",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+usage:
+  setup-macos-fast
+
+quickly installs macOS dev prerequisites for Groove.
+EOF
+}
+
+log() {
+  printf '[setup-macos-fast] %s\n' "$*"
+}
+
+fail() {
+  printf '[setup-macos-fast] error: %s\n' "$*" >&2
+  exit 1
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -gt 0 ]]; then
+  usage
+  exit 1
+fi
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  fail "this script only supports macOS"
+fi
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+ensure_homebrew() {
+  if command -v brew >/dev/null 2>&1; then
+    log "homebrew is already installed"
+    return
+  fi
+
+  local install_cmd='NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    fail "homebrew is missing. run this in an interactive shell: $install_cmd"
+  fi
+
+  log "installing homebrew"
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+}
+
+ensure_brew_in_path() {
+  if command -v brew >/dev/null 2>&1; then
+    return
+  fi
+
+  if [[ -x /opt/homebrew/bin/brew ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  elif [[ -x /usr/local/bin/brew ]]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+  fi
+
+  command -v brew >/dev/null 2>&1 || fail "homebrew installed but 'brew' is still unavailable in PATH"
+}
+
+ensure_node_and_npm() {
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    log "node and npm are already available ($(node -v), npm $(npm -v))"
+    return
+  fi
+
+  log "installing node LTS via homebrew (node@22)"
+  brew list node@22 >/dev/null 2>&1 || brew install node@22
+
+  if ! brew list node@22 >/dev/null 2>&1; then
+    fail "could not install node@22 with homebrew"
+  fi
+
+  if [[ -x "$(brew --prefix node@22)/bin/node" ]]; then
+    export PATH="$(brew --prefix node@22)/bin:$PATH"
+  fi
+
+  command -v node >/dev/null 2>&1 || fail "node is still unavailable after install"
+  command -v npm >/dev/null 2>&1 || fail "npm is still unavailable after install"
+  log "node and npm ready ($(node -v), npm $(npm -v))"
+}
+
+ensure_rust() {
+  if command -v rustup >/dev/null 2>&1 || command -v cargo >/dev/null 2>&1; then
+    if [[ -f "$HOME/.cargo/env" ]]; then
+      # shellcheck disable=SC1090
+      source "$HOME/.cargo/env"
+    fi
+    command -v cargo >/dev/null 2>&1 || fail "rust tooling detected but cargo is not available"
+    log "rust is already available ($(rustc --version 2>/dev/null || true))"
+    return
+  fi
+
+  log "installing rust via rustup"
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+  if [[ -f "$HOME/.cargo/env" ]]; then
+    # shellcheck disable=SC1090
+    source "$HOME/.cargo/env"
+  fi
+
+  command -v cargo >/dev/null 2>&1 || fail "rust installation completed but cargo is unavailable"
+  log "rust ready ($(rustc --version))"
+}
+
+ensure_create_dmg() {
+  if command -v create-dmg >/dev/null 2>&1; then
+    log "create-dmg is already installed"
+    return
+  fi
+
+  log "installing create-dmg via homebrew"
+  brew list create-dmg >/dev/null 2>&1 || brew install create-dmg
+  command -v create-dmg >/dev/null 2>&1 || fail "create-dmg is unavailable after install"
+}
+
+install_project_dependencies() {
+  log "installing project dependencies with npm"
+  npm install
+}
+
+run_sanity_check() {
+  log "running rust sanity check"
+  npm run check:rust
+}
+
+log "starting macOS fast setup"
+ensure_homebrew
+ensure_brew_in_path
+ensure_node_and_npm
+ensure_rust
+ensure_create_dmg
+
+cd "$repo_root"
+install_project_dependencies
+run_sanity_check
+
+log "setup complete"
+log "next step: npm run tauri:dev"

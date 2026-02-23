@@ -1,6 +1,7 @@
-import { CirclePause, CircleStop, FlaskConical, Loader2, Play, Terminal } from "lucide-react";
+import { CirclePause, CircleStop, FlaskConical, Loader2, Play, Terminal, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TestingEnvironmentColor } from "@/components/pages/dashboard/types";
 import { cn } from "@/lib/utils";
 import type { TestingEnvironmentEntry } from "@/src/lib/ipc";
@@ -12,6 +13,7 @@ type TestingEnvironmentPanelProps = {
   onStop: (worktree: string) => void;
   onRunLocal: (worktree: string) => void;
   onRunSeparate: (worktree: string) => void;
+  onRequestUnset: (environment: TestingEnvironmentEntry) => void;
 };
 
 export function TestingEnvironmentPanel({
@@ -21,6 +23,7 @@ export function TestingEnvironmentPanel({
   onStop,
   onRunLocal,
   onRunSeparate,
+  onRequestUnset,
 }: TestingEnvironmentPanelProps) {
   if (environments.length === 0) {
     return (
@@ -43,9 +46,11 @@ export function TestingEnvironmentPanel({
           </p>
         </div>
 
-        <div className="flex flex-col gap-3">
-          {environments.map((environment) => {
+        <TooltipProvider>
+          <div className="flex flex-col gap-3">
+            {environments.map((environment) => {
             const isRunning = environment.status === "running";
+            const isTarget = environment.isTarget ?? true;
             const hasInstanceId = typeof environment.instanceId === "string" && environment.instanceId.trim().length > 0;
             const hasPort = typeof environment.port === "number" && Number.isFinite(environment.port) && environment.port > 0;
             const environmentColor = testingEnvironmentColorByWorktree[environment.worktree];
@@ -59,18 +64,39 @@ export function TestingEnvironmentPanel({
                   environmentColor?.cardBackgroundClassName ?? "bg-muted/10",
                 )}
               >
-                <div className="space-y-1">
-                  <p className="inline-flex items-center gap-1.5 text-sm font-medium leading-tight">
-                    <FlaskConical aria-hidden="true" className={cn("size-3.5", environmentColor?.iconClassName ?? "text-muted-foreground")} />
-                    <span>{environment.worktree}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">Target: {environment.worktreePath}</p>
-                  <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    {isRunning ? <CirclePause aria-hidden="true" className="size-3.5" /> : <Play aria-hidden="true" className="size-3.5" />}
-                    <span>{isRunning ? "Running" : "Not running"}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">Port: {isRunning && hasPort ? environment.port : "-"}</p>
-                  <p className="text-xs text-muted-foreground">Instance ID: {hasInstanceId ? environment.instanceId : "-"}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-1">
+                    <p className="inline-flex items-center gap-1.5 text-sm font-medium leading-tight">
+                      <FlaskConical aria-hidden="true" className={cn("size-3.5", environmentColor?.iconClassName ?? "text-muted-foreground")} />
+                      <span>{environment.worktree}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">Target: {environment.worktreePath}</p>
+                    <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      {isRunning ? <CirclePause aria-hidden="true" className="size-3.5" /> : <Play aria-hidden="true" className="size-3.5" />}
+                      <span>{isRunning ? "Running" : "Not running"}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">Port: {isRunning && hasPort ? environment.port : "-"}</p>
+                    <p className="text-xs text-muted-foreground">Instance ID: {hasInstanceId ? environment.instanceId : "-"}</p>
+                  </div>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => {
+                          onRequestUnset(environment);
+                        }}
+                        disabled={isTestingInstancePending || !isTarget}
+                        aria-label={`Unset testing target for ${environment.worktree}`}
+                      >
+                        <X aria-hidden="true" className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{isTarget ? "Unset testing target" : "Testing target already unset"}</TooltipContent>
+                  </Tooltip>
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -119,8 +145,9 @@ export function TestingEnvironmentPanel({
                 </div>
               </article>
             );
-          })}
-        </div>
+            })}
+          </div>
+        </TooltipProvider>
       </div>
     </section>
   );

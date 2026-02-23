@@ -28,6 +28,7 @@ export default function Home() {
     forceCutConfirmRow,
     runtimeStateByWorktree,
     testingEnvironments,
+    unsetTestingEnvironmentConfirm,
     testingEnvironmentColorByWorktree,
     testingTargetWorktrees,
     testingRunningWorktrees,
@@ -46,6 +47,7 @@ export default function Home() {
     setIsCreateModalOpen,
     setCreateBranch,
     setCreateBase,
+    setUnsetTestingEnvironmentConfirm,
     pickDirectory,
     refreshWorktrees,
     copyBranchName,
@@ -58,6 +60,7 @@ export default function Home() {
     runStartTestingInstanceAction,
     runStartTestingInstanceInSeparateTerminalAction,
     runStopTestingInstanceAction,
+    runUnsetTestingTargetAction,
     closeCurrentWorkspace,
   } = useDashboardState();
 
@@ -125,6 +128,9 @@ export default function Home() {
                 onRunSeparate={(worktree) => {
                   void runStartTestingInstanceInSeparateTerminalAction(worktree);
                 }}
+                onRequestUnset={(environment) => {
+                  setUnsetTestingEnvironmentConfirm(environment);
+                }}
               />
 
               {!hasWorktreesDirectory ? (
@@ -148,6 +154,8 @@ export default function Home() {
                   testingTargetWorktrees={testingTargetWorktrees}
                   testingRunningWorktrees={testingRunningWorktrees}
                   testingEnvironmentColorByWorktree={testingEnvironmentColorByWorktree}
+                  hasConnectedRepository={Boolean(activeWorkspace?.workspaceRoot)}
+                  repositoryRemoteUrl={activeWorkspace?.repositoryRemoteUrl}
                   onCopyBranchName={(row) => {
                     void copyBranchName(row);
                   }}
@@ -192,8 +200,11 @@ export default function Home() {
         createBranch={createBranch}
         createBase={createBase}
         isCreatePending={isCreatePending}
+        unsetTestingEnvironmentConfirm={unsetTestingEnvironmentConfirm}
+        isTestingInstancePending={isTestingInstancePending}
         setCreateBranch={setCreateBranch}
         setCreateBase={setCreateBase}
+        setUnsetTestingEnvironmentConfirm={setUnsetTestingEnvironmentConfirm}
         onRunCutGrooveAction={(row, force) => {
           void runCutGrooveAction(row, force);
         }}
@@ -202,6 +213,9 @@ export default function Home() {
         }}
         onRunCreateWorktreeAction={() => {
           void runCreateWorktreeAction();
+        }}
+        onRunUnsetTestingTargetAction={(environment, stopRunningProcessesWhenUnset) => {
+          void runUnsetTestingTargetAction(environment, stopRunningProcessesWhenUnset);
         }}
       />
     </PageShell>

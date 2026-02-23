@@ -10,6 +10,10 @@ export function deriveWorktreeStatus(
   worktreeStatus: WorktreeStatus,
   runtimeRow: RuntimeStateRow | undefined,
 ): WorktreeStatus {
+  if (worktreeStatus === "deleted") {
+    return "deleted";
+  }
+
   if (worktreeStatus === "corrupted") {
     return "corrupted";
   }

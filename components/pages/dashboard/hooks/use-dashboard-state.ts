@@ -30,20 +30,23 @@ import {
   testingEnvironmentGetStatus,
   testingEnvironmentSetTarget,
   testingEnvironmentStart,
-  testingEnvironmentStartSeparateTerminal,
   testingEnvironmentStop,
   workspaceClearActive,
   workspaceEvents,
   workspaceGetActive,
   workspaceOpen,
+  workspaceOpenTerminal,
   workspacePickAndOpen,
   type WorkspaceContextResponse,
+  type TestingEnvironmentEntry,
 } from "@/src/lib/ipc";
 
 const DEBUG_CLIENT_LOGS = import.meta.env.VITE_GROOVE_DEBUG_LOGS === "true";
-const EVENT_RESCAN_DEBOUNCE_MS = 500;
-const EVENT_RESCAN_MIN_INTERVAL_MS = 1500;
+const EVENT_RESCAN_DEBOUNCE_MS = 700;
+const EVENT_RESCAN_MIN_INTERVAL_MS = 2200;
+const WORKSPACE_RESCAN_REQUEST_TTL_MS = 2500;
 const RUNTIME_FETCH_DEBOUNCE_MS = 200;
+const RUNTIME_FETCH_REQUEST_TTL_MS = 2000;
 
 function isSameWorkspaceMeta(left: WorkspaceMeta | null, right: WorkspaceMeta | null): boolean {
   if (!left && !right) {
@@ -107,6 +110,7 @@ export function useDashboardState() {
   const [forceCutConfirmRow, setForceCutConfirmRow] = useState<WorktreeRow | null>(null);
   const [runtimeStateByWorktree, setRuntimeStateByWorktree] = useState<Record<string, RuntimeStateRow>>({});
   const [testingEnvironment, setTestingEnvironment] = useState<TestingEnvironmentState | null>(null);
+  const [unsetTestingEnvironmentConfirm, setUnsetTestingEnvironmentConfirm] = useState<TestingEnvironmentEntry | null>(null);
   const [isTestingInstancePending, setIsTestingInstancePending] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createBranch, setCreateBranch] = useState("");
@@ -119,18 +123,23 @@ export function useDashboardState() {
   const copiedBranchResetTimeoutRef = useRef<number | null>(null);
   const rescanInFlightRef = useRef(false);
   const rescanQueuedRef = useRef(false);
+  const workspaceRescanLastRequestRef = useRef<{ key: string; at: number } | null>(null);
   const lastRescanAtRef = useRef<number>(0);
   const runtimeFetchInFlightRef = useRef(false);
   const runtimeFetchQueuedRef = useRef(false);
+  const runtimeFetchLastRequestRef = useRef<{ key: string; at: number } | null>(null);
+  const runtimeFetchScheduledRef = useRef<{ key: string; at: number } | null>(null);
   const realtimeUnavailableRef = useRef(false);
 
   const workspaceMeta = activeWorkspace?.workspaceMeta ?? null;
   const workspaceRoot = activeWorkspace?.workspaceRoot ?? null;
   const forceCutActionKey = forceCutConfirmRow ? `${forceCutConfirmRow.path}:cut` : null;
   const forceCutConfirmLoading = forceCutActionKey !== null && pendingCutGrooveActions.includes(forceCutActionKey);
-  const testingEnvironments = testingEnvironment?.environments ?? [];
+  const testingEnvironments = useMemo<TestingEnvironmentEntry[]>(() => {
+    return testingEnvironment?.environments ?? [];
+  }, [testingEnvironment]);
   const testingTargetWorktrees = useMemo<string[]>(() => {
-    return testingEnvironments.map((environment) => environment.worktree);
+    return testingEnvironments.filter((environment) => environment.isTarget).map((environment) => environment.worktree);
   }, [testingEnvironments]);
   const testingRunningWorktrees = useMemo<string[]>(() => {
     return testingEnvironments.filter((environment) => environment.status === "running").map((environment) => environment.worktree);
@@ -147,12 +156,30 @@ export function useDashboardState() {
   }, [worktreeRows]);
 
   const knownWorktrees = useMemo<string[]>(() => {
-    return worktreeRows.map((row) => row.worktree);
+    return worktreeRows
+      .filter((row) => row.status !== "deleted")
+      .map((row) => row.worktree)
+      .sort((left, right) => left.localeCompare(right));
   }, [worktreeRows]);
 
   const knownWorktreesKey = useMemo<string>(() => {
     return knownWorktrees.join("|");
   }, [knownWorktrees]);
+
+  const runtimeFetchRequestKey = useMemo<string | null>(() => {
+    if (!workspaceRoot || !workspaceMeta || knownWorktrees.length === 0) {
+      return null;
+    }
+
+    return [workspaceRoot, workspaceMeta.rootName, workspaceMeta.updatedAt ?? "", knownWorktreesKey].join("::");
+  }, [knownWorktrees.length, knownWorktreesKey, workspaceMeta, workspaceRoot]);
+
+  const workspaceRescanRequestKey = useMemo<string | null>(() => {
+    if (!workspaceRoot) {
+      return null;
+    }
+    return [workspaceRoot, workspaceMeta?.updatedAt ?? "", knownWorktreesKey].join("::");
+  }, [knownWorktreesKey, workspaceMeta?.updatedAt, workspaceRoot]);
 
   const applyWorkspaceContext = useCallback((result: WorkspaceContextResponse): void => {
     if (!result.workspaceRoot || !result.workspaceMeta || typeof result.hasWorktreesDirectory !== "boolean") {
@@ -161,6 +188,7 @@ export function useDashboardState() {
     const hasWorktreesDirectory = result.hasWorktreesDirectory;
     const nextWorkspace = {
       workspaceRoot: result.workspaceRoot,
+      repositoryRemoteUrl: result.repositoryRemoteUrl,
       workspaceMeta: result.workspaceMeta,
       hasWorktreesDirectory,
       rows: result.rows,
@@ -169,6 +197,7 @@ export function useDashboardState() {
       if (
         previous &&
         previous.workspaceRoot === nextWorkspace.workspaceRoot &&
+        previous.repositoryRemoteUrl === nextWorkspace.repositoryRemoteUrl &&
         previous.hasWorktreesDirectory === nextWorkspace.hasWorktreesDirectory &&
         isSameWorkspaceMeta(previous.workspaceMeta, nextWorkspace.workspaceMeta) &&
         areWorktreeRowsEqual(previous.rows, nextWorkspace.rows)
@@ -250,10 +279,23 @@ export function useDashboardState() {
     }
   }, [applyWorkspaceContext]);
 
-  const rescanWorktrees = useCallback(async (options?: { silent?: boolean }): Promise<void> => {
+  const rescanWorktrees = useCallback(async (options?: { silent?: boolean; force?: boolean }): Promise<void> => {
     if (!workspaceRoot) {
       return;
     }
+
+    if (!options?.force && workspaceRescanRequestKey) {
+      const now = Date.now();
+      const previousRescan = workspaceRescanLastRequestRef.current;
+      if (previousRescan && previousRescan.key === workspaceRescanRequestKey && now - previousRescan.at < WORKSPACE_RESCAN_REQUEST_TTL_MS) {
+        return;
+      }
+      workspaceRescanLastRequestRef.current = {
+        key: workspaceRescanRequestKey,
+        at: now,
+      };
+    }
+
     if (rescanInFlightRef.current) {
       rescanQueuedRef.current = true;
       return;
@@ -284,10 +326,10 @@ export function useDashboardState() {
         }, 120);
       }
     }
-  }, [applyWorkspaceContext, workspaceRoot]);
+  }, [applyWorkspaceContext, workspaceRescanRequestKey, workspaceRoot]);
 
   const fetchRuntimeState = useCallback(async (): Promise<void> => {
-    if (!workspaceRoot || !workspaceMeta || knownWorktrees.length === 0) {
+    if (!workspaceRoot || !workspaceMeta || knownWorktrees.length === 0 || !runtimeFetchRequestKey) {
       setRuntimeStateByWorktree({});
       return;
     }
@@ -296,7 +338,21 @@ export function useDashboardState() {
       return;
     }
 
+    const now = Date.now();
+    const previousRuntimeFetch = runtimeFetchLastRequestRef.current;
+    if (
+      previousRuntimeFetch &&
+      previousRuntimeFetch.key === runtimeFetchRequestKey &&
+      now - previousRuntimeFetch.at < RUNTIME_FETCH_REQUEST_TTL_MS
+    ) {
+      return;
+    }
     runtimeFetchInFlightRef.current = true;
+    runtimeFetchLastRequestRef.current = {
+      key: runtimeFetchRequestKey,
+      at: now,
+    };
+
     const fetchId = runtimeFetchCounterRef.current + 1;
     runtimeFetchCounterRef.current = fetchId;
 
@@ -328,19 +384,35 @@ export function useDashboardState() {
         }, 120);
       }
     }
-  }, [knownWorktrees, workspaceMeta, workspaceRoot]);
+  }, [knownWorktrees, runtimeFetchRequestKey, workspaceMeta, workspaceRoot]);
 
   const scheduleRuntimeStateFetch = useCallback(
     (delayMs = RUNTIME_FETCH_DEBOUNCE_MS): void => {
+      const nextKey = runtimeFetchRequestKey;
+      if (!nextKey) {
+        return;
+      }
+
+      const pending = runtimeFetchScheduledRef.current;
+      if (
+        pending &&
+        pending.key === nextKey &&
+        Date.now() - pending.at < RUNTIME_FETCH_REQUEST_TTL_MS
+      ) {
+        return;
+      }
+
       if (runtimeFetchTimeoutRef.current !== null) {
         window.clearTimeout(runtimeFetchTimeoutRef.current);
       }
+      runtimeFetchScheduledRef.current = { key: nextKey, at: Date.now() };
       runtimeFetchTimeoutRef.current = window.setTimeout(() => {
         runtimeFetchTimeoutRef.current = null;
+        runtimeFetchScheduledRef.current = null;
         void fetchRuntimeState();
       }, delayMs);
     },
-    [fetchRuntimeState],
+    [fetchRuntimeState, runtimeFetchRequestKey],
   );
 
   const fetchTestingEnvironmentState = useCallback(async (): Promise<void> => {
@@ -409,7 +481,7 @@ export function useDashboardState() {
       const delayMs = Math.max(EVENT_RESCAN_DEBOUNCE_MS, minIntervalDelay);
 
       if (eventRescanTimeoutRef.current !== null) {
-        window.clearTimeout(eventRescanTimeoutRef.current);
+        return;
       }
       eventRescanTimeoutRef.current = window.setTimeout(() => {
         eventRescanTimeoutRef.current = null;
@@ -458,7 +530,7 @@ export function useDashboardState() {
   }, [knownWorktrees, rescanWorktrees, workspaceMeta, workspaceRoot]);
 
   const refreshWorktrees = useCallback(async (): Promise<void> => {
-    await rescanWorktrees({ silent: false });
+    await rescanWorktrees({ silent: false, force: true });
     scheduleRuntimeStateFetch(0);
   }, [rescanWorktrees, scheduleRuntimeStateFetch]);
 
@@ -489,7 +561,7 @@ export function useDashboardState() {
       try {
         const result = (await grooveRestore({
           rootName: workspaceMeta.rootName,
-          knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+          knownWorktrees,
           workspaceMeta,
           worktree: row.worktree,
         })) as RestoreApiResponse;
@@ -498,7 +570,7 @@ export function useDashboardState() {
           toast.success(`Restore completed for ${row.worktree}.`, {
             description: appendRequestId(shortOutput, result.requestId),
           });
-          await rescanWorktrees({ silent: true });
+          await rescanWorktrees({ silent: true, force: true });
           scheduleRuntimeStateFetch(0);
           return;
         }
@@ -511,16 +583,16 @@ export function useDashboardState() {
         setPendingRestoreActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
     },
-    [rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, worktreeRows],
+    [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
-  const runCreateWorktreeAction = useCallback(async (): Promise<void> => {
+  const runCreateWorktreeAction = useCallback(async (options?: { branchOverride?: string; baseOverride?: string }): Promise<void> => {
     if (!workspaceMeta) {
       return;
     }
 
-    const branch = createBranch.trim();
-    const base = createBase.trim();
+    const branch = (options?.branchOverride ?? createBranch).trim();
+    const base = (options?.baseOverride ?? createBase).trim();
     if (!branch) {
       toast.error("Branch name is required.");
       return;
@@ -528,12 +600,12 @@ export function useDashboardState() {
 
     setIsCreatePending(true);
     try {
-      const result = await grooveNew({
-        rootName: workspaceMeta.rootName,
-        knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
-        workspaceMeta,
-        branch,
-        ...(base ? { base } : {}),
+        const result = await grooveNew({
+          rootName: workspaceMeta.rootName,
+          knownWorktrees,
+          workspaceMeta,
+          branch,
+          ...(base ? { base } : {}),
       });
       const shortOutput = summarizeRestoreOutput(result.stdout, result.stderr);
       if (result.ok) {
@@ -543,7 +615,7 @@ export function useDashboardState() {
         toast.success(`Created worktree for ${branch}.`, {
           description: appendRequestId(shortOutput, result.requestId),
         });
-        await rescanWorktrees({ silent: true });
+        await rescanWorktrees({ silent: true, force: true });
         scheduleRuntimeStateFetch(0);
         return;
       }
@@ -556,7 +628,7 @@ export function useDashboardState() {
     } finally {
       setIsCreatePending(false);
     }
-  }, [createBase, createBranch, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, worktreeRows]);
+  }, [createBase, createBranch, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta]);
 
   const runCutGrooveAction = useCallback(
     async (row: WorktreeRow, force = false): Promise<void> => {
@@ -569,7 +641,7 @@ export function useDashboardState() {
       try {
         const result = await grooveRm({
           rootName: workspaceMeta.rootName,
-          knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+          knownWorktrees,
           workspaceMeta,
           target: row.worktree,
           worktree: row.worktree,
@@ -582,7 +654,7 @@ export function useDashboardState() {
             force ? `Cut groove completed for ${row.branchGuess} with force deletion.` : `Cut groove completed for ${row.branchGuess}.`,
             { description: appendRequestId(shortOutput, result.requestId) },
           );
-          await rescanWorktrees({ silent: true });
+          await rescanWorktrees({ silent: true, force: true });
           scheduleRuntimeStateFetch(0);
           return;
         }
@@ -600,7 +672,7 @@ export function useDashboardState() {
         setPendingCutGrooveActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
     },
-    [rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, worktreeRows],
+    [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
   const runStopAction = useCallback(
@@ -614,7 +686,7 @@ export function useDashboardState() {
       try {
         const result = (await grooveStop({
           rootName: workspaceMeta.rootName,
-          knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+          knownWorktrees,
           workspaceMeta,
           worktree: row.worktree,
           ...(runtimeRow?.opencodeInstanceId ? { instanceId: runtimeRow.opencodeInstanceId } : {}),
@@ -633,7 +705,7 @@ export function useDashboardState() {
               description: appendRequestId(result.pid ? `Sent SIGTERM to PID ${String(result.pid)}.` : undefined, result.requestId),
             });
           }
-          await rescanWorktrees({ silent: true });
+          await rescanWorktrees({ silent: true, force: true });
           scheduleRuntimeStateFetch(0);
           return;
         }
@@ -647,7 +719,7 @@ export function useDashboardState() {
         setPendingStopActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
     },
-    [rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, worktreeRows],
+    [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
   const runPlayGrooveAction = useCallback(
@@ -661,7 +733,7 @@ export function useDashboardState() {
       try {
         const result = (await grooveRestore({
           rootName: workspaceMeta.rootName,
-          knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+          knownWorktrees,
           workspaceMeta,
           worktree: row.worktree,
           action: "go",
@@ -673,7 +745,7 @@ export function useDashboardState() {
           toast.success(`Play groove completed for ${row.branchGuess}.`, {
             description: appendRequestId(shortOutput, result.requestId),
           });
-          await rescanWorktrees({ silent: true });
+          await rescanWorktrees({ silent: true, force: true });
           scheduleRuntimeStateFetch(0);
           return;
         }
@@ -687,11 +759,19 @@ export function useDashboardState() {
         setPendingPlayActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
     },
-    [rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, worktreeRows],
+    [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
+  type TestingTargetActionTarget = Pick<WorktreeRow, "worktree" | "path">;
+
   const runSetTestingTargetAction = useCallback(
-    async (row: WorktreeRow, enabled = true, autoStartIfCurrentRunning = false): Promise<void> => {
+    async (
+      row: TestingTargetActionTarget,
+      enabled = true,
+      autoStartIfCurrentRunning = false,
+      stopRunningProcessesWhenUnset = true,
+      workspaceRoot?: string,
+    ): Promise<void> => {
       if (!workspaceMeta) {
         return;
       }
@@ -701,17 +781,19 @@ export function useDashboardState() {
       try {
         const result = await testingEnvironmentSetTarget({
           rootName: workspaceMeta.rootName,
-          knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+          knownWorktrees,
           workspaceMeta,
+          workspaceRoot,
           worktree: row.worktree,
           enabled,
           autoStartIfCurrentRunning,
+          stopRunningProcessesWhenUnset,
         });
 
         if (result.ok) {
           setTestingEnvironment(result);
           toast.success(enabled ? `Added testing target ${row.worktree}.` : `Removed testing target ${row.worktree}.`);
-          await rescanWorktrees({ silent: true });
+          await rescanWorktrees({ silent: true, force: true });
           scheduleRuntimeStateFetch(0);
           await fetchTestingEnvironmentState();
           return;
@@ -726,15 +808,43 @@ export function useDashboardState() {
         setPendingTestActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
     },
-    [fetchTestingEnvironmentState, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, worktreeRows],
+    [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
+  );
+
+  const runUnsetTestingTargetAction = useCallback(
+    async (environment: TestingEnvironmentEntry, stopRunningProcessesWhenUnset: boolean): Promise<void> => {
+      await runSetTestingTargetAction(
+        {
+          worktree: environment.worktree,
+          path: environment.worktreePath,
+        },
+        false,
+        false,
+        stopRunningProcessesWhenUnset,
+        environment.workspaceRoot,
+      );
+    },
+    [runSetTestingTargetAction],
   );
 
   const onSelectTestingTarget = useCallback(
     (row: WorktreeRow): void => {
       const enabled = !testingTargetWorktrees.includes(row.worktree);
+      if (!enabled) {
+        const matchedEnvironment = testingEnvironments.find((environment) => environment.worktree === row.worktree);
+        setUnsetTestingEnvironmentConfirm(
+          matchedEnvironment ?? {
+            worktree: row.worktree,
+            worktreePath: row.path,
+            isTarget: true,
+            status: testingRunningWorktrees.includes(row.worktree) ? "running" : "stopped",
+          },
+        );
+        return;
+      }
       void runSetTestingTargetAction(row, enabled);
     },
-    [runSetTestingTargetAction, testingTargetWorktrees],
+    [runSetTestingTargetAction, testingEnvironments, testingRunningWorktrees, testingTargetWorktrees],
   );
 
   const runStartTestingInstanceAction = useCallback(async (worktree?: string): Promise<void> => {
@@ -747,7 +857,7 @@ export function useDashboardState() {
     try {
       const result = await testingEnvironmentStart({
         rootName: workspaceMeta.rootName,
-        knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+        knownWorktrees,
         workspaceMeta,
         ...(worktree ? { worktree } : {}),
       });
@@ -773,50 +883,40 @@ export function useDashboardState() {
     } finally {
       setIsTestingInstancePending(false);
     }
-  }, [fetchTestingEnvironmentState, testingTargetWorktrees.length, workspaceMeta, worktreeRows]);
+  }, [fetchTestingEnvironmentState, knownWorktrees, testingTargetWorktrees.length, workspaceMeta]);
 
-  const runStartTestingInstanceInSeparateTerminalAction = useCallback(async (worktree?: string): Promise<void> => {
-    if (!workspaceMeta || (testingTargetWorktrees.length === 0 && !worktree)) {
-      toast.error("Select a testing target before running locally on a separate terminal.");
+  const runOpenTestingTerminalAction = useCallback(async (worktree?: string): Promise<void> => {
+    if (!workspaceMeta || !worktree) {
+      toast.error("Select a testing target before opening a terminal.");
       return;
     }
 
     setIsTestingInstancePending(true);
     try {
-      const result = await testingEnvironmentStartSeparateTerminal({
+      const result = (await workspaceOpenTerminal({
         rootName: workspaceMeta.rootName,
-        knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+        knownWorktrees,
         workspaceMeta,
-        ...(worktree ? { worktree } : {}),
-      });
+        worktree,
+      })) as RestoreApiResponse;
+      const shortOutput = summarizeRestoreOutput(result.stdout, result.stderr);
 
       if (result.ok) {
-        setTestingEnvironment(result);
-        const targetPorts = result.environments
-          .filter((environment) => environment.status === "running" && typeof environment.port === "number" && environment.port > 0)
-          .filter((environment) => (worktree ? environment.worktree === worktree : true))
-          .map((environment) => `${environment.worktree}:${String(environment.port)}`);
-        toast.success(
-          worktree
-            ? `Launched local testing for ${worktree} in a separate terminal.`
-            : "Launched local testing for selected targets in a separate terminal.",
-          {
-            description: targetPorts.length > 0 ? `Port${targetPorts.length === 1 ? "" : "s"}: ${targetPorts.join(", ")}` : undefined,
-          },
-        );
-        await fetchTestingEnvironmentState();
+        toast.success(`Opened terminal for ${worktree}.`, {
+          description: appendRequestId(shortOutput, result.requestId),
+        });
         return;
       }
 
-      toast.error("Failed to run local testing environment in a separate terminal.", {
-        description: appendRequestId(result.error, result.requestId),
+      toast.error(`Failed to open terminal for ${worktree}.`, {
+        description: appendRequestId(result.error ?? shortOutput ?? `Exit code: ${String(result.exitCode)}`, result.requestId),
       });
     } catch {
-      toast.error("Local testing start request failed for separate terminal.");
+      toast.error("Terminal open request failed.");
     } finally {
       setIsTestingInstancePending(false);
     }
-  }, [fetchTestingEnvironmentState, testingTargetWorktrees.length, workspaceMeta, worktreeRows]);
+  }, [knownWorktrees, workspaceMeta]);
 
   const runStopTestingInstanceAction = useCallback(async (worktree?: string): Promise<void> => {
     if (!workspaceMeta) {
@@ -827,7 +927,7 @@ export function useDashboardState() {
     try {
       const result = await testingEnvironmentStop({
         rootName: workspaceMeta.rootName,
-        knownWorktrees: worktreeRows.map((candidate) => candidate.worktree),
+        knownWorktrees,
         workspaceMeta,
         ...(worktree ? { worktree } : {}),
       });
@@ -847,7 +947,7 @@ export function useDashboardState() {
     } finally {
       setIsTestingInstancePending(false);
     }
-  }, [fetchTestingEnvironmentState, workspaceMeta, worktreeRows]);
+  }, [fetchTestingEnvironmentState, knownWorktrees, workspaceMeta]);
 
   const closeCurrentWorkspace = useCallback(async (): Promise<void> => {
     try {
@@ -869,6 +969,7 @@ export function useDashboardState() {
       setCopiedBranchPath(null);
       setRuntimeStateByWorktree({});
       setTestingEnvironment(null);
+      setUnsetTestingEnvironmentConfirm(null);
       realtimeUnavailableRef.current = false;
       setStatusMessage("Workspace closed. Select a directory to continue.");
       toast.success("Current workspace closed.");
@@ -899,6 +1000,7 @@ export function useDashboardState() {
     runtimeStateByWorktree,
     testingEnvironment,
     testingEnvironments,
+    unsetTestingEnvironmentConfirm,
     testingEnvironmentColorByWorktree,
     testingTargetWorktrees,
     testingRunningWorktrees,
@@ -915,6 +1017,7 @@ export function useDashboardState() {
     setCutConfirmRow,
     setForceCutConfirmRow,
     setIsCreateModalOpen,
+    setUnsetTestingEnvironmentConfirm,
     setCreateBranch,
     setCreateBase,
     pickDirectory,
@@ -926,9 +1029,10 @@ export function useDashboardState() {
     runStopAction,
     runPlayGrooveAction,
     runSetTestingTargetAction,
+    runUnsetTestingTargetAction,
     onSelectTestingTarget,
     runStartTestingInstanceAction,
-    runStartTestingInstanceInSeparateTerminalAction,
+    runOpenTestingTerminalAction,
     runStopTestingInstanceAction,
     closeCurrentWorkspace,
   };

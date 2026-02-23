@@ -60,6 +60,7 @@ export type TestingEnvironmentColor = {
 export type ActiveWorkspace = {
   workspaceRoot: string;
   workspaceMeta: WorkspaceMeta;
+  repositoryRemoteUrl?: string;
   rows: WorktreeRow[];
   hasWorktreesDirectory: boolean;
 };

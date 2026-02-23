@@ -1,6 +1,12 @@
-import { Loader2 } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { SUPPORTED_TERMINAL_OPTIONS } from "@/components/pages/settings/constants";
 import type { DefaultTerminal } from "@/src/lib/ipc";
@@ -26,28 +32,47 @@ export function TerminalSettingsForm({
   onSave,
 }: TerminalSettingsFormProps) {
   const customCommandEnabled = defaultTerminal === "custom";
+  const selectedTerminalOption = SUPPORTED_TERMINAL_OPTIONS.find((option) => option.value === defaultTerminal);
 
   return (
     <div className="space-y-3 rounded-md border border-dashed px-3 py-3">
       <div className="space-y-1">
-        <label htmlFor="default-terminal" className="text-sm font-medium text-foreground">
+        <label id="default-terminal-label" className="text-sm font-medium text-foreground">
           Default terminal
         </label>
-        <select
-          id="default-terminal"
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-          value={defaultTerminal}
-          onChange={(event) => {
-            onDefaultTerminalChange(event.target.value as DefaultTerminal);
-          }}
-          disabled={saveState === "saving"}
-        >
-          {SUPPORTED_TERMINAL_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              id="default-terminal"
+              type="button"
+              variant="outline"
+              className="w-full justify-between bg-transparent px-3 font-normal dark:border-border/80 dark:bg-muted/35 dark:hover:bg-muted/45"
+              aria-labelledby="default-terminal-label"
+              disabled={saveState === "saving"}
+            >
+              <span>{selectedTerminalOption?.label ?? "Select terminal"}</span>
+              <ChevronsUpDown className="size-4 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+            {SUPPORTED_TERMINAL_OPTIONS.map((option) => {
+              const isSelected = option.value === defaultTerminal;
+
+              return (
+                <DropdownMenuItem
+                  key={option.value}
+                  onSelect={() => {
+                    onDefaultTerminalChange(option.value);
+                  }}
+                  className="justify-between"
+                >
+                  <span>{option.label}</span>
+                  {isSelected && <Check className="size-4" />}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <div className="space-y-1">

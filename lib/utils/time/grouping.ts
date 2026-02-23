@@ -45,7 +45,10 @@ export type GroupedWorktreeItem =
     };
 
 export function buildGroupedWorktreeItems(rows: WorkspaceRow[]): GroupedWorktreeItem[] {
-  const sortedRows = [...rows].sort((left, right) => {
+  const activeRows = rows.filter((row) => row.status !== "deleted");
+  const deletedRows = rows.filter((row) => row.status === "deleted");
+
+  const sortedRows = [...activeRows].sort((left, right) => {
     const leftDate = parseLastExecutedAt(left.lastExecutedAt);
     const rightDate = parseLastExecutedAt(right.lastExecutedAt);
     const leftTime = leftDate?.getTime() ?? Number.NEGATIVE_INFINITY;
@@ -82,6 +85,30 @@ export function buildGroupedWorktreeItems(rows: WorkspaceRow[]): GroupedWorktree
       row,
       key: `row:${row.path}`,
     });
+  }
+
+  if (deletedRows.length > 0) {
+    const sortedDeletedRows = [...deletedRows].sort((left, right) => {
+      const byWorktree = left.worktree.localeCompare(right.worktree);
+      if (byWorktree !== 0) {
+        return byWorktree;
+      }
+      return left.path.localeCompare(right.path);
+    });
+
+    items.push({
+      type: "section",
+      label: "Deleted worktrees",
+      key: "section:Deleted worktrees",
+    });
+
+    for (const row of sortedDeletedRows) {
+      items.push({
+        type: "row",
+        row,
+        key: `row:${row.path}`,
+      });
+    }
   }
 
   return items;

@@ -7,6 +7,7 @@ export type WorkspaceMeta = {
   updatedAt: string;
   defaultTerminal?: DefaultTerminal;
   terminalCustomCommand?: string | null;
+  telemetryEnabled?: boolean;
 };
 
 export type SaveState = "idle" | "saving" | "success" | "error";

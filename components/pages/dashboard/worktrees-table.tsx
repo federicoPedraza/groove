@@ -1,4 +1,4 @@
-import { Check, Copy, FlaskConical } from "lucide-react";
+import { Check, CircleHelp, Copy, FlaskConical } from "lucide-react";
 
 import { WorktreeRowActions } from "@/components/pages/dashboard/worktree-row-actions";
 import { getWorktreeStatusBadgeClasses, getWorktreeStatusIcon, getWorktreeStatusTitle } from "@/components/pages/dashboard/worktree-status";
@@ -6,7 +6,7 @@ import type { RuntimeStateRow, TestingEnvironmentColor, WorktreeRow } from "@/co
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { deriveWorktreeStatus } from "@/lib/utils/worktree/status";
 import type { GroupedWorktreeItem } from "@/lib/utils/time/grouping";
@@ -23,6 +23,8 @@ type WorktreesTableProps = {
   testingTargetWorktrees: string[];
   testingRunningWorktrees: string[];
   testingEnvironmentColorByWorktree: Record<string, TestingEnvironmentColor>;
+  hasConnectedRepository: boolean;
+  repositoryRemoteUrl?: string;
   onCopyBranchName: (row: WorktreeRow) => void;
   onRestoreAction: (row: WorktreeRow) => void;
   onCutConfirm: (row: WorktreeRow) => void;
@@ -43,6 +45,8 @@ export function WorktreesTable({
   testingTargetWorktrees,
   testingRunningWorktrees,
   testingEnvironmentColorByWorktree,
+  hasConnectedRepository,
+  repositoryRemoteUrl,
   onCopyBranchName,
   onRestoreAction,
   onCutConfirm,
@@ -56,7 +60,7 @@ export function WorktreesTable({
         <TableHeader>
           <TableRow>
             <TableHead>Worktree</TableHead>
-            <TableHead>Branch</TableHead>
+            <TableHead className="w-[34%] md:w-[26%]">Branch</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -64,10 +68,30 @@ export function WorktreesTable({
         <TableBody>
           {groupedWorktreeItems.map((item) => {
             if (item.type === "section") {
+              const isDeletedWorktreesSection = item.label === "Deleted worktrees";
+
               return (
                 <TableRow key={item.key} className="bg-muted/25">
                   <TableCell colSpan={4} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {item.label}
+                    <span className="inline-flex items-center gap-1.5">
+                      <span>{item.label}</span>
+                      {isDeletedWorktreesSection ? (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                aria-label="About deleted worktrees"
+                              >
+                                <CircleHelp aria-hidden="true" className="size-3" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>These are worktrees that are no longer present in folders.</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : null}
+                    </span>
                   </TableCell>
                 </TableRow>
               );
@@ -109,7 +133,7 @@ export function WorktreesTable({
                     <span>{row.worktree}</span>
                   </span>
                 </TableCell>
-                <TableCell>
+                <TableCell className="w-[34%] md:w-[26%]">
                   <div className="flex items-center gap-2 px-2 py-1">
                     <span className="min-w-0 flex-1 truncate select-text">{row.branchGuess}</span>
                     <Button
@@ -146,6 +170,8 @@ export function WorktreesTable({
                       runtimeRow={runtimeRow}
                       isTestingTarget={isTestingTarget}
                       isTestingRunning={isTestingRunning}
+                      hasConnectedRepository={hasConnectedRepository}
+                      repositoryRemoteUrl={repositoryRemoteUrl}
                       onRepair={onRestoreAction}
                       onPlay={onPlayAction}
                       onStop={onStopAction}

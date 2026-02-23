@@ -1,8 +1,9 @@
-import { AlertTriangle, Octagon, OctagonPause, OctagonX } from "lucide-react";
+import { AlertTriangle, Octagon, OctagonPause, OctagonX, Trash2 } from "lucide-react";
 
 import {
   CLOSING_STATUS_CLASSES,
   CORRUPTED_STATUS_CLASSES,
+  DELETED_STATUS_CLASSES,
   PAUSED_STATUS_CLASSES,
   READY_STATUS_CLASSES,
 } from "@/components/pages/dashboard/constants";
@@ -18,6 +19,9 @@ export function getWorktreeStatusBadgeClasses(status: WorktreeStatus): string {
   if (status === "paused") {
     return PAUSED_STATUS_CLASSES;
   }
+  if (status === "deleted") {
+    return DELETED_STATUS_CLASSES;
+  }
   return CORRUPTED_STATUS_CLASSES;
 }
 
@@ -31,6 +35,9 @@ export function getWorktreeStatusTitle(status: WorktreeStatus): string {
   if (status === "paused") {
     return "Workspace is valid, but opencode is not running.";
   }
+  if (status === "deleted") {
+    return "Worktree was deleted and can be restored.";
+  }
   return "Workspace is invalid or missing groove metadata.";
 }
 
@@ -43,6 +50,9 @@ export function getWorktreeStatusIcon(status: WorktreeStatus) {
   }
   if (status === "paused") {
     return <OctagonPause aria-hidden="true" />;
+  }
+  if (status === "deleted") {
+    return <Trash2 aria-hidden="true" />;
   }
   return <AlertTriangle aria-hidden="true" />;
 }

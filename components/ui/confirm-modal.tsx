@@ -20,11 +20,14 @@ type ConfirmModalProps = {
   title: string;
   description: string;
   confirmLabel?: string;
+  secondaryActionLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
+  secondaryActionDestructive?: boolean;
   loading?: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
+  onSecondaryAction?: () => void;
   onCancel: () => void;
 };
 
@@ -33,13 +36,18 @@ function ConfirmModal({
   title,
   description,
   confirmLabel = "Confirm",
+  secondaryActionLabel,
   cancelLabel = "Cancel",
   destructive = false,
+  secondaryActionDestructive = false,
   loading = false,
   onOpenChange,
   onConfirm,
+  onSecondaryAction,
   onCancel,
 }: ConfirmModalProps) {
+  const hasSecondaryAction = typeof secondaryActionLabel === "string" && secondaryActionLabel.trim().length > 0 && typeof onSecondaryAction === "function";
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
@@ -64,6 +72,27 @@ function ConfirmModal({
               {cancelLabel}
             </button>
           </AlertDialogCancel>
+          {hasSecondaryAction ? (
+            <AlertDialogAction
+              asChild
+              onClick={(event) => {
+                if (loading) {
+                  event.preventDefault();
+                  return;
+                }
+
+                onSecondaryAction();
+              }}
+            >
+              <button
+                type="button"
+                className={cn(buttonVariants({ variant: secondaryActionDestructive ? "destructive" : "secondary" }))}
+                disabled={loading}
+              >
+                <span>{secondaryActionLabel}</span>
+              </button>
+            </AlertDialogAction>
+          ) : null}
           <AlertDialogAction
             asChild
             onClick={(event) => {

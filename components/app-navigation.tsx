@@ -1,8 +1,8 @@
 "use client";
 
 import { Link, useLocation } from "react-router-dom";
-import { ActivitySquare, LayoutDashboard, PanelLeft, Settings } from "lucide-react";
-import { useState } from "react";
+import { ActivitySquare, CircleHelp, LayoutDashboard, PanelLeft, Settings } from "lucide-react";
+import { useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,14 +15,39 @@ import {
   SidebarContent,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuButton,
   sidebarMenuButtonClassName,
 } from "@/components/ui/sidebar";
 import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { isTelemetryEnabled } from "@/src/lib/ipc";
 
-function AppNavigation() {
+const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
+const NAVIGATION_START_MARKER_KEY = "__grooveNavigationTelemetryStart";
+
+type NavigationStartMarker = {
+  from: string;
+  to: string;
+  startedAtUnixMs: number;
+  startedAtPerfMs: number;
+};
+
+function setNavigationStartMarker(marker: NavigationStartMarker): void {
+  (window as Window & { [NAVIGATION_START_MARKER_KEY]?: NavigationStartMarker })[NAVIGATION_START_MARKER_KEY] = marker;
+}
+
+function clearNavigationStartMarker(): void {
+  delete (window as Window & { [NAVIGATION_START_MARKER_KEY]?: NavigationStartMarker })[NAVIGATION_START_MARKER_KEY];
+}
+
+type AppNavigationProps = {
+  isHelpOpen: boolean;
+  onHelpClick: () => void;
+};
+
+function AppNavigation({ isHelpOpen, onHelpClick }: AppNavigationProps) {
   const { pathname } = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -30,6 +55,32 @@ function AppNavigation() {
   const isDashboardActive = pathname === "/";
   const isDiagnosticsActive = pathname === "/diagnostics";
   const isSettingsActive = pathname === "/settings";
+  const isHelpActive = isHelpOpen;
+
+  const recordNavigationStart = useCallback(
+    (to: string) => {
+      if (to === pathname) {
+        clearNavigationStartMarker();
+        return;
+      }
+      const startedAtUnixMs = Date.now();
+      const startedAtPerfMs = performance.now();
+      setNavigationStartMarker({
+        from: pathname,
+        to,
+        startedAtUnixMs,
+        startedAtPerfMs,
+      });
+      if (isTelemetryEnabled()) {
+        console.info(`${UI_TELEMETRY_PREFIX} navigation.start`, {
+          from: pathname,
+          to,
+          timestamp_ms: startedAtUnixMs,
+        });
+      }
+    },
+    [pathname],
+  );
 
   return (
     <>
@@ -62,6 +113,9 @@ function AppNavigation() {
                   isActive: isDashboardActive,
                   collapsed: isSidebarCollapsed,
                 })}
+                onClick={() => {
+                  recordNavigationStart("/");
+                }}
               >
                 <LayoutDashboard aria-hidden="true" className="size-4 shrink-0" />
                 {!isSidebarCollapsed && <span>Dashboard</span>}
@@ -75,6 +129,9 @@ function AppNavigation() {
                     collapsed: isSidebarCollapsed,
                   }),
                 )}
+                onClick={() => {
+                  recordNavigationStart("/diagnostics");
+                }}
               >
                 <ActivitySquare aria-hidden="true" className="size-4 shrink-0" />
                 {!isSidebarCollapsed && <span>Diagnostics</span>}
@@ -88,10 +145,23 @@ function AppNavigation() {
                     collapsed: isSidebarCollapsed,
                   }),
                 )}
+                onClick={() => {
+                  recordNavigationStart("/settings");
+                }}
               >
                 <Settings aria-hidden="true" className="size-4 shrink-0" />
                 {!isSidebarCollapsed && <span>Settings</span>}
               </Link>
+              <SidebarMenuButton
+                type="button"
+                className={cn("relative")}
+                isActive={isHelpActive}
+                collapsed={isSidebarCollapsed}
+                onClick={onHelpClick}
+              >
+                <CircleHelp aria-hidden="true" className="size-4 shrink-0" />
+                {!isSidebarCollapsed && <span>Help</span>}
+              </SidebarMenuButton>
             </SidebarMenu>
           </TooltipProvider>
         </SidebarContent>
@@ -113,6 +183,7 @@ function AppNavigation() {
                 to="/"
                 className={sidebarMenuButtonClassName({ isActive: isDashboardActive })}
                 onClick={() => {
+                  recordNavigationStart("/");
                   setIsMobileSidebarOpen(false);
                 }}
               >
@@ -123,6 +194,7 @@ function AppNavigation() {
                 to="/diagnostics"
                 className={sidebarMenuButtonClassName({ isActive: isDiagnosticsActive })}
                 onClick={() => {
+                  recordNavigationStart("/diagnostics");
                   setIsMobileSidebarOpen(false);
                 }}
               >
@@ -133,12 +205,24 @@ function AppNavigation() {
                 to="/settings"
                 className={sidebarMenuButtonClassName({ isActive: isSettingsActive })}
                 onClick={() => {
+                  recordNavigationStart("/settings");
                   setIsMobileSidebarOpen(false);
                 }}
               >
                 <Settings aria-hidden="true" className="size-4 shrink-0" />
                 <span>Settings</span>
               </Link>
+              <SidebarMenuButton
+                type="button"
+                isActive={isHelpActive}
+                onClick={() => {
+                  onHelpClick();
+                  setIsMobileSidebarOpen(false);
+                }}
+              >
+                <CircleHelp aria-hidden="true" className="size-4 shrink-0" />
+                <span>Help</span>
+              </SidebarMenuButton>
             </SidebarMenu>
           </TooltipProvider>
         </CollapsibleContent>

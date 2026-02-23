@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -19,6 +19,10 @@ const SEPARATE_TERMINAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 const COMMAND_TIMEOUT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const WORKSPACE_EVENTS_POLL_INTERVAL: Duration = Duration::from_millis(1800);
 const WORKSPACE_EVENTS_MIN_EMIT_INTERVAL: Duration = Duration::from_millis(1200);
+const WORKSPACE_EVENTS_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const GROOVE_LIST_CACHE_TTL: Duration = Duration::from_secs(45);
+const GROOVE_LIST_CACHE_STALE_TTL: Duration = Duration::from_secs(50);
+const TESTING_ENVIRONMENT_PORTS: [u16; 3] = [3000, 3001, 3002];
 const SUPPORTED_DEFAULT_TERMINALS: [&str; 8] = [
     "auto", "ghostty", "warp", "kitty", "gnome", "xterm", "none", "custom",
 ];
@@ -26,11 +30,23 @@ const SUPPORTED_DEFAULT_TERMINALS: [&str; 8] = [
 #[derive(Default)]
 struct WorkspaceEventState {
     worker: Mutex<Option<WorkspaceWorker>>,
+    worker_generation: Arc<AtomicU64>,
 }
 
 #[derive(Default)]
 struct TestingEnvironmentState {
     runtime: Mutex<TestingEnvironmentRuntimeState>,
+}
+
+#[derive(Default)]
+struct WorkspaceContextCacheState {
+    entries: Mutex<HashMap<String, WorkspaceContextCacheEntry>>,
+}
+
+#[derive(Default)]
+struct GrooveListCacheState {
+    entries: Mutex<HashMap<String, GrooveListCacheEntry>>,
+    in_flight: Mutex<HashMap<String, Arc<GrooveListInFlight>>>,
 }
 
 #[derive(Default)]
@@ -40,7 +56,35 @@ struct TestingEnvironmentRuntimeState {
     children_by_worktree: HashMap<String, std::process::Child>,
 }
 
+#[derive(Debug, Clone)]
+struct WorkspaceContextCacheEntry {
+    signature: WorkspaceContextSignature,
+    response: WorkspaceContextResponse,
+}
+
+#[derive(Debug, Clone)]
+struct GrooveListCacheEntry {
+    created_at: Instant,
+    response: GrooveListResponse,
+}
+
+#[derive(Debug)]
+struct GrooveListInFlight {
+    response: Mutex<Option<GrooveListResponse>>,
+    cvar: Condvar,
+}
+
+impl GrooveListInFlight {
+    fn new() -> Self {
+        Self {
+            response: Mutex::new(None),
+            cvar: Condvar::new(),
+        }
+    }
+}
+
 struct WorkspaceWorker {
+    workspace_root: String,
     stop: Arc<AtomicBool>,
     handle: JoinHandle<()>,
 }
@@ -88,6 +132,19 @@ struct PersistedTestingEnvironmentState {
 struct PersistedWorktreeExecutionState {
     #[serde(default)]
     last_executed_at_by_workspace: HashMap<String, HashMap<String, String>>,
+    #[serde(default)]
+    tombstones_by_workspace: HashMap<String, HashMap<String, WorktreeTombstone>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorktreeTombstone {
+    workspace_root: String,
+    worktree: String,
+    worktree_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    branch_name: Option<String>,
+    deleted_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -99,6 +156,7 @@ struct WorkspaceMetaContext {
     updated_at: Option<String>,
     default_terminal: Option<String>,
     terminal_custom_command: Option<String>,
+    telemetry_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -112,6 +170,8 @@ struct WorkspaceMeta {
     default_terminal: String,
     #[serde(default)]
     terminal_custom_command: Option<String>,
+    #[serde(default = "default_true")]
+    telemetry_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -132,6 +192,8 @@ struct WorkspaceContextResponse {
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repository_remote_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     workspace_meta: Option<WorkspaceMeta>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,6 +283,116 @@ struct WorkspaceEventsPayload {
 struct WorkspaceTerminalSettingsPayload {
     default_terminal: String,
     terminal_custom_command: Option<String>,
+    telemetry_enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitAuthStatusPayload {
+    workspace_root: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPathPayload {
+    path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPullPayload {
+    path: String,
+    #[serde(default)]
+    rebase: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPushPayload {
+    path: String,
+    #[serde(default)]
+    set_upstream: bool,
+    #[serde(default)]
+    force_with_lease: bool,
+    #[serde(default)]
+    branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitMergePayload {
+    path: String,
+    target_branch: String,
+    #[serde(default)]
+    ff_only: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitCommitPayload {
+    path: String,
+    #[serde(default)]
+    message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitFilesPayload {
+    path: String,
+    files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhDetectRepoPayload {
+    path: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct GhAuthStatusPayload {
+    #[serde(default)]
+    hostname: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    remote_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct GhAuthLogoutPayload {
+    #[serde(default)]
+    hostname: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPrListPayload {
+    owner: String,
+    repo: String,
+    #[serde(default)]
+    hostname: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPrCreatePayload {
+    owner: String,
+    repo: String,
+    base: String,
+    head: String,
+    title: String,
+    body: String,
+    #[serde(default)]
+    hostname: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhBranchActionPayload {
+    path: String,
+    branch: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -239,9 +411,11 @@ struct TestingEnvironmentSetTargetPayload {
     #[serde(default)]
     known_worktrees: Vec<String>,
     workspace_meta: Option<WorkspaceMetaContext>,
+    workspace_root: Option<String>,
     worktree: String,
     enabled: Option<bool>,
     auto_start_if_current_running: Option<bool>,
+    stop_running_processes_when_unset: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -358,11 +532,276 @@ struct WorkspaceTerminalSettingsResponse {
     error: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitProfileStatus {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_email: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitSshStatus {
+    state: String,
+    message: String,
+}
+
+impl GitSshStatus {
+    fn unknown() -> Self {
+        Self {
+            state: "unknown".to_string(),
+            message: "SSH status unavailable".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitAuthStatusResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    profile: GitProfileStatus,
+    ssh_status: GitSshStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitStatusResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    modified: u32,
+    added: u32,
+    deleted: u32,
+    untracked: u32,
+    dirty: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_snippet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitCurrentBranchResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_snippet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitAheadBehindResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    ahead: u32,
+    behind: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_snippet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitCommandResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_snippet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitBooleanResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    value: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_snippet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitFileStatesResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(default)]
+    staged: Vec<String>,
+    #[serde(default)]
+    unstaged: Vec<String>,
+    #[serde(default)]
+    untracked: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_snippet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhDetectRepoResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repository_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name_with_owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repository_url: Option<String>,
+    verified: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhAuthStatusResponse {
+    request_id: String,
+    ok: bool,
+    installed: bool,
+    authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hostname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    username: Option<String>,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhAuthLogoutResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hostname: Option<String>,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPullRequestItem {
+    number: i64,
+    title: String,
+    state: String,
+    head_ref_name: String,
+    base_ref_name: String,
+    url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPrListResponse {
+    request_id: String,
+    ok: bool,
+    repository: String,
+    #[serde(default)]
+    prs: Vec<GhPullRequestItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPrCreateResponse {
+    request_id: String,
+    ok: bool,
+    repository: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhBranchActionResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhBranchPrItem {
+    number: i64,
+    title: String,
+    url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhCheckBranchPrResponse {
+    request_id: String,
+    ok: bool,
+    branch: String,
+    #[serde(default)]
+    prs: Vec<GhBranchPrItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    active_pr: Option<GhBranchPrItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TestingEnvironmentEntry {
     worktree: String,
     worktree_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    is_target: bool,
     status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     instance_id: Option<String>,
@@ -499,10 +938,17 @@ struct CommandResult {
     error: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct SnapshotEntry {
     exists: bool,
     mtime_ms: u128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WorkspaceContextSignature {
+    workspace_manifest: SnapshotEntry,
+    worktrees_dir: SnapshotEntry,
+    worktree_execution_state_file: SnapshotEntry,
 }
 
 fn request_id() -> String {
@@ -511,6 +957,10 @@ fn request_id() -> String {
 
 fn default_terminal_auto() -> String {
     "auto".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn normalize_default_terminal(value: &str) -> Result<String, String> {
@@ -763,7 +1213,9 @@ fn validate_known_worktrees(known_worktrees: &[String]) -> Result<Vec<String>, S
         set.insert(trimmed.to_string());
     }
 
-    Ok(set.into_iter().collect())
+    let mut values = set.into_iter().collect::<Vec<_>>();
+    values.sort();
+    Ok(values)
 }
 
 fn validate_optional_relative_path(
@@ -961,6 +1413,75 @@ fn record_worktree_last_executed_at(
     write_persisted_worktree_execution_state(app, &state)
 }
 
+fn record_worktree_tombstone(
+    app: &AppHandle,
+    workspace_root: &Path,
+    worktree: &str,
+    worktree_path: &Path,
+    branch_name: Option<String>,
+) -> Result<(), String> {
+    let mut state = read_persisted_worktree_execution_state(app)?;
+    let workspace_key = workspace_root_storage_key(workspace_root);
+    state
+        .tombstones_by_workspace
+        .entry(workspace_key)
+        .or_default()
+        .insert(
+            worktree.to_string(),
+            WorktreeTombstone {
+                workspace_root: workspace_root.display().to_string(),
+                worktree: worktree.to_string(),
+                worktree_path: worktree_path.display().to_string(),
+                branch_name,
+                deleted_at: now_iso(),
+            },
+        );
+    write_persisted_worktree_execution_state(app, &state)
+}
+
+fn clear_worktree_tombstone(
+    app: &AppHandle,
+    workspace_root: &Path,
+    worktree: &str,
+) -> Result<(), String> {
+    let mut state = read_persisted_worktree_execution_state(app)?;
+    let workspace_key = workspace_root_storage_key(workspace_root);
+    let mut changed = false;
+    let mut workspace_tombstones_empty = false;
+
+    if let Some(workspace_tombstones) = state.tombstones_by_workspace.get_mut(&workspace_key) {
+        if workspace_tombstones.remove(worktree).is_some() {
+            changed = true;
+        }
+        workspace_tombstones_empty = workspace_tombstones.is_empty();
+    }
+
+    if workspace_tombstones_empty {
+        state.tombstones_by_workspace.remove(&workspace_key);
+        changed = true;
+    }
+
+    if changed {
+        write_persisted_worktree_execution_state(app, &state)?;
+    }
+
+    Ok(())
+}
+
+fn read_worktree_tombstone(
+    app: &AppHandle,
+    workspace_root: &Path,
+    worktree: &str,
+) -> Result<Option<WorktreeTombstone>, String> {
+    let state = read_persisted_worktree_execution_state(app)?;
+    let workspace_key = workspace_root_storage_key(workspace_root);
+    Ok(state
+        .tombstones_by_workspace
+        .get(&workspace_key)
+        .and_then(|workspace_tombstones| workspace_tombstones.get(worktree))
+        .cloned())
+}
+
 fn testing_environment_state_file(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = app
         .path()
@@ -1019,7 +1540,19 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         updated_at: now,
         default_terminal: default_terminal_auto(),
         terminal_custom_command: None,
+        telemetry_enabled: true,
     }
+}
+
+fn telemetry_enabled_for_workspace_root(workspace_root: &Path) -> bool {
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    if !path_is_file(&workspace_json) {
+        return true;
+    }
+
+    read_workspace_meta_file(&workspace_json)
+        .map(|workspace_meta| workspace_meta.telemetry_enabled)
+        .unwrap_or(true)
 }
 
 fn read_workspace_meta_file(path: &Path) -> Result<WorkspaceMeta, String> {
@@ -1055,6 +1588,15 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
         Ok(mut workspace_meta) => {
             let expected_root_name = default_workspace_meta(workspace_root).root_name;
             let mut did_update = false;
+            let has_telemetry_enabled = fs::read_to_string(&workspace_json)
+                .ok()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .and_then(|parsed| {
+                    parsed
+                        .as_object()
+                        .map(|obj| obj.contains_key("telemetryEnabled"))
+                })
+                .unwrap_or(true);
             if workspace_meta.root_name != expected_root_name {
                 workspace_meta.root_name = expected_root_name;
                 did_update = true;
@@ -1077,6 +1619,11 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 .filter(|value| !value.is_empty());
             if workspace_meta.terminal_custom_command != normalized_custom_command {
                 workspace_meta.terminal_custom_command = normalized_custom_command;
+                did_update = true;
+            }
+
+            if !has_telemetry_enabled {
+                workspace_meta.telemetry_enabled = true;
                 did_update = true;
             }
 
@@ -1111,8 +1658,9 @@ fn scan_workspace_worktrees(
     }
 
     let mut rows = Vec::new();
+    let mut seen_worktrees = HashSet::<String>::new();
     let workspace_key = workspace_root_storage_key(workspace_root);
-    let execution_state = read_persisted_worktree_execution_state(app)?;
+    let mut execution_state = read_persisted_worktree_execution_state(app)?;
     let last_executed_by_worktree = execution_state
         .last_executed_at_by_workspace
         .get(&workspace_key);
@@ -1135,6 +1683,7 @@ fn scan_workspace_worktrees(
             continue;
         };
         let worktree = worktree_os_name.to_string_lossy().to_string();
+        seen_worktrees.insert(worktree.clone());
         let status = if path_is_directory(&path.join(".groove")) {
             "paused"
         } else {
@@ -1152,6 +1701,59 @@ fn scan_workspace_worktrees(
         });
     }
 
+    let mut cleared_tombstones = false;
+    let mut workspace_tombstones_empty = false;
+    if let Some(workspace_tombstones) = execution_state
+        .tombstones_by_workspace
+        .get_mut(&workspace_key)
+    {
+        let mut tombstones_to_drop = Vec::<String>::new();
+
+        for (worktree, tombstone) in workspace_tombstones.iter() {
+            if seen_worktrees.contains(worktree)
+                || path_is_directory(Path::new(&tombstone.worktree_path))
+            {
+                tombstones_to_drop.push(worktree.clone());
+                continue;
+            }
+
+            let branch_guess = tombstone
+                .branch_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| branch_guess_from_worktree_name(worktree));
+
+            rows.push(WorkspaceScanRow {
+                worktree: worktree.clone(),
+                branch_guess,
+                path: tombstone.worktree_path.clone(),
+                status: "deleted".to_string(),
+                last_executed_at: None,
+            });
+        }
+
+        for worktree in tombstones_to_drop {
+            if workspace_tombstones.remove(&worktree).is_some() {
+                cleared_tombstones = true;
+            }
+        }
+
+        workspace_tombstones_empty = workspace_tombstones.is_empty();
+    }
+
+    if workspace_tombstones_empty {
+        execution_state
+            .tombstones_by_workspace
+            .remove(&workspace_key);
+        cleared_tombstones = true;
+    }
+
+    if cleared_tombstones {
+        write_persisted_worktree_execution_state(app, &execution_state)?;
+    }
+
     rows.sort_by(|left, right| left.worktree.cmp(&right.worktree));
     Ok((true, rows))
 }
@@ -1162,46 +1764,90 @@ fn build_workspace_context(
     request_id: String,
     persist_as_active: bool,
 ) -> WorkspaceContextResponse {
+    let total_started_at = Instant::now();
+    let telemetry_enabled = telemetry_enabled_for_workspace_root(workspace_root);
+    if let Some(cached) = try_cached_workspace_context(app, workspace_root, &request_id) {
+        log_build_workspace_context_timing(
+            telemetry_enabled,
+            Duration::ZERO,
+            Duration::ZERO,
+            total_started_at.elapsed(),
+            true,
+        );
+        return cached;
+    }
+
+    let meta_started_at = Instant::now();
+    let repository_remote_url = repository_remote_url(workspace_root);
     let (workspace_meta, workspace_message) = match ensure_workspace_meta(workspace_root) {
         Ok(result) => result,
         Err(error) => {
+            let meta_elapsed = meta_started_at.elapsed();
+            log_build_workspace_context_timing(
+                telemetry_enabled,
+                meta_elapsed,
+                Duration::ZERO,
+                total_started_at.elapsed(),
+                false,
+            );
             return WorkspaceContextResponse {
                 request_id,
                 ok: false,
                 workspace_root: Some(workspace_root.display().to_string()),
+                repository_remote_url,
                 workspace_meta: None,
                 workspace_message: None,
                 has_worktrees_directory: None,
                 rows: Vec::new(),
                 cancelled: None,
                 error: Some(error),
-            }
+            };
         }
     };
+    let meta_elapsed = meta_started_at.elapsed();
 
+    let scan_started_at = Instant::now();
     let (has_worktrees_directory, rows) = match scan_workspace_worktrees(app, workspace_root) {
         Ok(result) => result,
         Err(error) => {
+            let scan_elapsed = scan_started_at.elapsed();
+            log_build_workspace_context_timing(
+                telemetry_enabled,
+                meta_elapsed,
+                scan_elapsed,
+                total_started_at.elapsed(),
+                false,
+            );
             return WorkspaceContextResponse {
                 request_id,
                 ok: false,
                 workspace_root: Some(workspace_root.display().to_string()),
+                repository_remote_url,
                 workspace_meta: Some(workspace_meta),
                 workspace_message: Some(workspace_message),
                 has_worktrees_directory: None,
                 rows: Vec::new(),
                 cancelled: None,
                 error: Some(error),
-            }
+            };
         }
     };
+    let scan_elapsed = scan_started_at.elapsed();
 
     if persist_as_active {
         if let Err(error) = persist_active_workspace_root(app, workspace_root) {
+            log_build_workspace_context_timing(
+                telemetry_enabled,
+                meta_elapsed,
+                scan_elapsed,
+                total_started_at.elapsed(),
+                false,
+            );
             return WorkspaceContextResponse {
                 request_id,
                 ok: false,
                 workspace_root: Some(workspace_root.display().to_string()),
+                repository_remote_url,
                 workspace_meta: Some(workspace_meta),
                 workspace_message: Some(workspace_message),
                 has_worktrees_directory: Some(has_worktrees_directory),
@@ -1212,17 +1858,29 @@ fn build_workspace_context(
         }
     }
 
-    WorkspaceContextResponse {
+    let response = WorkspaceContextResponse {
         request_id,
         ok: true,
         workspace_root: Some(workspace_root.display().to_string()),
+        repository_remote_url,
         workspace_meta: Some(workspace_meta),
         workspace_message: Some(workspace_message),
         has_worktrees_directory: Some(has_worktrees_directory),
         rows,
         cancelled: None,
         error: None,
-    }
+    };
+
+    store_workspace_context_cache(app, workspace_root, &response);
+    log_build_workspace_context_timing(
+        telemetry_enabled,
+        meta_elapsed,
+        scan_elapsed,
+        total_started_at.elapsed(),
+        false,
+    );
+
+    response
 }
 
 fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
@@ -1256,6 +1914,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         .get("terminalCustomCommand")
         .and_then(|v| v.as_str())
         .map(|v| v.to_string());
+    let telemetry_enabled = obj.get("telemetryEnabled").and_then(|v| v.as_bool());
 
     if version.is_none()
         && root_name.is_none()
@@ -1263,6 +1922,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         && updated_at.is_none()
         && default_terminal.is_none()
         && terminal_custom_command.is_none()
+        && telemetry_enabled.is_none()
     {
         return None;
     }
@@ -1274,6 +1934,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         updated_at,
         default_terminal,
         terminal_custom_command,
+        telemetry_enabled,
     })
 }
 
@@ -1299,6 +1960,12 @@ fn workspace_meta_matches(
 
     if let Some(expected_version) = expected.version {
         if observed.version != Some(expected_version) {
+            return false;
+        }
+    }
+
+    if let Some(expected_telemetry_enabled) = expected.telemetry_enabled {
+        if observed.telemetry_enabled != Some(expected_telemetry_enabled) {
             return false;
         }
     }
@@ -1420,6 +2087,706 @@ fn validate_workspace_root_path(workspace_root: &str) -> Result<PathBuf, String>
     }
 
     Ok(root)
+}
+
+fn ensure_git_repository_root(workspace_root: &Path) -> Result<(), String> {
+    let git_entry = workspace_root.join(".git");
+    if !git_entry.exists() {
+        return Err(format!(
+            "\"{}\" is not a Git repository. Select the repository root folder (the one containing .git).",
+            workspace_root.display()
+        ));
+    }
+
+    let result = run_capture_command(
+        workspace_root,
+        "git",
+        &["rev-parse", "--is-inside-work-tree"],
+    );
+    if let Some(error) = result.error.clone() {
+        return Err(format!(
+            "Could not validate Git repository at \"{}\": {}",
+            workspace_root.display(),
+            error
+        ));
+    }
+
+    if result.exit_code != Some(0) || result.stdout.trim() != "true" {
+        return Err(format!(
+            "\"{}\" is not a valid Git repository. Select a folder initialized with Git.",
+            workspace_root.display()
+        ));
+    }
+
+    Ok(())
+}
+
+fn emit_workspace_ready_event(
+    app: &AppHandle,
+    request_id: &str,
+    workspace_root: Option<&str>,
+    kind: &str,
+) {
+    let _ = app.emit(
+        "workspace-ready",
+        serde_json::json!({
+            "requestId": request_id,
+            "workspaceRoot": workspace_root,
+            "kind": kind,
+        }),
+    );
+}
+
+fn run_capture_command(cwd: &Path, binary: &str, args: &[&str]) -> CommandResult {
+    let output = Command::new(binary).args(args).current_dir(cwd).output();
+
+    match output {
+        Ok(output) => CommandResult {
+            exit_code: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            error: None,
+        },
+        Err(error) => CommandResult {
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some(format!("Failed to execute {binary}: {error}")),
+        },
+    }
+}
+
+fn run_capture_command_timeout(
+    cwd: &Path,
+    binary: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> CommandResult {
+    let mut command = Command::new(binary);
+    command.args(args).current_dir(cwd);
+    run_command_with_timeout(
+        command,
+        timeout,
+        format!("Failed to execute {binary}"),
+        binary.to_string(),
+    )
+}
+
+fn first_non_empty_line(value: &str) -> Option<String> {
+    value
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.to_string())
+}
+
+fn repository_remote_url(workspace_root: &Path) -> Option<String> {
+    resolve_remote_url_with_fallback(workspace_root).map(|(_, remote_url)| remote_url)
+}
+
+fn command_cwd() -> PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"))
+}
+
+fn validate_existing_path(path: &str) -> Result<PathBuf, String> {
+    let candidate = PathBuf::from(path.trim());
+    if !candidate.is_absolute() {
+        return Err("path must be an absolute path.".to_string());
+    }
+
+    if !candidate.exists() {
+        return Err(format!("path \"{}\" does not exist.", candidate.display()));
+    }
+
+    Ok(candidate)
+}
+
+fn git_repository_root_from_path(path: &Path) -> Result<PathBuf, String> {
+    let cwd = if path_is_directory(path) {
+        path.to_path_buf()
+    } else {
+        path.parent().unwrap_or(path).to_path_buf()
+    };
+
+    let result = run_capture_command(&cwd, "git", &["rev-parse", "--show-toplevel"]);
+    if let Some(error) = result.error.clone() {
+        return Err(format!("Failed to resolve git repository root: {error}"));
+    }
+    if result.exit_code != Some(0) {
+        return Err("Could not resolve git repository root from the provided path.".to_string());
+    }
+
+    let Some(root) = first_non_empty_line(&result.stdout) else {
+        return Err("Git repository root could not be determined.".to_string());
+    };
+
+    Ok(PathBuf::from(root))
+}
+
+fn resolve_remote_url_with_fallback(repository_root: &Path) -> Option<(String, String)> {
+    let origin = run_capture_command(repository_root, "git", &["remote", "get-url", "origin"]);
+    if origin.error.is_none() && origin.exit_code == Some(0) {
+        if let Some(url) = first_non_empty_line(&origin.stdout) {
+            return Some(("origin".to_string(), url));
+        }
+    }
+
+    let remotes_result = run_capture_command(repository_root, "git", &["remote"]);
+    if remotes_result.error.is_some() || remotes_result.exit_code != Some(0) {
+        return None;
+    }
+
+    let remote_name = remotes_result
+        .stdout
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.to_string())?;
+
+    let remote_result =
+        run_capture_command(repository_root, "git", &["remote", "get-url", &remote_name]);
+    if remote_result.error.is_some() || remote_result.exit_code != Some(0) {
+        return None;
+    }
+
+    first_non_empty_line(&remote_result.stdout).map(|url| (remote_name, url))
+}
+
+fn normalize_remote_repo_info(remote_url: &str) -> Option<(String, String, String)> {
+    let trimmed = remote_url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let sanitized = trimmed
+        .split_once('#')
+        .map(|(value, _)| value)
+        .unwrap_or(trimmed)
+        .split_once('?')
+        .map(|(value, _)| value)
+        .unwrap_or(trimmed)
+        .trim_end_matches('/');
+
+    if let Some((left, path)) = sanitized
+        .strip_prefix("git@")
+        .and_then(|value| value.split_once(':'))
+    {
+        return normalize_remote_host_and_path(left, path);
+    }
+
+    if !sanitized.contains("://") {
+        if let Some((left, path)) = sanitized.split_once(':') {
+            if !left.contains('/') && path.contains('/') {
+                return normalize_remote_host_and_path(left, path);
+            }
+        }
+    }
+
+    if let Some((_, rest)) = sanitized.split_once("://") {
+        let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+        let host_port = authority
+            .rsplit_once('@')
+            .map(|(_, value)| value)
+            .unwrap_or(authority);
+        return normalize_remote_host_and_path(host_port, path);
+    }
+
+    if let Some((host, path)) = sanitized.split_once('/') {
+        if host.contains('.') || host == "localhost" {
+            return normalize_remote_host_and_path(host, path);
+        }
+    }
+
+    None
+}
+
+fn normalize_remote_host_and_path(
+    host_value: &str,
+    path: &str,
+) -> Option<(String, String, String)> {
+    if host_value.contains('/') || host_value.contains('\\') {
+        return None;
+    }
+
+    let host = host_value
+        .split(':')
+        .next()
+        .map(str::trim)
+        .map(|value| value.trim_matches('[').trim_matches(']'))
+        .filter(|value| !value.is_empty())?
+        .to_lowercase();
+
+    let normalized_path = path.trim().trim_matches('/').trim_end_matches(".git");
+    let segments = normalized_path
+        .split('/')
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    if segments.len() < 2 {
+        return None;
+    }
+
+    let owner = segments[segments.len() - 2].to_string();
+    let repo = segments[segments.len() - 1].to_string();
+    Some((host, owner, repo))
+}
+
+fn normalize_gh_hostname(hostname: Option<&str>) -> Option<String> {
+    let raw = hostname
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_lowercase();
+
+    if raw.contains('/') || raw.contains('\\') {
+        return None;
+    }
+
+    if let Some((host, _, _)) = normalize_remote_repo_info(&raw) {
+        return Some(host);
+    }
+
+    Some(
+        raw.split(':')
+            .next()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?
+            .to_string(),
+    )
+}
+
+fn infer_gh_host_hint_from_payload(payload: &GhAuthStatusPayload, cwd: &Path) -> Option<String> {
+    if let Some((host, _, _)) = payload
+        .remote_url
+        .as_deref()
+        .and_then(normalize_remote_repo_info)
+    {
+        return Some(host);
+    }
+
+    let repo_root = payload
+        .path
+        .as_deref()
+        .and_then(|value| validate_existing_path(value).ok())
+        .and_then(|value| git_repository_root_from_path(&value).ok());
+
+    if let Some(root) = repo_root {
+        if let Some(remote_url) = repository_remote_url(&root) {
+            if let Some((host, _, _)) = normalize_remote_repo_info(&remote_url) {
+                return Some(host);
+            }
+        }
+    }
+
+    if let Some(remote_url) = repository_remote_url(cwd) {
+        if let Some((host, _, _)) = normalize_remote_repo_info(&remote_url) {
+            return Some(host);
+        }
+    }
+
+    None
+}
+
+fn parse_gh_auth_identity(
+    output: &str,
+    preferred_host: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let preferred_host = preferred_host
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_lowercase());
+    let mut entries = Vec::<(String, Option<String>, Option<bool>)>::new();
+    let mut current_index: Option<usize> = None;
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let lower = trimmed.to_lowercase();
+
+        if let Some(start) = lower.find("logged in to") {
+            let candidate = trimmed[start + "logged in to".len()..].trim();
+            let cut = [" account", " as "]
+                .iter()
+                .filter_map(|needle| candidate.find(needle))
+                .min()
+                .unwrap_or(candidate.len());
+            let host = candidate[..cut].trim().trim_matches(':').to_lowercase();
+            if host.is_empty() {
+                current_index = None;
+                continue;
+            }
+
+            let username = if let Some((_, right)) = trimmed.split_once(" account ") {
+                right
+                    .split_whitespace()
+                    .next()
+                    .map(|value| value.trim_matches(|ch| ch == '(' || ch == ')' || ch == ','))
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.to_string())
+            } else if let Some((_, right)) = trimmed.split_once(" as ") {
+                right
+                    .split_whitespace()
+                    .next()
+                    .map(|value| value.trim_matches(|ch| ch == '(' || ch == ')' || ch == ','))
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.to_string())
+            } else {
+                None
+            };
+
+            entries.push((host, username, None));
+            current_index = Some(entries.len() - 1);
+            continue;
+        }
+
+        if let Some(index) = current_index {
+            if let Some((_, right)) = trimmed.split_once("Active account:") {
+                let value = right.trim().to_lowercase();
+                if value.starts_with("true") {
+                    entries[index].2 = Some(true);
+                } else if value.starts_with("false") {
+                    entries[index].2 = Some(false);
+                }
+            }
+        }
+    }
+
+    let find_entry = |require_active: bool| {
+        entries.iter().find(|(host, _, active)| {
+            if preferred_host
+                .as_ref()
+                .is_some_and(|preferred| preferred != host)
+            {
+                return false;
+            }
+
+            if require_active {
+                matches!(active, Some(true))
+            } else {
+                true
+            }
+        })
+    };
+
+    if let Some((host, username, _)) = find_entry(true) {
+        return (Some(host.clone()), username.clone());
+    }
+    if let Some((host, username, _)) = find_entry(false) {
+        return (Some(host.clone()), username.clone());
+    }
+
+    (preferred_host, None)
+}
+
+fn gh_api_user_login(cwd: &Path, hostname: Option<&str>) -> Option<String> {
+    let result = if let Some(hostname) = hostname.map(str::trim).filter(|value| !value.is_empty()) {
+        run_capture_command(
+            cwd,
+            "gh",
+            &["api", "user", "--hostname", hostname, "--jq", ".login"],
+        )
+    } else {
+        run_capture_command(cwd, "gh", &["api", "user", "--jq", ".login"])
+    };
+
+    if result.error.is_some() || result.exit_code != Some(0) {
+        return None;
+    }
+
+    first_non_empty_line(&result.stdout)
+        .map(|value| value.trim_matches('"').trim().to_string())
+        .filter(|value| !value.is_empty() && value != "null")
+}
+
+fn parse_first_url(value: &str) -> Option<String> {
+    value
+        .split_whitespace()
+        .find(|segment| segment.starts_with("https://") || segment.starts_with("http://"))
+        .map(|segment| {
+            segment
+                .trim_matches(|ch: char| ch == '\'' || ch == '"' || ch == '(' || ch == ')')
+                .to_string()
+        })
+}
+
+fn normalize_gh_repository(
+    owner: &str,
+    repo: &str,
+    hostname: Option<&str>,
+) -> Result<String, String> {
+    let owner = owner.trim();
+    let repo = repo.trim();
+    if owner.is_empty() || repo.is_empty() {
+        return Err("owner and repo must be non-empty strings.".to_string());
+    }
+
+    if let Some(hostname) = hostname.map(str::trim).filter(|value| !value.is_empty()) {
+        Ok(format!("{hostname}/{owner}/{repo}"))
+    } else {
+        Ok(format!("{owner}/{repo}"))
+    }
+}
+
+fn validate_gh_branch_action_payload(
+    payload: &GhBranchActionPayload,
+) -> Result<(PathBuf, String), String> {
+    let branch = payload.branch.trim();
+    if branch.is_empty() {
+        return Err("branch must be a non-empty string.".to_string());
+    }
+
+    let path = validate_existing_path(&payload.path)?;
+    let repository_root = git_repository_root_from_path(&path)?;
+
+    Ok((repository_root, branch.to_string()))
+}
+
+#[derive(Debug, Default, Clone)]
+struct GitPorcelainCounts {
+    modified: u32,
+    added: u32,
+    deleted: u32,
+    untracked: u32,
+}
+
+impl GitPorcelainCounts {
+    fn dirty(&self) -> bool {
+        self.modified > 0 || self.added > 0 || self.deleted > 0 || self.untracked > 0
+    }
+}
+
+fn validate_git_worktree_path(path: &str) -> Result<PathBuf, String> {
+    let candidate = validate_existing_path(path)?;
+    if !path_is_directory(&candidate) {
+        return Err("path must point to an existing directory.".to_string());
+    }
+
+    let result = Command::new("git")
+        .arg("-C")
+        .arg(&candidate)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output();
+
+    match result {
+        Ok(output) => {
+            if output.status.code() == Some(0)
+                && String::from_utf8_lossy(&output.stdout).trim() == "true"
+            {
+                Ok(candidate)
+            } else {
+                Err(format!(
+                    "path \"{}\" is not an active git worktree.",
+                    candidate.display()
+                ))
+            }
+        }
+        Err(error) => Err(format!("Failed to execute git: {error}")),
+    }
+}
+
+fn run_git_command_at_path(path: &Path, args: &[&str]) -> CommandResult {
+    let output = Command::new("git").arg("-C").arg(path).args(args).output();
+
+    match output {
+        Ok(output) => CommandResult {
+            exit_code: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            error: None,
+        },
+        Err(error) => CommandResult {
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some(format!("Failed to execute git: {error}")),
+        },
+    }
+}
+
+fn run_git_command_at_path_with_args(path: &Path, args: &[String]) -> CommandResult {
+    let output = Command::new("git").arg("-C").arg(path).args(args).output();
+
+    match output {
+        Ok(output) => CommandResult {
+            exit_code: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            error: None,
+        },
+        Err(error) => CommandResult {
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some(format!("Failed to execute git: {error}")),
+        },
+    }
+}
+
+fn command_output_snippet(result: &CommandResult) -> Option<String> {
+    first_non_empty_line(&result.stdout)
+        .or_else(|| first_non_empty_line(&result.stderr))
+        .map(|line| {
+            let trimmed = line.trim();
+            let prefix = trimmed.chars().take(160).collect::<String>();
+            if prefix.len() < trimmed.len() {
+                format!("{prefix}...")
+            } else {
+                trimmed.to_string()
+            }
+        })
+}
+
+fn parse_git_porcelain_counts(output: &str) -> GitPorcelainCounts {
+    let mut counts = GitPorcelainCounts::default();
+
+    for line in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if line.starts_with("??") {
+            counts.untracked += 1;
+            continue;
+        }
+
+        let bytes = line.as_bytes();
+        if bytes.len() < 2 {
+            continue;
+        }
+
+        let x = bytes[0] as char;
+        let y = bytes[1] as char;
+
+        if x == 'A' || y == 'A' {
+            counts.added += 1;
+        }
+        if x == 'D' || y == 'D' {
+            counts.deleted += 1;
+        }
+        if matches!(x, 'M' | 'R' | 'C' | 'T') || matches!(y, 'M' | 'R' | 'C' | 'T') {
+            counts.modified += 1;
+        }
+    }
+
+    counts
+}
+
+fn parse_git_ahead_behind(status_sb_output: &str) -> (u32, u32) {
+    let Some(first_line) = status_sb_output
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+    else {
+        return (0, 0);
+    };
+
+    let Some(bracket_start) = first_line.find('[') else {
+        return (0, 0);
+    };
+    let Some(bracket_end_rel) = first_line[bracket_start + 1..].find(']') else {
+        return (0, 0);
+    };
+
+    let mut ahead = 0u32;
+    let mut behind = 0u32;
+    let details = &first_line[bracket_start + 1..bracket_start + 1 + bracket_end_rel];
+    for part in details.split(',') {
+        let token = part.trim();
+        if let Some(value) = token.strip_prefix("ahead ") {
+            ahead = value.trim().parse::<u32>().unwrap_or(0);
+            continue;
+        }
+        if let Some(value) = token.strip_prefix("behind ") {
+            behind = value.trim().parse::<u32>().unwrap_or(0);
+        }
+    }
+
+    (ahead, behind)
+}
+
+fn normalize_git_status_path(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some((_, right)) = trimmed.rsplit_once(" -> ") {
+        return Some(right.trim().to_string());
+    }
+
+    Some(trimmed.to_string())
+}
+
+fn parse_git_file_states(output: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut staged = HashSet::new();
+    let mut unstaged = HashSet::new();
+    let mut untracked = HashSet::new();
+
+    for line in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if line.starts_with("??") {
+            if let Some(path) = normalize_git_status_path(line.get(2..).unwrap_or_default()) {
+                untracked.insert(path);
+            }
+            continue;
+        }
+
+        if line.len() < 3 {
+            continue;
+        }
+
+        let Some(path) = normalize_git_status_path(line.get(3..).unwrap_or_default()) else {
+            continue;
+        };
+        let bytes = line.as_bytes();
+        let index_state = bytes[0] as char;
+        let worktree_state = bytes[1] as char;
+
+        if index_state != ' ' && index_state != '?' {
+            staged.insert(path.clone());
+        }
+        if worktree_state != ' ' && worktree_state != '?' {
+            unstaged.insert(path);
+        }
+    }
+
+    let mut staged = staged.into_iter().collect::<Vec<_>>();
+    let mut unstaged = unstaged.into_iter().collect::<Vec<_>>();
+    let mut untracked = untracked.into_iter().collect::<Vec<_>>();
+    staged.sort();
+    unstaged.sort();
+    untracked.sort();
+
+    (staged, unstaged, untracked)
+}
+
+fn normalize_git_file_list(files: &[String]) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::new();
+    let mut seen = HashSet::new();
+
+    for file in files {
+        let trimmed = file.trim();
+        if trimmed.is_empty() {
+            return Err("files entries must be non-empty strings.".to_string());
+        }
+        if trimmed.contains('\0') {
+            return Err("files entries cannot contain null bytes.".to_string());
+        }
+        if seen.insert(trimmed.to_string()) {
+            normalized.push(trimmed.to_string());
+        }
+    }
+
+    if normalized.is_empty() {
+        return Err("files must include at least one path.".to_string());
+    }
+
+    Ok(normalized)
 }
 
 fn resolve_workspace_root(
@@ -1604,14 +2971,20 @@ fn run_command_timeout(
 }
 
 fn allocate_testing_port() -> Result<u16, String> {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|error| format!("Failed to allocate testing environment port: {error}"))?;
-    let port = listener
-        .local_addr()
-        .map_err(|error| format!("Failed to resolve testing environment port: {error}"))?
-        .port();
-    drop(listener);
-    Ok(port)
+    for port in TESTING_ENVIRONMENT_PORTS {
+        if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return Ok(port);
+        }
+    }
+
+    Err(format!(
+        "Failed to allocate testing environment port: ports {} are all in use.",
+        TESTING_ENVIRONMENT_PORTS
+            .iter()
+            .map(u16::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
 }
 
 fn parse_opencode_segment(value: &str) -> (String, Option<String>) {
@@ -2475,6 +3848,8 @@ fn build_testing_environment_response(
             TestingEnvironmentEntry {
                 worktree: target.worktree.clone(),
                 worktree_path: target.worktree_path.clone(),
+                workspace_root: Some(target.workspace_root.clone()),
+                is_target: true,
                 status: if running_instance.is_some() {
                     "running".to_string()
                 } else {
@@ -2498,6 +3873,8 @@ fn build_testing_environment_response(
         environments.push(TestingEnvironmentEntry {
             worktree: instance.worktree.clone(),
             worktree_path: instance.worktree_path.clone(),
+            workspace_root: Some(instance.workspace_root.clone()),
+            is_target: false,
             status: "running".to_string(),
             instance_id: Some(instance.instance_id.clone()),
             pid: Some(instance.pid),
@@ -2538,6 +3915,17 @@ fn build_testing_environment_response(
     }
 }
 
+fn workspace_root_matches_root_name(workspace_root: &str, root_name: Option<&str>) -> bool {
+    let Some(root_name) = root_name else {
+        return true;
+    };
+
+    Path::new(workspace_root)
+        .file_name()
+        .map(|name| name.to_string_lossy() == root_name)
+        .unwrap_or(false)
+}
+
 fn stop_running_testing_instance_for_worktree(
     runtime: &mut TestingEnvironmentRuntimeState,
     workspace_root: &str,
@@ -2570,6 +3958,45 @@ fn stop_running_testing_instance_for_worktree(
 
     runtime.persisted.running_instances.remove(index);
     runtime.persisted.updated_at = Some(now_iso());
+    Ok(true)
+}
+
+fn unset_testing_target_for_worktree(
+    app: &AppHandle,
+    state: &TestingEnvironmentState,
+    workspace_root: &Path,
+    worktree: &str,
+    stop_running_processes_when_unset: bool,
+) -> Result<bool, String> {
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|error| format!("Failed to acquire testing environment lock: {error}"))?;
+
+    ensure_testing_runtime_loaded(app, &mut runtime)?;
+    reconcile_testing_runtime_and_persist(app, &mut runtime)?;
+
+    let workspace_root_string = workspace_root.display().to_string();
+    let before_targets_len = runtime.persisted.targets.len();
+    runtime.persisted.targets.retain(|target| {
+        !(target.workspace_root == workspace_root_string && target.worktree == worktree)
+    });
+    let target_was_removed = runtime.persisted.targets.len() != before_targets_len;
+    if !target_was_removed {
+        return Ok(false);
+    }
+
+    if stop_running_processes_when_unset {
+        let _ = stop_running_testing_instance_for_worktree(
+            &mut runtime,
+            &workspace_root_string,
+            worktree,
+        )?;
+    }
+
+    runtime.persisted.updated_at = Some(now_iso());
+    write_persisted_testing_environment_state(app, &runtime.persisted)?;
+
     Ok(true)
 }
 
@@ -2670,15 +4097,188 @@ fn snapshot_entry(path: &Path) -> SnapshotEntry {
     }
 }
 
+fn log_backend_timing(telemetry_enabled: bool, event: &str, elapsed: Duration, details: &str) {
+    if !telemetry_enabled {
+        return;
+    }
+    eprintln!(
+        "[startup-telemetry] event={event} elapsed_ms={} {details}",
+        elapsed.as_millis()
+    );
+}
+
+fn log_build_workspace_context_timing(
+    telemetry_enabled: bool,
+    meta_elapsed: Duration,
+    scan_elapsed: Duration,
+    total_elapsed: Duration,
+    cache_hit: bool,
+) {
+    if !telemetry_enabled {
+        return;
+    }
+    eprintln!(
+        "[startup-telemetry] event=build_workspace_context meta_ms={} scan_ms={} total_ms={} cache_hit={cache_hit}",
+        meta_elapsed.as_millis(),
+        scan_elapsed.as_millis(),
+        total_elapsed.as_millis(),
+    );
+}
+
+fn sorted_worktrees_key(known_worktrees: &[String]) -> String {
+    let mut sorted = known_worktrees.to_vec();
+    sorted.sort();
+    sorted.join("|")
+}
+
+fn workspace_context_cache_key(workspace_root: &Path) -> String {
+    workspace_root_storage_key(workspace_root)
+}
+
+fn workspace_context_signature(
+    app: &AppHandle,
+    workspace_root: &Path,
+) -> Result<WorkspaceContextSignature, String> {
+    let execution_state_file = worktree_execution_state_file(app)?;
+    Ok(WorkspaceContextSignature {
+        workspace_manifest: snapshot_entry(&workspace_root.join(".groove").join("workspace.json")),
+        worktrees_dir: snapshot_entry(&workspace_root.join(".worktrees")),
+        worktree_execution_state_file: snapshot_entry(&execution_state_file),
+    })
+}
+
+fn try_cached_workspace_context(
+    app: &AppHandle,
+    workspace_root: &Path,
+    request_id: &str,
+) -> Option<WorkspaceContextResponse> {
+    let cache_state = app.try_state::<WorkspaceContextCacheState>()?;
+    let signature = workspace_context_signature(app, workspace_root).ok()?;
+    let key = workspace_context_cache_key(workspace_root);
+    let mut response = {
+        let entries = cache_state.entries.lock().ok()?;
+        let cached = entries.get(&key)?;
+        if cached.signature != signature {
+            return None;
+        }
+        cached.response.clone()
+    };
+
+    response.request_id = request_id.to_string();
+    if response.ok {
+        response.workspace_message = Some("Loaded existing .groove/workspace.json.".to_string());
+    }
+    Some(response)
+}
+
+fn store_workspace_context_cache(
+    app: &AppHandle,
+    workspace_root: &Path,
+    response: &WorkspaceContextResponse,
+) {
+    if !response.ok {
+        return;
+    }
+    let Some(cache_state) = app.try_state::<WorkspaceContextCacheState>() else {
+        return;
+    };
+    let Ok(signature) = workspace_context_signature(app, workspace_root) else {
+        return;
+    };
+    let Ok(mut entries) = cache_state.entries.lock() else {
+        return;
+    };
+    entries.insert(
+        workspace_context_cache_key(workspace_root),
+        WorkspaceContextCacheEntry {
+            signature,
+            response: response.clone(),
+        },
+    );
+}
+
+fn invalidate_workspace_context_cache(app: &AppHandle, workspace_root: &Path) {
+    let Some(cache_state) = app.try_state::<WorkspaceContextCacheState>() else {
+        return;
+    };
+    if let Ok(mut entries) = cache_state.entries.lock() {
+        entries.remove(&workspace_context_cache_key(workspace_root));
+    };
+}
+
+fn clear_workspace_context_cache(app: &AppHandle) {
+    let Some(cache_state) = app.try_state::<WorkspaceContextCacheState>() else {
+        return;
+    };
+    if let Ok(mut entries) = cache_state.entries.lock() {
+        entries.clear();
+    };
+}
+
+fn groove_list_cache_key(
+    workspace_root: &Path,
+    known_worktrees: &[String],
+    dir: &Option<String>,
+    workspace_meta: &Option<WorkspaceMetaContext>,
+) -> String {
+    let meta_key = if let Some(meta) = workspace_meta {
+        format!(
+            "{}:{}:{}:{}:{}:{}:{}",
+            meta.version.map(|v| v.to_string()).unwrap_or_default(),
+            meta.root_name.as_deref().unwrap_or_default(),
+            meta.created_at.as_deref().unwrap_or_default(),
+            meta.updated_at.as_deref().unwrap_or_default(),
+            meta.default_terminal.as_deref().unwrap_or_default(),
+            meta.terminal_custom_command.as_deref().unwrap_or_default(),
+            meta.telemetry_enabled
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        )
+    } else {
+        String::new()
+    };
+
+    format!(
+        "root={}\nknown={}\ndir={}\nmeta={}",
+        workspace_root_storage_key(workspace_root),
+        sorted_worktrees_key(known_worktrees),
+        dir.as_deref().unwrap_or_default(),
+        meta_key,
+    )
+}
+
+fn invalidate_groove_list_cache_for_workspace(app: &AppHandle, workspace_root: &Path) {
+    let Some(cache_state) = app.try_state::<GrooveListCacheState>() else {
+        return;
+    };
+
+    let root_prefix = format!("root={}\n", workspace_root_storage_key(workspace_root));
+
+    if let Ok(mut entries) = cache_state.entries.lock() {
+        entries.retain(|key, _| !key.starts_with(&root_prefix));
+    };
+}
+
+fn clear_groove_list_cache(app: &AppHandle) {
+    let Some(cache_state) = app.try_state::<GrooveListCacheState>() else {
+        return;
+    };
+    if let Ok(mut entries) = cache_state.entries.lock() {
+        entries.clear();
+    };
+}
+
 #[tauri::command]
 fn workspace_pick_and_open(app: AppHandle) -> WorkspaceContextResponse {
     let request_id = request_id();
+    let previous_workspace_root = read_persisted_active_workspace_root(&app).ok().flatten();
     let picked = rfd::FileDialog::new().pick_folder();
     let Some(selected) = picked else {
         return WorkspaceContextResponse {
             request_id,
             ok: false,
             workspace_root: None,
+            repository_remote_url: None,
             workspace_meta: None,
             workspace_message: None,
             has_worktrees_directory: None,
@@ -2688,12 +4288,36 @@ fn workspace_pick_and_open(app: AppHandle) -> WorkspaceContextResponse {
         };
     };
 
-    build_workspace_context(&app, &selected, request_id, true)
+    if let Err(error) = ensure_git_repository_root(&selected) {
+        return WorkspaceContextResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(selected.display().to_string()),
+            repository_remote_url: None,
+            workspace_meta: None,
+            workspace_message: None,
+            has_worktrees_directory: None,
+            rows: Vec::new(),
+            cancelled: None,
+            error: Some(error),
+        };
+    }
+
+    let response = build_workspace_context(&app, &selected, request_id.clone(), true);
+    if response.ok {
+        let next_workspace_root = response.workspace_root.as_deref();
+        if previous_workspace_root.as_deref() != next_workspace_root {
+            emit_workspace_ready_event(&app, &request_id, next_workspace_root, "connection");
+        }
+    }
+
+    response
 }
 
 #[tauri::command]
 fn workspace_open(app: AppHandle, workspace_root: String) -> WorkspaceContextResponse {
     let request_id = request_id();
+    let previous_workspace_root = read_persisted_active_workspace_root(&app).ok().flatten();
     let root = match validate_workspace_root_path(&workspace_root) {
         Ok(root) => root,
         Err(error) => {
@@ -2701,6 +4325,7 @@ fn workspace_open(app: AppHandle, workspace_root: String) -> WorkspaceContextRes
                 request_id,
                 ok: false,
                 workspace_root: None,
+                repository_remote_url: None,
                 workspace_meta: None,
                 workspace_message: None,
                 has_worktrees_directory: None,
@@ -2711,51 +4336,71 @@ fn workspace_open(app: AppHandle, workspace_root: String) -> WorkspaceContextRes
         }
     };
 
-    build_workspace_context(&app, &root, request_id, true)
-}
-
-#[tauri::command]
-fn workspace_get_active(app: AppHandle) -> WorkspaceContextResponse {
-    let request_id = request_id();
-    let persisted_root = match read_persisted_active_workspace_root(&app) {
-        Ok(root) => root,
-        Err(error) => {
-            return WorkspaceContextResponse {
-                request_id,
-                ok: false,
-                workspace_root: None,
-                workspace_meta: None,
-                workspace_message: None,
-                has_worktrees_directory: None,
-                rows: Vec::new(),
-                cancelled: None,
-                error: Some(error),
+    if let Some(cached) = try_cached_workspace_context(&app, &root, &request_id) {
+        if previous_workspace_root.as_deref() != cached.workspace_root.as_deref() {
+            if let Err(error) = persist_active_workspace_root(&app, &root) {
+                return WorkspaceContextResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(root.display().to_string()),
+                    repository_remote_url: cached.repository_remote_url,
+                    workspace_meta: cached.workspace_meta,
+                    workspace_message: cached.workspace_message,
+                    has_worktrees_directory: cached.has_worktrees_directory,
+                    rows: cached.rows,
+                    cancelled: None,
+                    error: Some(error),
+                };
             }
+            emit_workspace_ready_event(
+                &app,
+                &request_id,
+                cached.workspace_root.as_deref(),
+                "connection",
+            );
         }
-    };
+        return cached;
+    }
 
-    let Some(persisted_root) = persisted_root else {
+    if let Err(error) = ensure_git_repository_root(&root) {
         return WorkspaceContextResponse {
             request_id,
-            ok: true,
+            ok: false,
             workspace_root: None,
+            repository_remote_url: None,
             workspace_meta: None,
             workspace_message: None,
             has_worktrees_directory: None,
             rows: Vec::new(),
             cancelled: None,
-            error: None,
+            error: Some(error),
         };
-    };
+    }
 
-    let root = match validate_workspace_root_path(&persisted_root) {
+    let response = build_workspace_context(&app, &root, request_id.clone(), true);
+    if response.ok {
+        let next_workspace_root = response.workspace_root.as_deref();
+        if previous_workspace_root.as_deref() != next_workspace_root {
+            emit_workspace_ready_event(&app, &request_id, next_workspace_root, "connection");
+        }
+    }
+
+    response
+}
+
+#[tauri::command]
+fn workspace_get_active(app: AppHandle) -> WorkspaceContextResponse {
+    let started_at = Instant::now();
+    let request_id = request_id();
+    let mut telemetry_enabled = true;
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
         Ok(root) => root,
         Err(error) => {
-            let _ = clear_persisted_active_workspace_root(&app);
-            return WorkspaceContextResponse {
+            let response = WorkspaceContextResponse {
                 request_id,
                 ok: false,
-                workspace_root: Some(persisted_root),
+                workspace_root: None,
+                repository_remote_url: None,
                 workspace_meta: None,
                 workspace_message: None,
                 has_worktrees_directory: None,
@@ -2763,10 +4408,82 @@ fn workspace_get_active(app: AppHandle) -> WorkspaceContextResponse {
                 cancelled: None,
                 error: Some(error),
             };
+            log_backend_timing(
+                telemetry_enabled,
+                "workspace_get_active",
+                started_at.elapsed(),
+                "outcome=read-state-error",
+            );
+            return response;
         }
     };
 
-    build_workspace_context(&app, &root, request_id, false)
+    let response = if let Some(persisted_root) = persisted_root {
+        match validate_workspace_root_path(&persisted_root) {
+            Ok(root) => {
+                telemetry_enabled = telemetry_enabled_for_workspace_root(&root);
+                if let Some(cached) = try_cached_workspace_context(&app, &root, &request_id) {
+                    cached
+                } else if let Err(error) = ensure_git_repository_root(&root) {
+                    let _ = clear_persisted_active_workspace_root(&app);
+                    WorkspaceContextResponse {
+                        request_id,
+                        ok: false,
+                        workspace_root: Some(persisted_root),
+                        repository_remote_url: None,
+                        workspace_meta: None,
+                        workspace_message: None,
+                        has_worktrees_directory: None,
+                        rows: Vec::new(),
+                        cancelled: None,
+                        error: Some(error),
+                    }
+                } else {
+                    build_workspace_context(&app, &root, request_id, false)
+                }
+            }
+            Err(error) => {
+                let _ = clear_persisted_active_workspace_root(&app);
+                WorkspaceContextResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(persisted_root),
+                    repository_remote_url: None,
+                    workspace_meta: None,
+                    workspace_message: None,
+                    has_worktrees_directory: None,
+                    rows: Vec::new(),
+                    cancelled: None,
+                    error: Some(error),
+                }
+            }
+        }
+    } else {
+        WorkspaceContextResponse {
+            request_id,
+            ok: true,
+            workspace_root: None,
+            repository_remote_url: None,
+            workspace_meta: None,
+            workspace_message: None,
+            has_worktrees_directory: None,
+            rows: Vec::new(),
+            cancelled: None,
+            error: None,
+        }
+    };
+
+    log_backend_timing(
+        telemetry_enabled,
+        "workspace_get_active",
+        started_at.elapsed(),
+        if response.ok {
+            "outcome=ok"
+        } else {
+            "outcome=error"
+        },
+    );
+    response
 }
 
 #[tauri::command]
@@ -2775,6 +4492,10 @@ fn workspace_clear_active(
     testing_state: State<TestingEnvironmentState>,
 ) -> WorkspaceContextResponse {
     let request_id = request_id();
+    let had_active_workspace = read_persisted_active_workspace_root(&app)
+        .ok()
+        .flatten()
+        .is_some();
 
     if let Ok(mut runtime) = testing_state.runtime.lock() {
         if ensure_testing_runtime_loaded(&app, &mut runtime).is_ok() {
@@ -2793,21 +4514,31 @@ fn workspace_clear_active(
     }
 
     match clear_persisted_active_workspace_root(&app) {
-        Ok(_) => WorkspaceContextResponse {
-            request_id,
-            ok: true,
-            workspace_root: None,
-            workspace_meta: None,
-            workspace_message: None,
-            has_worktrees_directory: None,
-            rows: Vec::new(),
-            cancelled: None,
-            error: None,
-        },
+        Ok(_) => {
+            clear_workspace_context_cache(&app);
+            clear_groove_list_cache(&app);
+            if had_active_workspace {
+                emit_workspace_ready_event(&app, &request_id, None, "connection");
+            }
+
+            WorkspaceContextResponse {
+                request_id,
+                ok: true,
+                workspace_root: None,
+                repository_remote_url: None,
+                workspace_meta: None,
+                workspace_message: None,
+                has_worktrees_directory: None,
+                rows: Vec::new(),
+                cancelled: None,
+                error: None,
+            }
+        }
         Err(error) => WorkspaceContextResponse {
             request_id,
             ok: false,
             workspace_root: None,
+            repository_remote_url: None,
             workspace_meta: None,
             workspace_message: None,
             has_worktrees_directory: None,
@@ -2908,6 +4639,9 @@ fn workspace_update_terminal_settings(
 
     workspace_meta.default_terminal = default_terminal;
     workspace_meta.terminal_custom_command = terminal_custom_command;
+    if let Some(telemetry_enabled) = payload.telemetry_enabled {
+        workspace_meta.telemetry_enabled = telemetry_enabled;
+    }
     workspace_meta.updated_at = now_iso();
 
     let workspace_json = workspace_root.join(".groove").join("workspace.json");
@@ -2921,6 +4655,8 @@ fn workspace_update_terminal_settings(
         };
     }
 
+    invalidate_workspace_context_cache(&app, &workspace_root);
+
     WorkspaceTerminalSettingsResponse {
         request_id,
         ok: true,
@@ -2931,8 +4667,1751 @@ fn workspace_update_terminal_settings(
 }
 
 #[tauri::command]
-fn groove_list(app: AppHandle, payload: GrooveListPayload) -> GrooveListResponse {
+fn git_auth_status(payload: GitAuthStatusPayload) -> GitAuthStatusResponse {
     let request_id = request_id();
+    let workspace_root = match validate_workspace_root_path(&payload.workspace_root) {
+        Ok(root) => root,
+        Err(error) => {
+            return GitAuthStatusResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                profile: GitProfileStatus::default(),
+                ssh_status: GitSshStatus::unknown(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let mut profile = GitProfileStatus::default();
+    let mut ssh_status = GitSshStatus::unknown();
+
+    let user_name_result =
+        run_capture_command(&workspace_root, "git", &["config", "--get", "user.name"]);
+    if user_name_result.error.is_none() && user_name_result.exit_code == Some(0) {
+        profile.user_name = first_non_empty_line(&user_name_result.stdout);
+    }
+
+    let user_email_result =
+        run_capture_command(&workspace_root, "git", &["config", "--get", "user.email"]);
+    if user_email_result.error.is_none() && user_email_result.exit_code == Some(0) {
+        profile.user_email = first_non_empty_line(&user_email_result.stdout);
+    }
+
+    let ssh_test_result = run_capture_command_timeout(
+        &workspace_root,
+        "ssh",
+        &[
+            "-T",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=5",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "git@github.com",
+        ],
+        Duration::from_secs(8),
+    );
+    let combined_output = format!("{}\n{}", ssh_test_result.stdout, ssh_test_result.stderr);
+    let combined_lower = combined_output.to_lowercase();
+
+    if combined_lower.contains("successfully authenticated") {
+        ssh_status.state = "authenticated".to_string();
+        ssh_status.message = "Authenticated with GitHub over SSH".to_string();
+    } else if combined_lower.contains("permission denied")
+        || combined_lower.contains("publickey")
+        || combined_lower.contains("authentication failed")
+    {
+        ssh_status.state = "unauthenticated".to_string();
+        ssh_status.message = "SSH authentication failed".to_string();
+    } else if combined_lower.contains("connection timed out")
+        || combined_lower.contains("operation timed out")
+        || ssh_test_result
+            .error
+            .as_ref()
+            .map(|value| value.to_lowercase().contains("timed out"))
+            .unwrap_or(false)
+    {
+        ssh_status.state = "unreachable".to_string();
+        ssh_status.message = "GitHub SSH check timed out".to_string();
+    } else if combined_lower.contains("could not resolve hostname")
+        || combined_lower.contains("temporary failure in name resolution")
+        || combined_lower.contains("name or service not known")
+        || combined_lower.contains("network is unreachable")
+        || combined_lower.contains("no route to host")
+        || combined_lower.contains("connection refused")
+        || combined_lower.contains("connection closed")
+        || combined_lower.contains("connection reset")
+    {
+        ssh_status.state = "unreachable".to_string();
+        ssh_status.message = "GitHub SSH endpoint unreachable".to_string();
+    } else if let Some(error) = ssh_test_result.error {
+        let lower_error = error.to_lowercase();
+        if lower_error.contains("no such file or directory") {
+            ssh_status.state = "unavailable".to_string();
+            ssh_status.message = "OpenSSH is not installed".to_string();
+        } else {
+            ssh_status.state = "unknown".to_string();
+            ssh_status.message = "SSH check unavailable".to_string();
+        }
+    } else {
+        ssh_status.state = "unknown".to_string();
+        ssh_status.message = "SSH status unavailable".to_string();
+    }
+
+    GitAuthStatusResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        profile,
+        ssh_status,
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn git_status(payload: GitPathPayload) -> GitStatusResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitStatusResponse {
+                request_id,
+                ok: false,
+                path: None,
+                modified: 0,
+                added: 0,
+                deleted: 0,
+                untracked: 0,
+                dirty: false,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_git_command_at_path(&worktree_path, &["status", "--porcelain=v1"]);
+    if let Some(error) = result.error.clone() {
+        return GitStatusResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            modified: 0,
+            added: 0,
+            deleted: 0,
+            untracked: 0,
+            dirty: false,
+            output_snippet: None,
+            error: Some(error),
+        };
+    }
+    if result.exit_code != Some(0) {
+        return GitStatusResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            modified: 0,
+            added: 0,
+            deleted: 0,
+            untracked: 0,
+            dirty: false,
+            output_snippet: command_output_snippet(&result),
+            error: Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git status failed".to_string()),
+            ),
+        };
+    }
+
+    let counts = parse_git_porcelain_counts(&result.stdout);
+    GitStatusResponse {
+        request_id,
+        ok: true,
+        path: Some(worktree_path.display().to_string()),
+        modified: counts.modified,
+        added: counts.added,
+        deleted: counts.deleted,
+        untracked: counts.untracked,
+        dirty: counts.dirty(),
+        output_snippet: command_output_snippet(&result),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn git_current_branch(payload: GitPathPayload) -> GitCurrentBranchResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitCurrentBranchResponse {
+                request_id,
+                ok: false,
+                path: None,
+                branch: None,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_git_command_at_path(&worktree_path, &["branch", "--show-current"]);
+    if let Some(error) = result.error {
+        return GitCurrentBranchResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            branch: None,
+            output_snippet: None,
+            error: Some(error),
+        };
+    }
+    if result.exit_code != Some(0) {
+        return GitCurrentBranchResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            branch: None,
+            output_snippet: command_output_snippet(&result),
+            error: Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git branch --show-current failed".to_string()),
+            ),
+        };
+    }
+
+    GitCurrentBranchResponse {
+        request_id,
+        ok: true,
+        path: Some(worktree_path.display().to_string()),
+        branch: first_non_empty_line(&result.stdout),
+        output_snippet: command_output_snippet(&result),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn git_ahead_behind(payload: GitPathPayload) -> GitAheadBehindResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitAheadBehindResponse {
+                request_id,
+                ok: false,
+                path: None,
+                ahead: 0,
+                behind: 0,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_git_command_at_path(&worktree_path, &["status", "-sb"]);
+    if let Some(error) = result.error {
+        return GitAheadBehindResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            ahead: 0,
+            behind: 0,
+            output_snippet: None,
+            error: Some(error),
+        };
+    }
+    if result.exit_code != Some(0) {
+        return GitAheadBehindResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            ahead: 0,
+            behind: 0,
+            output_snippet: command_output_snippet(&result),
+            error: Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git status -sb failed".to_string()),
+            ),
+        };
+    }
+
+    let (ahead, behind) = parse_git_ahead_behind(&result.stdout);
+    GitAheadBehindResponse {
+        request_id,
+        ok: true,
+        path: Some(worktree_path.display().to_string()),
+        ahead,
+        behind,
+        output_snippet: command_output_snippet(&result),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn git_pull(payload: GitPullPayload) -> GitCommandResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: None,
+                exit_code: None,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let args = if payload.rebase {
+        vec!["pull", "--rebase"]
+    } else {
+        vec!["pull"]
+    };
+    let result = run_git_command_at_path(&worktree_path, &args);
+    if let Some(error) = result.error.clone() {
+        return GitCommandResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            exit_code: result.exit_code,
+            output_snippet: command_output_snippet(&result),
+            error: Some(error),
+        };
+    }
+
+    let ok = result.exit_code == Some(0);
+    GitCommandResponse {
+        request_id,
+        ok,
+        path: Some(worktree_path.display().to_string()),
+        exit_code: result.exit_code,
+        output_snippet: command_output_snippet(&result),
+        error: if ok {
+            None
+        } else {
+            Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git pull failed".to_string()),
+            )
+        },
+    }
+}
+
+#[tauri::command]
+fn git_push(payload: GitPushPayload) -> GitCommandResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: None,
+                exit_code: None,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let mut args = vec!["push"];
+    if payload.force_with_lease {
+        args.push("--force-with-lease");
+    }
+
+    if payload.set_upstream {
+        let branch = payload
+            .branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .or_else(|| {
+                let current_branch =
+                    run_git_command_at_path(&worktree_path, &["branch", "--show-current"]);
+                first_non_empty_line(&current_branch.stdout)
+            });
+
+        let Some(branch) = branch else {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: Some(worktree_path.display().to_string()),
+                exit_code: None,
+                output_snippet: None,
+                error: Some("branch is required when setUpstream is enabled.".to_string()),
+            };
+        };
+
+        args.extend(["-u", "origin"]);
+        args.push(branch.as_str());
+
+        let result = run_git_command_at_path(&worktree_path, &args);
+        if let Some(error) = result.error.clone() {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: Some(worktree_path.display().to_string()),
+                exit_code: result.exit_code,
+                output_snippet: command_output_snippet(&result),
+                error: Some(error),
+            };
+        }
+
+        let ok = result.exit_code == Some(0);
+        return GitCommandResponse {
+            request_id,
+            ok,
+            path: Some(worktree_path.display().to_string()),
+            exit_code: result.exit_code,
+            output_snippet: command_output_snippet(&result),
+            error: if ok {
+                None
+            } else {
+                Some(
+                    first_non_empty_line(&result.stderr)
+                        .or_else(|| first_non_empty_line(&result.stdout))
+                        .unwrap_or_else(|| "git push failed".to_string()),
+                )
+            },
+        };
+    }
+
+    let result = run_git_command_at_path(&worktree_path, &args);
+    if let Some(error) = result.error.clone() {
+        return GitCommandResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            exit_code: result.exit_code,
+            output_snippet: command_output_snippet(&result),
+            error: Some(error),
+        };
+    }
+
+    let ok = result.exit_code == Some(0);
+    GitCommandResponse {
+        request_id,
+        ok,
+        path: Some(worktree_path.display().to_string()),
+        exit_code: result.exit_code,
+        output_snippet: command_output_snippet(&result),
+        error: if ok {
+            None
+        } else {
+            Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git push failed".to_string()),
+            )
+        },
+    }
+}
+
+#[tauri::command]
+fn git_merge(payload: GitMergePayload) -> GitCommandResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: None,
+                exit_code: None,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let target_branch = payload.target_branch.trim();
+    if target_branch.is_empty() {
+        return GitCommandResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            exit_code: None,
+            output_snippet: None,
+            error: Some("targetBranch must be a non-empty string.".to_string()),
+        };
+    }
+
+    let result = if payload.ff_only {
+        run_git_command_at_path(&worktree_path, &["merge", "--ff-only", target_branch])
+    } else {
+        run_git_command_at_path(&worktree_path, &["merge", target_branch])
+    };
+
+    if let Some(error) = result.error.clone() {
+        return GitCommandResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            exit_code: result.exit_code,
+            output_snippet: command_output_snippet(&result),
+            error: Some(error),
+        };
+    }
+
+    let ok = result.exit_code == Some(0);
+    GitCommandResponse {
+        request_id,
+        ok,
+        path: Some(worktree_path.display().to_string()),
+        exit_code: result.exit_code,
+        output_snippet: command_output_snippet(&result),
+        error: if ok {
+            None
+        } else {
+            Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git merge failed".to_string()),
+            )
+        },
+    }
+}
+
+#[tauri::command]
+fn git_merge_abort(payload: GitPathPayload) -> GitCommandResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: None,
+                exit_code: None,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_git_command_at_path(&worktree_path, &["merge", "--abort"]);
+    if let Some(error) = result.error.clone() {
+        return GitCommandResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            exit_code: result.exit_code,
+            output_snippet: command_output_snippet(&result),
+            error: Some(error),
+        };
+    }
+
+    let ok = result.exit_code == Some(0);
+    GitCommandResponse {
+        request_id,
+        ok,
+        path: Some(worktree_path.display().to_string()),
+        exit_code: result.exit_code,
+        output_snippet: command_output_snippet(&result),
+        error: if ok {
+            None
+        } else {
+            Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git merge --abort failed".to_string()),
+            )
+        },
+    }
+}
+
+#[tauri::command]
+fn git_has_staged_changes(payload: GitPathPayload) -> GitBooleanResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitBooleanResponse {
+                request_id,
+                ok: false,
+                path: None,
+                value: false,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_git_command_at_path(&worktree_path, &["diff", "--cached", "--name-only"]);
+    if let Some(error) = result.error {
+        return GitBooleanResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            value: false,
+            output_snippet: None,
+            error: Some(error),
+        };
+    }
+    if result.exit_code != Some(0) {
+        return GitBooleanResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            value: false,
+            output_snippet: command_output_snippet(&result),
+            error: Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git diff --cached --name-only failed".to_string()),
+            ),
+        };
+    }
+
+    GitBooleanResponse {
+        request_id,
+        ok: true,
+        path: Some(worktree_path.display().to_string()),
+        value: result.stdout.lines().any(|line| !line.trim().is_empty()),
+        output_snippet: command_output_snippet(&result),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn git_merge_in_progress(payload: GitPathPayload) -> GitBooleanResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitBooleanResponse {
+                request_id,
+                ok: false,
+                path: None,
+                value: false,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_git_command_at_path(
+        &worktree_path,
+        &["rev-parse", "-q", "--verify", "MERGE_HEAD"],
+    );
+    if let Some(error) = result.error {
+        return GitBooleanResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            value: false,
+            output_snippet: None,
+            error: Some(error),
+        };
+    }
+
+    if result.exit_code == Some(0) {
+        return GitBooleanResponse {
+            request_id,
+            ok: true,
+            path: Some(worktree_path.display().to_string()),
+            value: true,
+            output_snippet: command_output_snippet(&result),
+            error: None,
+        };
+    }
+
+    if result.exit_code == Some(1) {
+        return GitBooleanResponse {
+            request_id,
+            ok: true,
+            path: Some(worktree_path.display().to_string()),
+            value: false,
+            output_snippet: command_output_snippet(&result),
+            error: None,
+        };
+    }
+
+    GitBooleanResponse {
+        request_id,
+        ok: false,
+        path: Some(worktree_path.display().to_string()),
+        value: false,
+        output_snippet: command_output_snippet(&result),
+        error: Some(
+            first_non_empty_line(&result.stderr)
+                .or_else(|| first_non_empty_line(&result.stdout))
+                .unwrap_or_else(|| "git rev-parse -q --verify MERGE_HEAD failed".to_string()),
+        ),
+    }
+}
+
+#[tauri::command]
+fn git_has_upstream(payload: GitPathPayload) -> GitBooleanResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitBooleanResponse {
+                request_id,
+                ok: false,
+                path: None,
+                value: false,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_git_command_at_path(
+        &worktree_path,
+        &[
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ],
+    );
+    if let Some(error) = result.error {
+        return GitBooleanResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            value: false,
+            output_snippet: None,
+            error: Some(error),
+        };
+    }
+
+    if result.exit_code == Some(0) {
+        return GitBooleanResponse {
+            request_id,
+            ok: true,
+            path: Some(worktree_path.display().to_string()),
+            value: true,
+            output_snippet: command_output_snippet(&result),
+            error: None,
+        };
+    }
+
+    GitBooleanResponse {
+        request_id,
+        ok: true,
+        path: Some(worktree_path.display().to_string()),
+        value: false,
+        output_snippet: command_output_snippet(&result),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn git_list_file_states(payload: GitPathPayload) -> GitFileStatesResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitFileStatesResponse {
+                request_id,
+                ok: false,
+                path: None,
+                staged: Vec::new(),
+                unstaged: Vec::new(),
+                untracked: Vec::new(),
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_git_command_at_path(&worktree_path, &["status", "--porcelain=v1"]);
+    if let Some(error) = result.error.clone() {
+        return GitFileStatesResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            staged: Vec::new(),
+            unstaged: Vec::new(),
+            untracked: Vec::new(),
+            output_snippet: command_output_snippet(&result),
+            error: Some(error),
+        };
+    }
+    if result.exit_code != Some(0) {
+        return GitFileStatesResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            staged: Vec::new(),
+            unstaged: Vec::new(),
+            untracked: Vec::new(),
+            output_snippet: command_output_snippet(&result),
+            error: Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git status --porcelain=v1 failed".to_string()),
+            ),
+        };
+    }
+
+    let (staged, unstaged, untracked) = parse_git_file_states(&result.stdout);
+    GitFileStatesResponse {
+        request_id,
+        ok: true,
+        path: Some(worktree_path.display().to_string()),
+        staged,
+        unstaged,
+        untracked,
+        output_snippet: command_output_snippet(&result),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn git_stage_files(payload: GitFilesPayload) -> GitCommandResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: None,
+                exit_code: None,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+    let files = match normalize_git_file_list(&payload.files) {
+        Ok(files) => files,
+        Err(error) => {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: Some(worktree_path.display().to_string()),
+                exit_code: None,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let mut args = vec!["add".to_string(), "--".to_string()];
+    args.extend(files);
+    let result = run_git_command_at_path_with_args(&worktree_path, &args);
+    if let Some(error) = result.error.clone() {
+        return GitCommandResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            exit_code: result.exit_code,
+            output_snippet: command_output_snippet(&result),
+            error: Some(error),
+        };
+    }
+
+    let ok = result.exit_code == Some(0);
+    GitCommandResponse {
+        request_id,
+        ok,
+        path: Some(worktree_path.display().to_string()),
+        exit_code: result.exit_code,
+        output_snippet: command_output_snippet(&result),
+        error: if ok {
+            None
+        } else {
+            Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git add -- failed".to_string()),
+            )
+        },
+    }
+}
+
+#[tauri::command]
+fn git_unstage_files(payload: GitFilesPayload) -> GitCommandResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: None,
+                exit_code: None,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+    let files = match normalize_git_file_list(&payload.files) {
+        Ok(files) => files,
+        Err(error) => {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: Some(worktree_path.display().to_string()),
+                exit_code: None,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let mut args = vec![
+        "restore".to_string(),
+        "--staged".to_string(),
+        "--".to_string(),
+    ];
+    args.extend(files);
+    let result = run_git_command_at_path_with_args(&worktree_path, &args);
+    if let Some(error) = result.error.clone() {
+        return GitCommandResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            exit_code: result.exit_code,
+            output_snippet: command_output_snippet(&result),
+            error: Some(error),
+        };
+    }
+
+    let ok = result.exit_code == Some(0);
+    GitCommandResponse {
+        request_id,
+        ok,
+        path: Some(worktree_path.display().to_string()),
+        exit_code: result.exit_code,
+        output_snippet: command_output_snippet(&result),
+        error: if ok {
+            None
+        } else {
+            Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git restore --staged -- failed".to_string()),
+            )
+        },
+    }
+}
+
+#[tauri::command]
+fn git_add(payload: GitPathPayload) -> GitCommandResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: None,
+                exit_code: None,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_git_command_at_path(&worktree_path, &["add", "-A"]);
+    if let Some(error) = result.error.clone() {
+        return GitCommandResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            exit_code: result.exit_code,
+            output_snippet: command_output_snippet(&result),
+            error: Some(error),
+        };
+    }
+
+    let ok = result.exit_code == Some(0);
+    GitCommandResponse {
+        request_id,
+        ok,
+        path: Some(worktree_path.display().to_string()),
+        exit_code: result.exit_code,
+        output_snippet: command_output_snippet(&result),
+        error: if ok {
+            None
+        } else {
+            Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git add -A failed".to_string()),
+            )
+        },
+    }
+}
+
+#[tauri::command]
+fn git_commit(payload: GitCommitPayload) -> GitCommandResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitCommandResponse {
+                request_id,
+                ok: false,
+                path: None,
+                exit_code: None,
+                output_snippet: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let message = payload
+        .message
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("chore: update files");
+
+    let result = run_git_command_at_path(&worktree_path, &["commit", "-m", message]);
+    if let Some(error) = result.error.clone() {
+        return GitCommandResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            exit_code: result.exit_code,
+            output_snippet: command_output_snippet(&result),
+            error: Some(error),
+        };
+    }
+
+    let ok = result.exit_code == Some(0);
+    GitCommandResponse {
+        request_id,
+        ok,
+        path: Some(worktree_path.display().to_string()),
+        exit_code: result.exit_code,
+        output_snippet: command_output_snippet(&result),
+        error: if ok {
+            None
+        } else {
+            Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "git commit failed".to_string()),
+            )
+        },
+    }
+}
+
+#[tauri::command]
+fn gh_detect_repo(payload: GhDetectRepoPayload) -> GhDetectRepoResponse {
+    let request_id = request_id();
+    let input_path = match validate_existing_path(&payload.path) {
+        Ok(value) => value,
+        Err(error) => {
+            return GhDetectRepoResponse {
+                request_id,
+                ok: false,
+                repository_root: None,
+                remote_name: None,
+                remote_url: None,
+                host: None,
+                owner: None,
+                repo: None,
+                name_with_owner: None,
+                repository_url: None,
+                verified: false,
+                message: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let repository_root = match git_repository_root_from_path(&input_path) {
+        Ok(value) => value,
+        Err(error) => {
+            return GhDetectRepoResponse {
+                request_id,
+                ok: false,
+                repository_root: None,
+                remote_name: None,
+                remote_url: None,
+                host: None,
+                owner: None,
+                repo: None,
+                name_with_owner: None,
+                repository_url: None,
+                verified: false,
+                message: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let mut response = GhDetectRepoResponse {
+        request_id,
+        ok: true,
+        repository_root: Some(repository_root.display().to_string()),
+        remote_name: None,
+        remote_url: None,
+        host: None,
+        owner: None,
+        repo: None,
+        name_with_owner: None,
+        repository_url: None,
+        verified: false,
+        message: None,
+        error: None,
+    };
+
+    let Some((remote_name, remote_url)) = resolve_remote_url_with_fallback(&repository_root) else {
+        response.message = Some("No git remote found for this repository.".to_string());
+        return response;
+    };
+    response.remote_name = Some(remote_name);
+    response.remote_url = Some(remote_url.clone());
+
+    let Some((host, owner, repo)) = normalize_remote_repo_info(&remote_url) else {
+        response.message =
+            Some("Could not parse owner/repo from repository remote URL.".to_string());
+        return response;
+    };
+
+    response.host = Some(host.clone());
+    response.owner = Some(owner.clone());
+    response.repo = Some(repo.clone());
+
+    let gh_version = run_capture_command(&repository_root, "gh", &["--version"]);
+    if gh_version.error.is_some() || gh_version.exit_code != Some(0) {
+        response.message =
+            Some("GitHub CLI not available; repository verification skipped.".to_string());
+        return response;
+    }
+
+    let repo_arg = format!("{owner}/{repo}");
+    let verify = run_capture_command(
+        &repository_root,
+        "gh",
+        &[
+            "repo",
+            "view",
+            &repo_arg,
+            "--hostname",
+            &host,
+            "--json",
+            "nameWithOwner,url",
+        ],
+    );
+
+    if verify.error.is_some() || verify.exit_code != Some(0) {
+        let detail = first_non_empty_line(&verify.stderr)
+            .or_else(|| first_non_empty_line(&verify.stdout))
+            .unwrap_or_else(|| "Repository verification failed.".to_string());
+        response.message = Some(detail);
+        return response;
+    }
+
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&verify.stdout) {
+        response.name_with_owner = value
+            .get("nameWithOwner")
+            .and_then(|field| field.as_str())
+            .map(|field| field.to_string());
+        response.repository_url = value
+            .get("url")
+            .and_then(|field| field.as_str())
+            .map(|field| field.to_string());
+        response.verified = true;
+    } else {
+        response.message = Some("Repository verification returned unparseable output.".to_string());
+    }
+
+    response
+}
+
+#[tauri::command]
+fn gh_auth_status(payload: GhAuthStatusPayload) -> GhAuthStatusResponse {
+    let request_id = request_id();
+    let cwd = command_cwd();
+
+    let gh_version = run_capture_command(&cwd, "gh", &["--version"]);
+    if gh_version.error.is_some() || gh_version.exit_code != Some(0) {
+        return GhAuthStatusResponse {
+            request_id,
+            ok: true,
+            installed: false,
+            authenticated: false,
+            hostname: payload.hostname,
+            username: None,
+            message: "GitHub CLI is not installed or not available in PATH.".to_string(),
+            error: None,
+        };
+    }
+
+    let raw_hostname = payload
+        .hostname
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let normalized_host = normalize_gh_hostname(raw_hostname);
+    let repo_host_hint = infer_gh_host_hint_from_payload(&payload, &cwd);
+
+    let mut used_plain_status = false;
+    let mut status = if let Some(hostname) = normalized_host.as_deref() {
+        run_capture_command(&cwd, "gh", &["auth", "status", "--hostname", hostname])
+    } else {
+        used_plain_status = true;
+        run_capture_command(&cwd, "gh", &["auth", "status"])
+    };
+
+    if !used_plain_status && status.exit_code != Some(0) {
+        status = run_capture_command(&cwd, "gh", &["auth", "status"]);
+        used_plain_status = true;
+    }
+
+    let combined_output = format!("{}\n{}", status.stdout, status.stderr);
+    let parse_preferred_host = if used_plain_status {
+        repo_host_hint.as_deref()
+    } else {
+        normalized_host.as_deref()
+    };
+    let (detected_host, parsed_username) =
+        parse_gh_auth_identity(&combined_output, parse_preferred_host);
+    let authenticated = status.exit_code == Some(0);
+    let resolved_host = detected_host.or(normalized_host).or(repo_host_hint);
+    let username = if authenticated {
+        parsed_username.or_else(|| {
+            gh_api_user_login(&cwd, resolved_host.as_deref()).or_else(|| {
+                if resolved_host.is_some() {
+                    gh_api_user_login(&cwd, None)
+                } else {
+                    None
+                }
+            })
+        })
+    } else {
+        None
+    };
+
+    let message = if authenticated {
+        "Authenticated via GitHub CLI session.".to_string()
+    } else {
+        "Run gh auth login in your terminal".to_string()
+    };
+
+    GhAuthStatusResponse {
+        request_id,
+        ok: true,
+        installed: true,
+        authenticated,
+        hostname: resolved_host,
+        username,
+        message,
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn gh_auth_logout(payload: GhAuthLogoutPayload) -> GhAuthLogoutResponse {
+    let request_id = request_id();
+    let cwd = command_cwd();
+
+    let gh_version = run_capture_command(&cwd, "gh", &["--version"]);
+    if gh_version.error.is_some() || gh_version.exit_code != Some(0) {
+        return GhAuthLogoutResponse {
+            request_id,
+            ok: false,
+            hostname: payload.hostname,
+            message: "GitHub CLI is not installed or not available in PATH.".to_string(),
+            error: Some("gh not installed".to_string()),
+        };
+    }
+
+    let mut hostname = payload
+        .hostname
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_lowercase());
+
+    if hostname.is_none() {
+        let status = run_capture_command(&cwd, "gh", &["auth", "status"]);
+        let combined_output = format!("{}\n{}", status.stdout, status.stderr);
+        let (detected_host, _) = parse_gh_auth_identity(&combined_output, None);
+        hostname = detected_host;
+    }
+
+    let Some(hostname_value) = hostname else {
+        return GhAuthLogoutResponse {
+            request_id,
+            ok: false,
+            hostname: None,
+            message: "No authenticated gh host found to log out from.".to_string(),
+            error: Some("hostname unavailable".to_string()),
+        };
+    };
+
+    let logout = run_capture_command(
+        &cwd,
+        "gh",
+        &["auth", "logout", "--hostname", &hostname_value, "--yes"],
+    );
+
+    let combined = format!("{}\n{}", logout.stdout, logout.stderr).to_lowercase();
+    let already_logged_out =
+        combined.contains("not logged in") || combined.contains("no oauth token");
+    let success = logout.exit_code == Some(0) || already_logged_out;
+
+    GhAuthLogoutResponse {
+        request_id,
+        ok: success,
+        hostname: Some(hostname_value),
+        message: if success {
+            "Logged out. Run gh auth login in your terminal".to_string()
+        } else {
+            "Failed to log out current gh session.".to_string()
+        },
+        error: if success {
+            None
+        } else {
+            Some(
+                first_non_empty_line(&logout.stderr)
+                    .or_else(|| first_non_empty_line(&logout.stdout))
+                    .unwrap_or_else(|| "gh auth logout failed".to_string()),
+            )
+        },
+    }
+}
+
+#[tauri::command]
+fn gh_pr_list(payload: GhPrListPayload) -> GhPrListResponse {
+    let request_id = request_id();
+    let repository =
+        match normalize_gh_repository(&payload.owner, &payload.repo, payload.hostname.as_deref()) {
+            Ok(value) => value,
+            Err(error) => {
+                return GhPrListResponse {
+                    request_id,
+                    ok: false,
+                    repository: String::new(),
+                    prs: Vec::new(),
+                    error: Some(error),
+                }
+            }
+        };
+
+    let cwd = command_cwd();
+    let result = run_capture_command(
+        &cwd,
+        "gh",
+        &[
+            "pr",
+            "list",
+            "--repo",
+            &repository,
+            "--json",
+            "number,title,state,headRefName,baseRefName,url",
+        ],
+    );
+
+    if let Some(error) = result.error {
+        return GhPrListResponse {
+            request_id,
+            ok: false,
+            repository,
+            prs: Vec::new(),
+            error: Some(error),
+        };
+    }
+    if result.exit_code != Some(0) {
+        return GhPrListResponse {
+            request_id,
+            ok: false,
+            repository,
+            prs: Vec::new(),
+            error: Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "gh pr list failed".to_string()),
+            ),
+        };
+    }
+
+    let mut prs = Vec::<GhPullRequestItem>::new();
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&result.stdout) {
+        if let Some(items) = value.as_array() {
+            for item in items {
+                prs.push(GhPullRequestItem {
+                    number: item
+                        .get("number")
+                        .and_then(|field| field.as_i64())
+                        .unwrap_or_default(),
+                    title: item
+                        .get("title")
+                        .and_then(|field| field.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    state: item
+                        .get("state")
+                        .and_then(|field| field.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    head_ref_name: item
+                        .get("headRefName")
+                        .and_then(|field| field.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    base_ref_name: item
+                        .get("baseRefName")
+                        .and_then(|field| field.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    url: item
+                        .get("url")
+                        .and_then(|field| field.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                });
+            }
+        }
+    }
+
+    GhPrListResponse {
+        request_id,
+        ok: true,
+        repository,
+        prs,
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn gh_pr_create(payload: GhPrCreatePayload) -> GhPrCreateResponse {
+    let request_id = request_id();
+    let repository =
+        match normalize_gh_repository(&payload.owner, &payload.repo, payload.hostname.as_deref()) {
+            Ok(value) => value,
+            Err(error) => {
+                return GhPrCreateResponse {
+                    request_id,
+                    ok: false,
+                    repository: String::new(),
+                    url: None,
+                    message: None,
+                    error: Some(error),
+                }
+            }
+        };
+
+    let base = payload.base.trim();
+    let head = payload.head.trim();
+    let title = payload.title.trim();
+    if base.is_empty() || head.is_empty() || title.is_empty() {
+        return GhPrCreateResponse {
+            request_id,
+            ok: false,
+            repository,
+            url: None,
+            message: None,
+            error: Some("base, head, and title are required for PR creation.".to_string()),
+        };
+    }
+
+    let cwd = command_cwd();
+    let result = run_capture_command(
+        &cwd,
+        "gh",
+        &[
+            "pr",
+            "create",
+            "--repo",
+            &repository,
+            "--base",
+            base,
+            "--head",
+            head,
+            "--title",
+            title,
+            "--body",
+            &payload.body,
+        ],
+    );
+
+    if let Some(error) = result.error {
+        return GhPrCreateResponse {
+            request_id,
+            ok: false,
+            repository,
+            url: None,
+            message: None,
+            error: Some(error),
+        };
+    }
+
+    if result.exit_code != Some(0) {
+        return GhPrCreateResponse {
+            request_id,
+            ok: false,
+            repository,
+            url: None,
+            message: None,
+            error: Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "gh pr create failed".to_string()),
+            ),
+        };
+    }
+
+    let url = parse_first_url(&result.stdout).or_else(|| parse_first_url(&result.stderr));
+    GhPrCreateResponse {
+        request_id,
+        ok: true,
+        repository,
+        url,
+        message: Some("Pull request created through GitHub CLI.".to_string()),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn gh_open_branch(payload: GhBranchActionPayload) -> GhBranchActionResponse {
+    let request_id = request_id();
+    let (cwd, branch) = match validate_gh_branch_action_payload(&payload) {
+        Ok(values) => values,
+        Err(error) => {
+            return GhBranchActionResponse {
+                request_id,
+                ok: false,
+                branch: None,
+                message: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_capture_command(&cwd, "gh", &["browse", &branch]);
+    if let Some(error) = result.error {
+        return GhBranchActionResponse {
+            request_id,
+            ok: false,
+            branch: Some(branch),
+            message: None,
+            error: Some(error),
+        };
+    }
+    if result.exit_code != Some(0) {
+        return GhBranchActionResponse {
+            request_id,
+            ok: false,
+            branch: Some(branch),
+            message: None,
+            error: Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "gh browse failed".to_string()),
+            ),
+        };
+    }
+
+    GhBranchActionResponse {
+        request_id,
+        ok: true,
+        branch: Some(branch),
+        message: Some("Opened branch in browser via GitHub CLI.".to_string()),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn gh_open_active_pr(payload: GhBranchActionPayload) -> GhBranchActionResponse {
+    let request_id = request_id();
+    let (cwd, branch) = match validate_gh_branch_action_payload(&payload) {
+        Ok(values) => values,
+        Err(error) => {
+            return GhBranchActionResponse {
+                request_id,
+                ok: false,
+                branch: None,
+                message: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_capture_command(&cwd, "gh", &["pr", "view", &branch, "--web"]);
+    if let Some(error) = result.error {
+        return GhBranchActionResponse {
+            request_id,
+            ok: false,
+            branch: Some(branch),
+            message: None,
+            error: Some(error),
+        };
+    }
+    if result.exit_code != Some(0) {
+        return GhBranchActionResponse {
+            request_id,
+            ok: false,
+            branch: Some(branch),
+            message: None,
+            error: Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "gh pr view failed".to_string()),
+            ),
+        };
+    }
+
+    GhBranchActionResponse {
+        request_id,
+        ok: true,
+        branch: Some(branch),
+        message: Some("Opened active pull request in browser via GitHub CLI.".to_string()),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn gh_check_branch_pr(payload: GhBranchActionPayload) -> GhCheckBranchPrResponse {
+    let request_id = request_id();
+    let (cwd, branch) = match validate_gh_branch_action_payload(&payload) {
+        Ok(values) => values,
+        Err(error) => {
+            return GhCheckBranchPrResponse {
+                request_id,
+                ok: false,
+                branch: payload.branch.trim().to_string(),
+                prs: Vec::new(),
+                active_pr: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let result = run_capture_command(
+        &cwd,
+        "gh",
+        &[
+            "pr",
+            "list",
+            "--head",
+            &branch,
+            "--state",
+            "open",
+            "--json",
+            "number,title,url",
+        ],
+    );
+
+    if let Some(error) = result.error {
+        return GhCheckBranchPrResponse {
+            request_id,
+            ok: false,
+            branch,
+            prs: Vec::new(),
+            active_pr: None,
+            error: Some(error),
+        };
+    }
+    if result.exit_code != Some(0) {
+        return GhCheckBranchPrResponse {
+            request_id,
+            ok: false,
+            branch,
+            prs: Vec::new(),
+            active_pr: None,
+            error: Some(
+                first_non_empty_line(&result.stderr)
+                    .or_else(|| first_non_empty_line(&result.stdout))
+                    .unwrap_or_else(|| "gh pr list failed".to_string()),
+            ),
+        };
+    }
+
+    let mut prs = Vec::<GhBranchPrItem>::new();
+    match serde_json::from_str::<serde_json::Value>(&result.stdout) {
+        Ok(value) => {
+            if let Some(items) = value.as_array() {
+                for item in items {
+                    prs.push(GhBranchPrItem {
+                        number: item
+                            .get("number")
+                            .and_then(|field| field.as_i64())
+                            .unwrap_or_default(),
+                        title: item
+                            .get("title")
+                            .and_then(|field| field.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        url: item
+                            .get("url")
+                            .and_then(|field| field.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                    });
+                }
+            }
+        }
+        Err(error) => {
+            return GhCheckBranchPrResponse {
+                request_id,
+                ok: false,
+                branch,
+                prs: Vec::new(),
+                active_pr: None,
+                error: Some(format!("Failed to parse gh pr list JSON: {error}")),
+            }
+        }
+    }
+
+    let active_pr = if prs.len() == 1 {
+        prs.first().cloned()
+    } else {
+        None
+    };
+
+    GhCheckBranchPrResponse {
+        request_id,
+        ok: true,
+        branch,
+        prs,
+        active_pr,
+        error: None,
+    }
+}
+
+#[tauri::command]
+async fn groove_list(app: AppHandle, payload: GrooveListPayload) -> GrooveListResponse {
+    let request_id = request_id();
+    let fallback_request_id = request_id.clone();
+
+    match tauri::async_runtime::spawn_blocking(move || {
+        groove_list_blocking(app, payload, request_id)
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => GrooveListResponse {
+            request_id: fallback_request_id,
+            ok: false,
+            workspace_root: None,
+            rows: HashMap::new(),
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some(format!("Failed to run groove list worker thread: {error}")),
+        },
+    }
+}
+
+fn groove_list_blocking(
+    app: AppHandle,
+    payload: GrooveListPayload,
+    request_id: String,
+) -> GrooveListResponse {
+    let total_started_at = Instant::now();
+    let mut exec_elapsed = Duration::ZERO;
+    let mut parse_elapsed = Duration::ZERO;
 
     let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
         Ok(known_worktrees) => known_worktrees,
@@ -2964,6 +6443,12 @@ fn groove_list(app: AppHandle, payload: GrooveListPayload) -> GrooveListResponse
         }
     };
 
+    let mut telemetry_enabled = payload
+        .workspace_meta
+        .as_ref()
+        .and_then(|meta| meta.telemetry_enabled)
+        .unwrap_or(true);
+
     let workspace_root = match resolve_workspace_root(
         &app,
         &payload.root_name,
@@ -2973,6 +6458,16 @@ fn groove_list(app: AppHandle, payload: GrooveListPayload) -> GrooveListResponse
     ) {
         Ok(root) => root,
         Err(error) => {
+            let resolve_elapsed = total_started_at.elapsed();
+            if telemetry_enabled {
+                eprintln!(
+                    "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=resolve-error",
+                    resolve_elapsed.as_millis(),
+                    exec_elapsed.as_millis(),
+                    parse_elapsed.as_millis(),
+                    total_started_at.elapsed().as_millis(),
+                );
+            }
             return GrooveListResponse {
                 request_id,
                 ok: false,
@@ -2981,19 +6476,151 @@ fn groove_list(app: AppHandle, payload: GrooveListPayload) -> GrooveListResponse
                 stdout: String::new(),
                 stderr: String::new(),
                 error: Some(error),
-            }
+            };
         }
     };
+    telemetry_enabled = payload
+        .workspace_meta
+        .as_ref()
+        .and_then(|meta| meta.telemetry_enabled)
+        .unwrap_or_else(|| telemetry_enabled_for_workspace_root(&workspace_root));
+    let resolve_elapsed = total_started_at.elapsed();
+
+    let cache_key = groove_list_cache_key(
+        &workspace_root,
+        &known_worktrees,
+        &dir,
+        &payload.workspace_meta,
+    );
+
+    let mut stale_response: Option<GrooveListResponse> = None;
+    if let Some(cache_state) = app.try_state::<GrooveListCacheState>() {
+        if let Ok(mut entries) = cache_state.entries.lock() {
+            if let Some(cached) = entries.get(&cache_key) {
+                let cache_age = cached.created_at.elapsed();
+                if cache_age <= GROOVE_LIST_CACHE_TTL {
+                    let mut response = cached.response.clone();
+                    response.request_id = request_id;
+                    if telemetry_enabled {
+                        eprintln!(
+                            "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} cache_hit=true",
+                            resolve_elapsed.as_millis(),
+                            exec_elapsed.as_millis(),
+                            parse_elapsed.as_millis(),
+                            total_started_at.elapsed().as_millis(),
+                        );
+                    }
+                    return response;
+                }
+
+                if cache_age <= GROOVE_LIST_CACHE_STALE_TTL {
+                    stale_response = Some(cached.response.clone());
+                } else {
+                    entries.remove(&cache_key);
+                }
+            } else {
+                entries.remove(&cache_key);
+            }
+        }
+    }
+
+    let mut wait_cell: Option<Arc<GrooveListInFlight>> = None;
+    let mut leader_cell: Option<Arc<GrooveListInFlight>> = None;
+    if let Some(cache_state) = app.try_state::<GrooveListCacheState>() {
+        if let Ok(mut in_flight) = cache_state.in_flight.lock() {
+            if let Some(existing) = in_flight.get(&cache_key) {
+                wait_cell = Some(existing.clone());
+            } else {
+                let cell = Arc::new(GrooveListInFlight::new());
+                in_flight.insert(cache_key.clone(), cell.clone());
+                leader_cell = Some(cell);
+            }
+        }
+    }
+
+    if let Some(wait_cell) = wait_cell {
+        if let Some(mut response) = stale_response {
+            response.request_id = request_id;
+            if telemetry_enabled {
+                eprintln!(
+                    "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} stale_while_refresh=true",
+                    resolve_elapsed.as_millis(),
+                    exec_elapsed.as_millis(),
+                    parse_elapsed.as_millis(),
+                    total_started_at.elapsed().as_millis(),
+                );
+            }
+            return response;
+        }
+
+        let mut guard = match wait_cell.response.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                return GrooveListResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    rows: HashMap::new(),
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    error: Some("Failed to wait for in-flight groove list request.".to_string()),
+                };
+            }
+        };
+
+        while guard.is_none() {
+            guard = match wait_cell.cvar.wait(guard) {
+                Ok(guard) => guard,
+                Err(_) => {
+                    return GrooveListResponse {
+                        request_id,
+                        ok: false,
+                        workspace_root: Some(workspace_root.display().to_string()),
+                        rows: HashMap::new(),
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(
+                            "Failed while waiting for in-flight groove list result.".to_string(),
+                        ),
+                    };
+                }
+            };
+        }
+
+        let mut response = guard.clone().unwrap_or_else(|| GrooveListResponse {
+            request_id: String::new(),
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            rows: HashMap::new(),
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some("In-flight groove list request returned no response.".to_string()),
+        });
+        response.request_id = request_id;
+        if telemetry_enabled {
+            eprintln!(
+                "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} deduped=true",
+                resolve_elapsed.as_millis(),
+                exec_elapsed.as_millis(),
+                parse_elapsed.as_millis(),
+                total_started_at.elapsed().as_millis(),
+            );
+        }
+        return response;
+    }
 
     let mut args = vec!["list".to_string()];
-    if let Some(dir) = dir {
+    if let Some(dir) = dir.clone() {
         args.push("--dir".to_string());
         args.push(dir);
     }
 
+    let exec_started_at = Instant::now();
     let result = run_command(&groove_binary_path(&app), &args, &workspace_root);
+    exec_elapsed = exec_started_at.elapsed();
+
     if result.exit_code != Some(0) || result.error.is_some() {
-        return GrooveListResponse {
+        let response = GrooveListResponse {
             request_id,
             ok: false,
             workspace_root: Some(workspace_root.display().to_string()),
@@ -3004,11 +6631,37 @@ fn groove_list(app: AppHandle, payload: GrooveListPayload) -> GrooveListResponse
                 .error
                 .or_else(|| Some("groove list failed.".to_string())),
         };
+
+        if let Some(cache_state) = app.try_state::<GrooveListCacheState>() {
+            if let Some(cell) = leader_cell {
+                if let Ok(mut guard) = cell.response.lock() {
+                    *guard = Some(response.clone());
+                    cell.cvar.notify_all();
+                }
+                if let Ok(mut in_flight) = cache_state.in_flight.lock() {
+                    in_flight.remove(&cache_key);
+                }
+            }
+        }
+
+        if telemetry_enabled {
+            eprintln!(
+                "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=exec-error",
+                resolve_elapsed.as_millis(),
+                exec_elapsed.as_millis(),
+                parse_elapsed.as_millis(),
+                total_started_at.elapsed().as_millis(),
+            );
+        }
+
+        return response;
     }
 
+    let parse_started_at = Instant::now();
     let rows = parse_groove_list_output(&result.stdout, &known_worktrees);
+    parse_elapsed = parse_started_at.elapsed();
 
-    GrooveListResponse {
+    let response = GrooveListResponse {
         request_id,
         ok: true,
         workspace_root: Some(workspace_root.display().to_string()),
@@ -3016,7 +6669,40 @@ fn groove_list(app: AppHandle, payload: GrooveListPayload) -> GrooveListResponse
         stdout: result.stdout,
         stderr: result.stderr,
         error: None,
+    };
+
+    if let Some(cache_state) = app.try_state::<GrooveListCacheState>() {
+        if let Ok(mut entries) = cache_state.entries.lock() {
+            entries.insert(
+                cache_key.clone(),
+                GrooveListCacheEntry {
+                    created_at: Instant::now(),
+                    response: response.clone(),
+                },
+            );
+        }
+        if let Some(cell) = leader_cell {
+            if let Ok(mut guard) = cell.response.lock() {
+                *guard = Some(response.clone());
+                cell.cvar.notify_all();
+            }
+            if let Ok(mut in_flight) = cache_state.in_flight.lock() {
+                in_flight.remove(&cache_key);
+            }
+        }
     }
+
+    if telemetry_enabled {
+        eprintln!(
+            "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=ok",
+            resolve_elapsed.as_millis(),
+            exec_elapsed.as_millis(),
+            parse_elapsed.as_millis(),
+            total_started_at.elapsed().as_millis(),
+        );
+    }
+
+    response
 }
 
 #[tauri::command]
@@ -3151,6 +6837,31 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
         &payload.workspace_meta,
     ) {
         Ok(root) => root,
+        Err(primary_error) => {
+            match resolve_workspace_root(
+                &app,
+                &payload.root_name,
+                None,
+                &known_worktrees,
+                &payload.workspace_meta,
+            ) {
+                Ok(root) => root,
+                Err(_) => {
+                    return GrooveCommandResponse {
+                        request_id,
+                        ok: false,
+                        exit_code: None,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(primary_error),
+                    }
+                }
+            }
+        }
+    };
+
+    let tombstone = match read_worktree_tombstone(&app, &workspace_root, &worktree) {
+        Ok(value) => value,
         Err(error) => {
             return GrooveCommandResponse {
                 request_id,
@@ -3163,7 +6874,74 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
         }
     };
 
-    let worktree_dir = dir.clone().unwrap_or_else(|| ".worktrees".to_string());
+    let inferred_worktree_dir = if dir.is_none() {
+        tombstone.as_ref().and_then(|value| {
+            let tombstone_path = Path::new(&value.worktree_path);
+            tombstone_path
+                .parent()
+                .and_then(|parent| parent.strip_prefix(&workspace_root).ok())
+                .and_then(|relative| {
+                    let rendered = relative.display().to_string();
+                    if rendered.is_empty() {
+                        None
+                    } else {
+                        Some(rendered)
+                    }
+                })
+        })
+    } else {
+        None
+    };
+
+    let worktree_dir = dir
+        .clone()
+        .or(inferred_worktree_dir)
+        .unwrap_or_else(|| ".worktrees".to_string());
+    let expected_worktree_path = workspace_root.join(&worktree_dir).join(&worktree);
+    if !path_is_directory(&expected_worktree_path) {
+        let recreate_branch = tombstone
+            .as_ref()
+            .and_then(|value| value.branch_name.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| branch_guess_from_worktree_name(&worktree));
+
+        let mut create_args = vec!["create".to_string(), recreate_branch];
+        if worktree_dir != ".worktrees" {
+            create_args.push("--dir".to_string());
+            create_args.push(worktree_dir.clone());
+        }
+
+        let recreate_result = run_command(&groove_binary_path(&app), &create_args, &workspace_root);
+        if recreate_result.exit_code != Some(0) || recreate_result.error.is_some() {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: recreate_result.exit_code,
+                stdout: recreate_result.stdout,
+                stderr: recreate_result.stderr,
+                error: recreate_result.error.or_else(|| {
+                    Some("Failed to recreate missing worktree before restore.".to_string())
+                }),
+            };
+        }
+
+        if !path_is_directory(&expected_worktree_path) {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: recreate_result.exit_code,
+                stdout: recreate_result.stdout,
+                stderr: recreate_result.stderr,
+                error: Some(format!(
+                    "Worktree directory is still missing after recreation at \"{}\".",
+                    expected_worktree_path.display()
+                )),
+            };
+        }
+    }
+
     if let Err(error) = ensure_worktree_in_dir(&workspace_root, &worktree, &worktree_dir) {
         return GrooveCommandResponse {
             request_id,
@@ -3178,7 +6956,7 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
     let mut args = if action == "go" {
         vec!["go".to_string(), target.clone().unwrap_or_default()]
     } else {
-        vec!["restore".to_string(), worktree]
+        vec!["restore".to_string(), worktree.clone()]
     };
 
     if let Some(dir) = dir {
@@ -3208,6 +6986,20 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
                 error: Some(error),
             };
         }
+
+        if let Err(error) = clear_worktree_tombstone(&app, &workspace_root, &worktree) {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: result.exit_code,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                error: Some(error),
+            };
+        }
+
+        invalidate_workspace_context_cache(&app, &workspace_root);
+        invalidate_groove_list_cache_for_workspace(&app, &workspace_root);
     }
 
     GrooveCommandResponse {
@@ -3351,6 +7143,9 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
                 error: Some(error),
             };
         }
+
+        invalidate_workspace_context_cache(&app, &workspace_root);
+        invalidate_groove_list_cache_for_workspace(&app, &workspace_root);
     }
 
     GrooveCommandResponse {
@@ -3364,7 +7159,11 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
 }
 
 #[tauri::command]
-fn groove_rm(app: AppHandle, payload: GrooveRmPayload) -> GrooveCommandResponse {
+fn groove_rm(
+    app: AppHandle,
+    state: State<TestingEnvironmentState>,
+    payload: GrooveRmPayload,
+) -> GrooveCommandResponse {
     let request_id = request_id();
 
     let target = payload.target.trim();
@@ -3468,6 +7267,7 @@ fn groove_rm(app: AppHandle, payload: GrooveRmPayload) -> GrooveCommandResponse 
                 }
             }
         };
+    let branch_name = resolve_branch_from_worktree(&target_path);
 
     let force = payload.force.unwrap_or(false);
     let (binary, args) = if force {
@@ -3492,10 +7292,49 @@ fn groove_rm(app: AppHandle, payload: GrooveRmPayload) -> GrooveCommandResponse 
         (groove_binary_path(&app), args)
     };
 
-    let result = run_command(&binary, &args, &workspace_root);
+    let mut result = run_command(&binary, &args, &workspace_root);
+    let ok = result.exit_code == Some(0) && result.error.is_none();
+    if ok {
+        if let Err(tombstone_error) = record_worktree_tombstone(
+            &app,
+            &workspace_root,
+            &resolution_worktree,
+            &target_path,
+            branch_name,
+        ) {
+            if !result.stderr.trim().is_empty() {
+                result.stderr.push('\n');
+            }
+            result.stderr.push_str(&format!(
+                "Warning: failed to persist worktree tombstone after deletion: {tombstone_error}"
+            ));
+        }
+
+        match unset_testing_target_for_worktree(
+            &app,
+            &state,
+            &workspace_root,
+            &resolution_worktree,
+            true,
+        ) {
+            Ok(_) => {}
+            Err(unset_error) => {
+                if !result.stderr.trim().is_empty() {
+                    result.stderr.push('\n');
+                }
+                result.stderr.push_str(&format!(
+                    "Warning: failed to unset testing target during cut groove: {unset_error}"
+                ));
+            }
+        }
+
+        invalidate_workspace_context_cache(&app, &workspace_root);
+        invalidate_groove_list_cache_for_workspace(&app, &workspace_root);
+    }
+
     GrooveCommandResponse {
         request_id,
-        ok: result.exit_code == Some(0) && result.error.is_none(),
+        ok,
         exit_code: result.exit_code,
         stdout: result.stdout,
         stderr: result.stderr,
@@ -3649,7 +7488,7 @@ fn groove_stop(app: AppHandle, payload: GrooveStopPayload) -> GrooveStopResponse
         };
     };
 
-    match stop_process_by_pid(pid) {
+    let response = match stop_process_by_pid(pid) {
         Ok((already_stopped, pid)) => GrooveStopResponse {
             request_id,
             ok: true,
@@ -3666,7 +7505,13 @@ fn groove_stop(app: AppHandle, payload: GrooveStopPayload) -> GrooveStopResponse
             source,
             error: Some(error),
         },
+    };
+
+    if response.ok {
+        invalidate_groove_list_cache_for_workspace(&app, &workspace_root);
     }
+
+    response
 }
 
 #[tauri::command]
@@ -3821,6 +7666,175 @@ fn testing_environment_set_target(
         }
     };
 
+    if !enabled {
+        let mut runtime = match state.runtime.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                return TestingEnvironmentResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: None,
+                    environments: Vec::new(),
+                    target_worktree: None,
+                    target_path: None,
+                    status: "none".to_string(),
+                    instance_id: None,
+                    pid: None,
+                    started_at: None,
+                    error: Some(format!(
+                        "Failed to acquire testing environment lock: {error}"
+                    )),
+                }
+            }
+        };
+
+        if let Err(error) = ensure_testing_runtime_loaded(&app, &mut runtime) {
+            return build_testing_environment_response(
+                request_id,
+                None,
+                &runtime.persisted,
+                Some(error),
+            );
+        }
+
+        if let Err(error) = reconcile_testing_runtime_and_persist(&app, &mut runtime) {
+            return build_testing_environment_response(
+                request_id,
+                None,
+                &runtime.persisted,
+                Some(error),
+            );
+        }
+
+        let root_name_hint = payload
+            .root_name
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty());
+
+        let provided_workspace_root = payload
+            .workspace_root
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string());
+
+        let mut workspace_roots = Vec::<String>::new();
+        let mut seen_workspace_roots = HashSet::<String>::new();
+
+        if let Some(workspace_root) = provided_workspace_root {
+            if seen_workspace_roots.insert(workspace_root.clone()) {
+                workspace_roots.push(workspace_root);
+            }
+        }
+
+        if let Ok(resolved_workspace_root) = resolve_workspace_root(
+            &app,
+            &payload.root_name,
+            Some(worktree),
+            &known_worktrees,
+            &payload.workspace_meta,
+        ) {
+            let workspace_root = resolved_workspace_root.display().to_string();
+            if seen_workspace_roots.insert(workspace_root.clone()) {
+                workspace_roots.push(workspace_root);
+            }
+        } else if let Ok(resolved_workspace_root) = resolve_workspace_root(
+            &app,
+            &payload.root_name,
+            None,
+            &known_worktrees,
+            &payload.workspace_meta,
+        ) {
+            let workspace_root = resolved_workspace_root.display().to_string();
+            if seen_workspace_roots.insert(workspace_root.clone()) {
+                workspace_roots.push(workspace_root);
+            }
+        }
+
+        for target in &runtime.persisted.targets {
+            if target.worktree != worktree {
+                continue;
+            }
+            if !workspace_root_matches_root_name(&target.workspace_root, root_name_hint) {
+                continue;
+            }
+            if seen_workspace_roots.insert(target.workspace_root.clone()) {
+                workspace_roots.push(target.workspace_root.clone());
+            }
+        }
+        for instance in &runtime.persisted.running_instances {
+            if instance.worktree != worktree {
+                continue;
+            }
+            if !workspace_root_matches_root_name(&instance.workspace_root, root_name_hint) {
+                continue;
+            }
+            if seen_workspace_roots.insert(instance.workspace_root.clone()) {
+                workspace_roots.push(instance.workspace_root.clone());
+            }
+        }
+
+        if workspace_roots.is_empty() {
+            for target in &runtime.persisted.targets {
+                if target.worktree == worktree {
+                    if seen_workspace_roots.insert(target.workspace_root.clone()) {
+                        workspace_roots.push(target.workspace_root.clone());
+                    }
+                }
+            }
+            for instance in &runtime.persisted.running_instances {
+                if instance.worktree == worktree {
+                    if seen_workspace_roots.insert(instance.workspace_root.clone()) {
+                        workspace_roots.push(instance.workspace_root.clone());
+                    }
+                }
+            }
+        }
+
+        for workspace_root in &workspace_roots {
+            runtime.persisted.targets.retain(|target| {
+                !(target.workspace_root == *workspace_root && target.worktree == worktree)
+            });
+
+            if payload.stop_running_processes_when_unset.unwrap_or(true) {
+                if let Err(error) = stop_running_testing_instance_for_worktree(
+                    &mut runtime,
+                    workspace_root,
+                    worktree,
+                ) {
+                    let workspace_root_path = PathBuf::from(workspace_root);
+                    return build_testing_environment_response(
+                        request_id,
+                        Some(&workspace_root_path),
+                        &runtime.persisted,
+                        Some(error),
+                    );
+                }
+            }
+        }
+
+        runtime.persisted.updated_at = Some(now_iso());
+
+        if let Err(error) = write_persisted_testing_environment_state(&app, &runtime.persisted) {
+            let workspace_root_path = workspace_roots.first().map(PathBuf::from);
+            return build_testing_environment_response(
+                request_id,
+                workspace_root_path.as_deref(),
+                &runtime.persisted,
+                Some(error),
+            );
+        }
+
+        let workspace_root_path = workspace_roots.first().map(PathBuf::from);
+        return build_testing_environment_response(
+            request_id,
+            workspace_root_path.as_deref(),
+            &runtime.persisted,
+            None,
+        );
+    }
+
     let workspace_root = match resolve_workspace_root(
         &app,
         &payload.root_name,
@@ -3955,17 +7969,19 @@ fn testing_environment_set_target(
         runtime.persisted.targets.retain(|target| {
             !(target.workspace_root == workspace_root_string && target.worktree == worktree)
         });
-        if let Err(error) = stop_running_testing_instance_for_worktree(
-            &mut runtime,
-            &workspace_root_string,
-            worktree,
-        ) {
-            return build_testing_environment_response(
-                request_id,
-                Some(&workspace_root),
-                &runtime.persisted,
-                Some(error),
-            );
+        if payload.stop_running_processes_when_unset.unwrap_or(true) {
+            if let Err(error) = stop_running_testing_instance_for_worktree(
+                &mut runtime,
+                &workspace_root_string,
+                worktree,
+            ) {
+                return build_testing_environment_response(
+                    request_id,
+                    Some(&workspace_root),
+                    &runtime.persisted,
+                    Some(error),
+                );
+            }
         }
         runtime.persisted.updated_at = Some(now_iso());
     }
@@ -4929,9 +8945,24 @@ fn workspace_events(
         }
     };
 
+    let workspace_root_display = workspace_root.display().to_string();
+
+    if let Some(existing) = worker.as_ref() {
+        if existing.workspace_root == workspace_root_display && !existing.handle.is_finished() {
+            return WorkspaceEventsResponse {
+                request_id,
+                ok: true,
+                workspace_root: Some(workspace_root_display),
+                error: None,
+            };
+        }
+    }
+
+    let worker_generation = state.worker_generation.clone();
+    let generation = worker_generation.fetch_add(1, Ordering::Relaxed) + 1;
+
     if let Some(previous) = worker.take() {
         previous.stop.store(true, Ordering::Relaxed);
-        let _ = previous.handle.join();
     }
 
     let stop = Arc::new(AtomicBool::new(false));
@@ -4939,8 +8970,13 @@ fn workspace_events(
     let app_handle = app.clone();
     let request_id_clone = request_id.clone();
     let workspace_root_clone = workspace_root.clone();
+    let worker_generation_clone = worker_generation.clone();
 
     let handle = thread::spawn(move || {
+        if worker_generation_clone.load(Ordering::Relaxed) != generation {
+            return;
+        }
+
         let mut snapshots = HashMap::<PathBuf, SnapshotEntry>::new();
         for target in &poll_targets {
             snapshots.insert(target.clone(), snapshot_entry(target));
@@ -4963,7 +8999,9 @@ fn workspace_events(
             .checked_sub(WORKSPACE_EVENTS_MIN_EMIT_INTERVAL)
             .unwrap_or_else(Instant::now);
 
-        while !stop_signal.load(Ordering::Relaxed) {
+        while !stop_signal.load(Ordering::Relaxed)
+            && worker_generation_clone.load(Ordering::Relaxed) == generation
+        {
             for target in &poll_targets {
                 let next = snapshot_entry(target);
                 let previous = snapshots.get(target).cloned().unwrap_or(SnapshotEntry {
@@ -5003,16 +9041,32 @@ fn workspace_events(
                 last_emit_at = Instant::now();
             }
 
-            thread::sleep(WORKSPACE_EVENTS_POLL_INTERVAL);
+            let sleep_started = Instant::now();
+            while sleep_started.elapsed() < WORKSPACE_EVENTS_POLL_INTERVAL {
+                if stop_signal.load(Ordering::Relaxed)
+                    || worker_generation_clone.load(Ordering::Relaxed) != generation
+                {
+                    break;
+                }
+                thread::sleep(WORKSPACE_EVENTS_STOP_POLL_INTERVAL);
+            }
+        }
+
+        if worker_generation_clone.load(Ordering::Relaxed) != generation {
+            eprintln!("[workspace-events] worker superseded; exiting poll loop");
         }
     });
 
-    *worker = Some(WorkspaceWorker { stop, handle });
+    *worker = Some(WorkspaceWorker {
+        workspace_root: workspace_root_display.clone(),
+        stop,
+        handle,
+    });
 
     WorkspaceEventsResponse {
         request_id,
         ok: true,
-        workspace_root: Some(workspace_root.display().to_string()),
+        workspace_root: Some(workspace_root_display),
         error: None,
     }
 }
@@ -5021,12 +9075,38 @@ pub fn run() {
     tauri::Builder::default()
         .manage(WorkspaceEventState::default())
         .manage(TestingEnvironmentState::default())
+        .manage(WorkspaceContextCacheState::default())
+        .manage(GrooveListCacheState::default())
         .invoke_handler(tauri::generate_handler![
             workspace_pick_and_open,
             workspace_open,
             workspace_get_active,
             workspace_clear_active,
             workspace_update_terminal_settings,
+            git_auth_status,
+            git_status,
+            git_current_branch,
+            git_ahead_behind,
+            git_pull,
+            git_push,
+            git_merge,
+            git_merge_abort,
+            git_has_staged_changes,
+            git_merge_in_progress,
+            git_has_upstream,
+            git_list_file_states,
+            git_stage_files,
+            git_unstage_files,
+            git_add,
+            git_commit,
+            gh_detect_repo,
+            gh_auth_status,
+            gh_auth_logout,
+            gh_pr_list,
+            gh_pr_create,
+            gh_open_branch,
+            gh_open_active_pr,
+            gh_check_branch_pr,
             groove_list,
             groove_new,
             groove_restore,

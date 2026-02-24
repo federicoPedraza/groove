@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 
 import type {
   ActiveWorkspace,
@@ -13,8 +12,7 @@ import type {
   WorktreeRow,
 } from "@/components/pages/dashboard/types";
 import { getTestingEnvironmentColor } from "@/components/pages/dashboard/constants";
-import { appendRequestId } from "@/lib/utils/common/request-id";
-import { summarizeRestoreOutput } from "@/lib/utils/output/summarizers";
+import { toast } from "@/lib/toast";
 import type { GroupedWorktreeItem } from "@/lib/utils/time/grouping";
 import { buildGroupedWorktreeItems } from "@/lib/utils/time/grouping";
 import { describeWorkspaceContextError } from "@/lib/utils/workspace/context";
@@ -34,10 +32,13 @@ import {
   workspaceClearActive,
   workspaceEvents,
   workspaceGetActive,
+  workspaceGitignoreSanityApply,
+  workspaceGitignoreSanityCheck,
   workspaceOpen,
   workspaceOpenTerminal,
   workspacePickAndOpen,
   type WorkspaceContextResponse,
+  type WorkspaceGitignoreSanityResponse,
   type TestingEnvironmentEntry,
 } from "@/src/lib/ipc";
 
@@ -47,6 +48,58 @@ const EVENT_RESCAN_MIN_INTERVAL_MS = 2200;
 const WORKSPACE_RESCAN_REQUEST_TTL_MS = 2500;
 const RUNTIME_FETCH_DEBOUNCE_MS = 200;
 const RUNTIME_FETCH_REQUEST_TTL_MS = 2000;
+const RECENT_DIRECTORIES_STORAGE_KEY = "groove:recent-directories";
+const MAX_RECENT_DIRECTORIES = 5;
+
+function readStoredRecentDirectories(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(RECENT_DIRECTORIES_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const normalized = parsed
+      .filter((candidate): candidate is string => typeof candidate === "string")
+      .map((candidate) => candidate.trim())
+      .filter((candidate) => candidate.length > 0);
+
+    const deduplicated = normalized.filter((candidate, index) => normalized.indexOf(candidate) === index);
+    return deduplicated.slice(0, MAX_RECENT_DIRECTORIES);
+  } catch {
+    return [];
+  }
+}
+
+function persistRecentDirectories(directories: string[]): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(RECENT_DIRECTORIES_STORAGE_KEY, JSON.stringify(directories));
+  } catch {
+    return;
+  }
+}
+
+function buildRecentDirectories(nextDirectory: string, previousDirectories: string[]): string[] {
+  const normalizedDirectory = nextDirectory.trim();
+  if (!normalizedDirectory) {
+    return previousDirectories;
+  }
+
+  const deduplicated = previousDirectories.filter((candidate) => candidate !== normalizedDirectory);
+  return [normalizedDirectory, ...deduplicated].slice(0, MAX_RECENT_DIRECTORIES);
+}
 
 function isSameWorkspaceMeta(left: WorkspaceMeta | null, right: WorkspaceMeta | null): boolean {
   if (!left && !right) {
@@ -116,6 +169,12 @@ export function useDashboardState() {
   const [createBranch, setCreateBranch] = useState("");
   const [createBase, setCreateBase] = useState("");
   const [isCreatePending, setIsCreatePending] = useState(false);
+  const [recentDirectories, setRecentDirectories] = useState<string[]>([]);
+  const [gitignoreSanity, setGitignoreSanity] = useState<WorkspaceGitignoreSanityResponse | null>(null);
+  const [gitignoreSanityStatusMessage, setGitignoreSanityStatusMessage] = useState<string | null>(null);
+  const [gitignoreSanityErrorMessage, setGitignoreSanityErrorMessage] = useState<string | null>(null);
+  const [isGitignoreSanityChecking, setIsGitignoreSanityChecking] = useState(false);
+  const [isGitignoreSanityApplyPending, setIsGitignoreSanityApplyPending] = useState(false);
 
   const runtimeFetchCounterRef = useRef(0);
   const eventRescanTimeoutRef = useRef<number | null>(null);
@@ -211,6 +270,10 @@ export function useDashboardState() {
   }, []);
 
   useEffect(() => {
+    setRecentDirectories(readStoredRecentDirectories());
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (eventRescanTimeoutRef.current !== null) {
         window.clearTimeout(eventRescanTimeoutRef.current);
@@ -224,11 +287,22 @@ export function useDashboardState() {
     };
   }, []);
 
+  const pushRecentDirectory = useCallback((directoryPath: string): void => {
+    setRecentDirectories((previous) => {
+      const nextDirectories = buildRecentDirectories(directoryPath, previous);
+      if (nextDirectories.length === previous.length && nextDirectories.every((candidate, index) => candidate === previous[index])) {
+        return previous;
+      }
+
+      persistRecentDirectories(nextDirectories);
+      return nextDirectories;
+    });
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        setIsBusy(true);
         const result = await workspaceGetActive();
         if (cancelled) {
           return;
@@ -241,20 +315,17 @@ export function useDashboardState() {
           return;
         }
         applyWorkspaceContext(result);
+        pushRecentDirectory(result.workspaceRoot);
       } catch {
         if (!cancelled) {
           setErrorMessage("Failed to restore active workspace.");
-        }
-      } finally {
-        if (!cancelled) {
-          setIsBusy(false);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [applyWorkspaceContext]);
+  }, [applyWorkspaceContext, pushRecentDirectory]);
 
   const pickDirectory = useCallback(async (): Promise<void> => {
     try {
@@ -270,6 +341,9 @@ export function useDashboardState() {
         return;
       }
       applyWorkspaceContext(result);
+      if (result.workspaceRoot) {
+        pushRecentDirectory(result.workspaceRoot);
+      }
       realtimeUnavailableRef.current = false;
       setStatusMessage(`Workspace is active (${result.workspaceMeta?.rootName ?? "unknown"}).`);
     } catch {
@@ -277,9 +351,123 @@ export function useDashboardState() {
     } finally {
       setIsBusy(false);
     }
-  }, [applyWorkspaceContext]);
+  }, [applyWorkspaceContext, pushRecentDirectory]);
 
-  const rescanWorktrees = useCallback(async (options?: { silent?: boolean; force?: boolean }): Promise<void> => {
+  const openRecentDirectory = useCallback(
+    async (directoryPath: string): Promise<void> => {
+      const normalizedPath = directoryPath.trim();
+      if (!normalizedPath) {
+        return;
+      }
+
+      try {
+        setIsBusy(true);
+        setErrorMessage(null);
+        setStatusMessage(null);
+        const result = await workspaceOpen(normalizedPath);
+        if (!result.ok) {
+          setErrorMessage(describeWorkspaceContextError(result));
+          return;
+        }
+        applyWorkspaceContext(result);
+        pushRecentDirectory(normalizedPath);
+        realtimeUnavailableRef.current = false;
+        setStatusMessage(`Workspace is active (${result.workspaceMeta?.rootName ?? "unknown"}).`);
+      } catch {
+        setErrorMessage("Unable to open selected recent directory.");
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [applyWorkspaceContext, pushRecentDirectory],
+  );
+
+  const loadGitignoreSanityCheck = useCallback(
+    async (options?: { showPending?: boolean }): Promise<void> => {
+      if (!workspaceRoot) {
+        setGitignoreSanity(null);
+        setGitignoreSanityErrorMessage(null);
+        return;
+      }
+
+      const showPending = options?.showPending !== false;
+
+      try {
+        if (showPending) {
+          setIsGitignoreSanityChecking(true);
+        }
+        const result = await workspaceGitignoreSanityCheck();
+        if (!result.ok) {
+          setGitignoreSanity(null);
+          setGitignoreSanityErrorMessage(result.error ?? "Failed to check .gitignore sanity.");
+          return;
+        }
+
+        setGitignoreSanity(result);
+        setGitignoreSanityErrorMessage(null);
+      } catch {
+        setGitignoreSanity(null);
+        setGitignoreSanityErrorMessage("Failed to check .gitignore sanity.");
+      } finally {
+        if (showPending) {
+          setIsGitignoreSanityChecking(false);
+        }
+      }
+    },
+    [workspaceRoot],
+  );
+
+  const applyGitignoreSanityPatch = useCallback(async (): Promise<void> => {
+    if (!workspaceRoot) {
+      return;
+    }
+
+    try {
+      setIsGitignoreSanityApplyPending(true);
+      setGitignoreSanityStatusMessage(null);
+      setGitignoreSanityErrorMessage(null);
+
+      const result = await workspaceGitignoreSanityApply();
+      if (!result.ok) {
+        setGitignoreSanityErrorMessage(result.error ?? "Failed to apply .gitignore sanity patch.");
+        return;
+      }
+
+      setGitignoreSanity(result);
+      if (!result.isApplicable) {
+        setGitignoreSanityStatusMessage("No .gitignore found in the active workspace.");
+      } else if (result.patched) {
+        setGitignoreSanityStatusMessage("Applied Groove .gitignore sanity patch.");
+      } else {
+        setGitignoreSanityStatusMessage("Groove .gitignore sanity patch is already applied.");
+      }
+
+      await loadGitignoreSanityCheck({ showPending: false });
+    } catch {
+      setGitignoreSanityErrorMessage("Failed to apply .gitignore sanity patch.");
+    } finally {
+      setIsGitignoreSanityApplyPending(false);
+    }
+  }, [loadGitignoreSanityCheck, workspaceRoot]);
+
+  useEffect(() => {
+    if (!workspaceRoot) {
+      setGitignoreSanity(null);
+      setGitignoreSanityStatusMessage(null);
+      setGitignoreSanityErrorMessage(null);
+      setIsGitignoreSanityChecking(false);
+      setIsGitignoreSanityApplyPending(false);
+      return;
+    }
+
+    setGitignoreSanityStatusMessage(null);
+
+    void (async () => {
+      await loadGitignoreSanityCheck();
+    })();
+  }, [loadGitignoreSanityCheck, workspaceRoot]);
+
+  const rescanWorktrees = useCallback(async (options?: { force?: boolean }): Promise<void> => {
     if (!workspaceRoot) {
       return;
     }
@@ -311,9 +499,6 @@ export function useDashboardState() {
         return;
       }
       applyWorkspaceContext(result);
-      if (!options?.silent) {
-        setStatusMessage("Rescanned Groove worktrees.");
-      }
     } catch {
       setErrorMessage("Failed to rescan workspace worktrees.");
     } finally {
@@ -322,7 +507,7 @@ export function useDashboardState() {
       if (rescanQueuedRef.current) {
         rescanQueuedRef.current = false;
         window.setTimeout(() => {
-          void rescanWorktrees({ silent: true });
+          void rescanWorktrees();
         }, 120);
       }
     }
@@ -361,6 +546,8 @@ export function useDashboardState() {
         rootName: workspaceMeta.rootName,
         knownWorktrees,
         workspaceMeta,
+      }, {
+        intent: "background",
       })) as RuntimeListApiResponse;
 
       if (runtimeFetchCounterRef.current !== fetchId) {
@@ -485,7 +672,11 @@ export function useDashboardState() {
       }
       eventRescanTimeoutRef.current = window.setTimeout(() => {
         eventRescanTimeoutRef.current = null;
-        void rescanWorktrees({ silent: true });
+        void (async () => {
+          await rescanWorktrees();
+          scheduleRuntimeStateFetch(0);
+          await fetchTestingEnvironmentState();
+        })();
       }, delayMs);
     };
 
@@ -527,12 +718,13 @@ export function useDashboardState() {
         eventRescanTimeoutRef.current = null;
       }
     };
-  }, [knownWorktrees, rescanWorktrees, workspaceMeta, workspaceRoot]);
+  }, [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, workspaceRoot]);
 
   const refreshWorktrees = useCallback(async (): Promise<void> => {
-    await rescanWorktrees({ silent: false, force: true });
+    await rescanWorktrees({ force: true });
     scheduleRuntimeStateFetch(0);
-  }, [rescanWorktrees, scheduleRuntimeStateFetch]);
+    await fetchTestingEnvironmentState();
+  }, [fetchTestingEnvironmentState, rescanWorktrees, scheduleRuntimeStateFetch]);
 
   const copyBranchName = useCallback(async (row: WorktreeRow): Promise<void> => {
     try {
@@ -546,7 +738,7 @@ export function useDashboardState() {
         copiedBranchResetTimeoutRef.current = null;
       }, 1500);
     } catch {
-      toast.error(`Failed to copy branch for ${row.worktree}.`);
+      toast.error("Failed to copy branch name.");
     }
   }, []);
 
@@ -565,25 +757,21 @@ export function useDashboardState() {
           workspaceMeta,
           worktree: row.worktree,
         })) as RestoreApiResponse;
-        const shortOutput = summarizeRestoreOutput(result.stdout, result.stderr);
         if (result.ok) {
-          toast.success(`Restore completed for ${row.worktree}.`, {
-            description: appendRequestId(shortOutput, result.requestId),
-          });
-          await rescanWorktrees({ silent: true, force: true });
+          toast.success("Restore completed.");
+          await rescanWorktrees({ force: true });
           scheduleRuntimeStateFetch(0);
+          await fetchTestingEnvironmentState();
           return;
         }
-        toast.error(`Restore failed for ${row.worktree}.`, {
-          description: appendRequestId(result.error ?? shortOutput ?? `Exit code: ${String(result.exitCode)}`, result.requestId),
-        });
+        toast.error("Restore failed.");
       } catch {
-        toast.error(`Restore request failed for ${row.worktree}.`);
+        toast.error("Restore request failed.");
       } finally {
         setPendingRestoreActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
     },
-    [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
+    [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
   const runCreateWorktreeAction = useCallback(async (options?: { branchOverride?: string; baseOverride?: string }): Promise<void> => {
@@ -607,28 +795,24 @@ export function useDashboardState() {
           branch,
           ...(base ? { base } : {}),
       });
-      const shortOutput = summarizeRestoreOutput(result.stdout, result.stderr);
       if (result.ok) {
         setIsCreateModalOpen(false);
         setCreateBranch("");
         setCreateBase("");
-        toast.success(`Created worktree for ${branch}.`, {
-          description: appendRequestId(shortOutput, result.requestId),
-        });
-        await rescanWorktrees({ silent: true, force: true });
+        toast.success("Worktree created.");
+        await rescanWorktrees({ force: true });
         scheduleRuntimeStateFetch(0);
+        await fetchTestingEnvironmentState();
         return;
       }
 
-      toast.error(`Create worktree failed for ${branch}.`, {
-        description: appendRequestId(result.error ?? shortOutput ?? `Exit code: ${String(result.exitCode)}`, result.requestId),
-      });
+      toast.error("Create worktree failed.");
     } catch {
-      toast.error(`Create worktree request failed for ${branch}.`);
+      toast.error("Create worktree request failed.");
     } finally {
       setIsCreatePending(false);
     }
-  }, [createBase, createBranch, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta]);
+  }, [createBase, createBranch, fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta]);
 
   const runCutGrooveAction = useCallback(
     async (row: WorktreeRow, force = false): Promise<void> => {
@@ -648,14 +832,13 @@ export function useDashboardState() {
           ...(force ? { force: true } : {}),
         });
 
-        const shortOutput = summarizeRestoreOutput(result.stdout, result.stderr);
         if (result.ok) {
           toast.success(
-            force ? `Cut groove completed for ${row.branchGuess} with force deletion.` : `Cut groove completed for ${row.branchGuess}.`,
-            { description: appendRequestId(shortOutput, result.requestId) },
+            force ? "Cut groove completed with force deletion." : "Cut groove completed.",
           );
-          await rescanWorktrees({ silent: true, force: true });
+          await rescanWorktrees({ force: true });
           scheduleRuntimeStateFetch(0);
+          await fetchTestingEnvironmentState();
           return;
         }
 
@@ -663,16 +846,14 @@ export function useDashboardState() {
           setForceCutConfirmRow(row);
           return;
         }
-        toast.error(`Cut groove failed for ${row.branchGuess}.`, {
-          description: appendRequestId(result.error ?? shortOutput ?? `Exit code: ${String(result.exitCode)}`, result.requestId),
-        });
+        toast.error("Cut groove failed.");
       } catch {
-        toast.error(`Cut groove request failed for ${row.branchGuess}.`);
+        toast.error("Cut groove request failed.");
       } finally {
         setPendingCutGrooveActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
     },
-    [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
+    [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
   const runStopAction = useCallback(
@@ -694,32 +875,24 @@ export function useDashboardState() {
 
         if (result.ok) {
           if (result.alreadyStopped) {
-            toast.info(`Opencode is already stopped for ${row.worktree}.`, {
-              description: appendRequestId(
-                result.pid ? `PID ${String(result.pid)} is not running.` : "No running PID found for this worktree.",
-                result.requestId,
-              ),
-            });
+            toast.info("Opencode is already stopped.");
           } else {
-            toast.success(`Stopped opencode for ${row.worktree}.`, {
-              description: appendRequestId(result.pid ? `Sent SIGTERM to PID ${String(result.pid)}.` : undefined, result.requestId),
-            });
+            toast.success("Stopped opencode.");
           }
-          await rescanWorktrees({ silent: true, force: true });
+          await rescanWorktrees({ force: true });
           scheduleRuntimeStateFetch(0);
+          await fetchTestingEnvironmentState();
           return;
         }
 
-        toast.error(`Stop failed for ${row.worktree}.`, {
-          description: appendRequestId(result.error, result.requestId),
-        });
+        toast.error("Stop failed.");
       } catch {
-        toast.error(`Stop request failed for ${row.worktree}.`);
+        toast.error("Stop request failed.");
       } finally {
         setPendingStopActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
     },
-    [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
+    [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
   const runPlayGrooveAction = useCallback(
@@ -739,27 +912,22 @@ export function useDashboardState() {
           action: "go",
           target: row.branchGuess,
         })) as RestoreApiResponse;
-        const shortOutput = summarizeRestoreOutput(result.stdout, result.stderr);
-
         if (result.ok) {
-          toast.success(`Play groove completed for ${row.branchGuess}.`, {
-            description: appendRequestId(shortOutput, result.requestId),
-          });
-          await rescanWorktrees({ silent: true, force: true });
+          toast.success("Play groove completed.");
+          await rescanWorktrees({ force: true });
           scheduleRuntimeStateFetch(0);
+          await fetchTestingEnvironmentState();
           return;
         }
 
-        toast.error(`Play groove failed for ${row.branchGuess}.`, {
-          description: appendRequestId(result.error ?? shortOutput ?? `Exit code: ${String(result.exitCode)}`, result.requestId),
-        });
+        toast.error("Play groove failed.");
       } catch {
-        toast.error(`Play groove request failed for ${row.branchGuess}.`);
+        toast.error("Play groove request failed.");
       } finally {
         setPendingPlayActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
     },
-    [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
+    [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
   type TestingTargetActionTarget = Pick<WorktreeRow, "worktree" | "path">;
@@ -792,18 +960,16 @@ export function useDashboardState() {
 
         if (result.ok) {
           setTestingEnvironment(result);
-          toast.success(enabled ? `Added testing target ${row.worktree}.` : `Removed testing target ${row.worktree}.`);
-          await rescanWorktrees({ silent: true, force: true });
+          toast.success(enabled ? "Added testing target." : "Removed testing target.");
+          await rescanWorktrees({ force: true });
           scheduleRuntimeStateFetch(0);
           await fetchTestingEnvironmentState();
           return;
         }
 
-        toast.error(`Failed to set testing target for ${row.worktree}.`, {
-          description: appendRequestId(result.error, result.requestId),
-        });
+        toast.error("Failed to set testing target.");
       } catch {
-        toast.error(`Testing target request failed for ${row.worktree}.`);
+        toast.error("Testing target request failed.");
       } finally {
         setPendingTestActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
@@ -832,19 +998,25 @@ export function useDashboardState() {
       const enabled = !testingTargetWorktrees.includes(row.worktree);
       if (!enabled) {
         const matchedEnvironment = testingEnvironments.find((environment) => environment.worktree === row.worktree);
-        setUnsetTestingEnvironmentConfirm(
+        const selectedEnvironment =
           matchedEnvironment ?? {
             worktree: row.worktree,
             worktreePath: row.path,
             isTarget: true,
             status: testingRunningWorktrees.includes(row.worktree) ? "running" : "stopped",
-          },
-        );
+          };
+
+        if (selectedEnvironment.status !== "running") {
+          void runUnsetTestingTargetAction(selectedEnvironment, true);
+          return;
+        }
+
+        setUnsetTestingEnvironmentConfirm(selectedEnvironment);
         return;
       }
       void runSetTestingTargetAction(row, enabled);
     },
-    [runSetTestingTargetAction, testingEnvironments, testingRunningWorktrees, testingTargetWorktrees],
+    [runSetTestingTargetAction, runUnsetTestingTargetAction, testingEnvironments, testingRunningWorktrees, testingTargetWorktrees],
   );
 
   const runStartTestingInstanceAction = useCallback(async (worktree?: string): Promise<void> => {
@@ -864,20 +1036,12 @@ export function useDashboardState() {
 
       if (result.ok) {
         setTestingEnvironment(result);
-        const targetPorts = result.environments
-          .filter((environment) => environment.status === "running" && typeof environment.port === "number" && environment.port > 0)
-          .filter((environment) => (worktree ? environment.worktree === worktree : true))
-          .map((environment) => `${environment.worktree}:${String(environment.port)}`);
-        toast.success(worktree ? `Started local testing for ${worktree}.` : "Started local testing for selected targets.", {
-          description: targetPorts.length > 0 ? `Port${targetPorts.length === 1 ? "" : "s"}: ${targetPorts.join(", ")}` : undefined,
-        });
+        toast.success("Started local testing.");
         await fetchTestingEnvironmentState();
         return;
       }
 
-      toast.error("Failed to run local testing environment.", {
-        description: appendRequestId(result.error, result.requestId),
-      });
+      toast.error("Failed to run local testing environment.");
     } catch {
       toast.error("Local testing start request failed.");
     } finally {
@@ -891,7 +1055,6 @@ export function useDashboardState() {
       return;
     }
 
-    setIsTestingInstancePending(true);
     try {
       const result = (await workspaceOpenTerminal({
         rootName: workspaceMeta.rootName,
@@ -899,22 +1062,14 @@ export function useDashboardState() {
         workspaceMeta,
         worktree,
       })) as RestoreApiResponse;
-      const shortOutput = summarizeRestoreOutput(result.stdout, result.stderr);
-
       if (result.ok) {
-        toast.success(`Opened terminal for ${worktree}.`, {
-          description: appendRequestId(shortOutput, result.requestId),
-        });
+        toast.success("Opened terminal.");
         return;
       }
 
-      toast.error(`Failed to open terminal for ${worktree}.`, {
-        description: appendRequestId(result.error ?? shortOutput ?? `Exit code: ${String(result.exitCode)}`, result.requestId),
-      });
+      toast.error("Failed to open terminal.");
     } catch {
       toast.error("Terminal open request failed.");
-    } finally {
-      setIsTestingInstancePending(false);
     }
   }, [knownWorktrees, workspaceMeta]);
 
@@ -934,14 +1089,12 @@ export function useDashboardState() {
 
       if (result.ok) {
         setTestingEnvironment(result);
-        toast.success(worktree ? `Stopped local testing for ${worktree}.` : "Stopped all local testing environments.");
+        toast.success("Stopped local testing.");
         await fetchTestingEnvironmentState();
         return;
       }
 
-      toast.error("Failed to stop local testing environment.", {
-        description: appendRequestId(result.error, result.requestId),
-      });
+      toast.error("Failed to stop local testing environment.");
     } catch {
       toast.error("Local testing stop request failed.");
     } finally {
@@ -1011,6 +1164,12 @@ export function useDashboardState() {
     isCreatePending,
     workspaceMeta,
     workspaceRoot,
+    recentDirectories,
+    gitignoreSanity,
+    gitignoreSanityStatusMessage,
+    gitignoreSanityErrorMessage,
+    isGitignoreSanityChecking,
+    isGitignoreSanityApplyPending,
     forceCutConfirmLoading,
     groupedWorktreeItems,
     setIsCloseWorkspaceConfirmOpen,
@@ -1021,6 +1180,8 @@ export function useDashboardState() {
     setCreateBranch,
     setCreateBase,
     pickDirectory,
+    openRecentDirectory,
+    applyGitignoreSanityPatch,
     refreshWorktrees,
     copyBranchName,
     runRestoreAction,

@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+usage:
+  setup-linux-fast
+
+quickly installs Linux dev prerequisites for Groove.
+EOF
+}
+
+log() {
+  printf '[setup-linux-fast] %s\n' "$*"
+}
+
+warn() {
+  printf '[setup-linux-fast] warn: %s\n' "$*"
+}
+
+fail() {
+  printf '[setup-linux-fast] error: %s\n' "$*" >&2
+  exit 1
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -gt 0 ]]; then
+  usage
+  exit 1
+fi
+
+if [[ "$(uname -s)" != "Linux" ]]; then
+  fail "this script only supports Linux"
+fi
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+ensure_node_and_npm_prerequisite() {
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    log "node and npm are already available ($(node -v), npm $(npm -v))"
+    return
+  fi
+
+  fail "node.js and npm are required but missing. install node.js LTS manually (https://nodejs.org/en/download) and re-run this script"
+}
+
+ensure_rust_prerequisite() {
+  if [[ -f "$HOME/.cargo/env" ]]; then
+    # shellcheck disable=SC1090
+    source "$HOME/.cargo/env"
+  fi
+
+  if command -v rustc >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
+    log "rust is already available ($(rustc --version))"
+    return
+  fi
+
+  fail "rust is required but missing. install via rustup (https://rustup.rs/) and re-run this script"
+}
+
+install_tauri_linux_deps_best_effort() {
+  if ! command -v apt-get >/dev/null 2>&1; then
+    warn "apt-get is unavailable on this distro; skipping auto-install of Tauri Linux system deps"
+    warn "install equivalent packages manually (webkit2gtk, libxdo, openssl, appindicator, librsvg)"
+    return
+  fi
+
+  local packages=(
+    build-essential
+    curl
+    file
+    libayatana-appindicator3-dev
+    librsvg2-dev
+    libssl-dev
+    libwebkit2gtk-4.1-dev
+    libxdo-dev
+    wget
+  )
+
+  local installer=(apt-get)
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+    if command -v sudo >/dev/null 2>&1; then
+      installer=(sudo apt-get)
+    else
+      warn "need root or sudo to install apt packages; skipping Tauri Linux deps install"
+      return
+    fi
+  fi
+
+  log "installing minimal Linux system dependencies for Tauri via apt"
+  if ! "${installer[@]}" update; then
+    warn "apt update failed; continuing without system dependency installation"
+    return
+  fi
+
+  if ! "${installer[@]}" install -y "${packages[@]}"; then
+    warn "apt install failed; continuing. you may need to install Tauri Linux deps manually"
+    return
+  fi
+
+  log "installed Linux system dependencies"
+}
+
+install_project_dependencies() {
+  log "installing project dependencies with npm"
+  npm install
+}
+
+run_sanity_check() {
+  log "running rust sanity check"
+  npm run check:rust
+}
+
+run_sidecar_check() {
+  log "checking Linux sidecars"
+  if ./bash/check-linux-sidecars; then
+    return
+  fi
+
+  fail "required Linux sidecar is missing or not executable. place the correct file in src-tauri/binaries/ (for x86_64: groove-x86_64-unknown-linux-gnu, for arm64: groove-aarch64-unknown-linux-gnu) and run: chmod +x src-tauri/binaries/groove-*-unknown-linux-gnu"
+}
+
+log "starting Linux fast setup"
+ensure_node_and_npm_prerequisite
+ensure_rust_prerequisite
+install_tauri_linux_deps_best_effort
+
+cd "$repo_root"
+install_project_dependencies
+run_sanity_check
+run_sidecar_check
+
+log "setup complete"
+log "next step: npm run tauri:dev"

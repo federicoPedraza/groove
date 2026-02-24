@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+log() {
+  printf '[check-linux-sidecars] %s\n' "$*"
+}
+
+fail() {
+  printf '[check-linux-sidecars] error: %s\n' "$*" >&2
+  exit 1
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+detect_required_sidecar() {
+  case "$(uname -m)" in
+    x86_64)
+      printf '%s\n' "src-tauri/binaries/groove-x86_64-unknown-linux-gnu"
+      ;;
+    aarch64|arm64)
+      printf '%s\n' "src-tauri/binaries/groove-aarch64-unknown-linux-gnu"
+      ;;
+    *)
+      log "WARN unknown architecture '$(uname -m)'; defaulting to x86_64 sidecar check"
+      printf '%s\n' "src-tauri/binaries/groove-x86_64-unknown-linux-gnu"
+      ;;
+  esac
+}
+
+required_sidecar="$(detect_required_sidecar)"
+full_path="$repo_root/$required_sidecar"
+
+if [[ ! -f "$full_path" ]]; then
+  fail "FAIL missing file: $required_sidecar"
+fi
+
+if [[ ! -x "$full_path" ]]; then
+  fail "FAIL not executable: $required_sidecar"
+fi
+
+log "PASS present and executable: $required_sidecar"
+log "PASS required Linux sidecar is valid"

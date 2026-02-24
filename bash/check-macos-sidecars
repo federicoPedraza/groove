@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+log() {
+  printf '[check-macos-sidecars] %s\n' "$*"
+}
+
+fail() {
+  printf '[check-macos-sidecars] error: %s\n' "$*" >&2
+  exit 1
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+sidecars=(
+  "src-tauri/binaries/groove-aarch64-apple-darwin"
+  "src-tauri/binaries/groove-x86_64-apple-darwin"
+)
+
+has_error=0
+for relative_path in "${sidecars[@]}"; do
+  full_path="$repo_root/$relative_path"
+  if [[ ! -f "$full_path" ]]; then
+    log "FAIL missing file: $relative_path"
+    has_error=1
+    continue
+  fi
+
+  if [[ ! -x "$full_path" ]]; then
+    log "FAIL not executable: $relative_path"
+    has_error=1
+    continue
+  fi
+
+  log "PASS present and executable: $relative_path"
+done
+
+if [[ "$has_error" -ne 0 ]]; then
+  fail "macOS sidecar check failed"
+fi
+
+log "PASS all required macOS sidecars are valid"

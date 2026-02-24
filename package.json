@@ -3,7 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "setup": "node ./scripts/setup.mjs",
     "setup:macos": "./bash/setup-macos-fast",
+    "sidecar:check:macos": "./bash/check-macos-sidecars",
+    "setup:linux": "./bash/setup-linux-fast",
+    "sidecar:check:linux": "./bash/check-linux-sidecars",
+    "setup:windows": "powershell -ExecutionPolicy Bypass -File ./powershell/setup-windows-fast.ps1",
+    "sidecar:check:windows": "powershell -ExecutionPolicy Bypass -File ./powershell/check-windows-sidecars.ps1",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

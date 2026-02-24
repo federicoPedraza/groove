@@ -92,6 +92,11 @@ const COMMAND_METADATA: Record<string, CommandMetadata> = {
     description: "Collects the most resource-consuming local processes.",
     icon: Activity,
   },
+  diagnostics_get_system_overview: {
+    title: "Diagnostics: System Overview",
+    description: "Collects CPU, RAM, disk, and host usage diagnostics.",
+    icon: Activity,
+  },
   workspace_pick_and_open: {
     title: "Open Workspace",
     description: "Opens a workspace selected from the local file picker.",

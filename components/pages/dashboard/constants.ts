@@ -13,6 +13,8 @@ export const ACTIVE_GREEN_BUTTON_CLASSES =
   "bg-green-500/25 text-green-800 border-green-700/55 transition-colors dark:text-green-100 dark:border-green-200/75";
 export const ACTIVE_TESTING_BUTTON_CLASSES =
   "bg-cyan-500/20 text-cyan-700 border-cyan-700/55 transition-colors dark:text-cyan-100 dark:border-cyan-200/75";
+export const ACTIVE_ORANGE_BUTTON_CLASSES =
+  "bg-orange-500/20 text-orange-700 border-orange-700/55 transition-colors dark:text-orange-100 dark:border-orange-200/75";
 export const SOFT_YELLOW_BUTTON_CLASSES =
   "transition-colors hover:bg-yellow-500/20 hover:text-yellow-800 hover:border-yellow-700/55 active:bg-yellow-500/25 active:text-yellow-800 active:border-yellow-700/60 dark:hover:text-yellow-200 dark:hover:border-yellow-300/70 dark:active:text-yellow-100 dark:active:border-yellow-200/75";
 export const SOFT_ORANGE_BUTTON_CLASSES =

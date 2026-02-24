@@ -58,7 +58,7 @@ export function WorktreesTable({
     <div role="region" aria-label="Groove worktrees table" className="rounded-lg border">
       <Table>
         <TableHeader>
-          <TableRow>
+          <TableRow className="hover:bg-transparent">
             <TableHead>Worktree</TableHead>
             <TableHead className="w-[34%] md:w-[26%]">Branch</TableHead>
             <TableHead>Status</TableHead>
@@ -71,7 +71,7 @@ export function WorktreesTable({
               const isDeletedWorktreesSection = item.label === "Deleted worktrees";
 
               return (
-                <TableRow key={item.key} className="bg-muted/25">
+                <TableRow key={item.key} className="bg-muted/25 hover:bg-muted/25">
                   <TableCell colSpan={4} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">
                       <span>{item.label}</span>

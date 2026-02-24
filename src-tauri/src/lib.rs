@@ -22,10 +22,16 @@ const WORKSPACE_EVENTS_MIN_EMIT_INTERVAL: Duration = Duration::from_millis(1200)
 const WORKSPACE_EVENTS_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const GROOVE_LIST_CACHE_TTL: Duration = Duration::from_secs(45);
 const GROOVE_LIST_CACHE_STALE_TTL: Duration = Duration::from_secs(50);
-const TESTING_ENVIRONMENT_PORTS: [u16; 3] = [3000, 3001, 3002];
+const DEFAULT_TESTING_ENVIRONMENT_PORTS: [u16; 3] = [3000, 3001, 3002];
+const MIN_TESTING_PORT: u16 = 1;
+const MAX_TESTING_PORT: u16 = 65535;
+const DEFAULT_PLAY_GROOVE_COMMAND_TEMPLATE: &str = "groove go {target}";
 const SUPPORTED_DEFAULT_TERMINALS: [&str; 8] = [
     "auto", "ghostty", "warp", "kitty", "gnome", "xterm", "none", "custom",
 ];
+const SUPPORTED_THEME_MODES: [&str; 4] = ["light", "groove", "dark-groove", "dark"];
+const GITIGNORE_GROOVE_COMMENT: &str = "# Groove";
+const GITIGNORE_REQUIRED_ENTRIES: [&str; 2] = [".groove/", ".workspace/"];
 
 #[derive(Default)]
 struct WorkspaceEventState {
@@ -71,6 +77,18 @@ struct WorkspaceContextCacheEntry {
 struct GrooveListCacheEntry {
     created_at: Instant,
     response: GrooveListResponse,
+    native_cache: Option<GrooveListNativeCache>,
+}
+
+#[derive(Debug, Clone)]
+struct GrooveListNativeCache {
+    rows_by_worktree: HashMap<String, GrooveListNativeCacheRow>,
+}
+
+#[derive(Debug, Clone)]
+struct GrooveListNativeCacheRow {
+    signature: String,
+    row: RuntimeStateRow,
 }
 
 #[derive(Debug)]
@@ -162,6 +180,10 @@ struct WorkspaceMetaContext {
     default_terminal: Option<String>,
     terminal_custom_command: Option<String>,
     telemetry_enabled: Option<bool>,
+    disable_groove_loading_section: Option<bool>,
+    show_fps: Option<bool>,
+    play_groove_command: Option<String>,
+    testing_ports: Option<Vec<u16>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -177,6 +199,14 @@ struct WorkspaceMeta {
     terminal_custom_command: Option<String>,
     #[serde(default = "default_true")]
     telemetry_enabled: bool,
+    #[serde(default)]
+    disable_groove_loading_section: bool,
+    #[serde(default)]
+    show_fps: bool,
+    #[serde(default = "default_play_groove_command")]
+    play_groove_command: String,
+    #[serde(default = "default_testing_ports")]
+    testing_ports: Vec<u16>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -209,6 +239,24 @@ struct WorkspaceContextResponse {
     rows: Vec<WorkspaceScanRow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cancelled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceGitignoreSanityResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    is_applicable: bool,
+    has_groove_entry: bool,
+    has_workspace_entry: bool,
+    #[serde(default)]
+    missing_entries: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    patched: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -289,6 +337,25 @@ struct WorkspaceTerminalSettingsPayload {
     default_terminal: String,
     terminal_custom_command: Option<String>,
     telemetry_enabled: Option<bool>,
+    disable_groove_loading_section: Option<bool>,
+    show_fps: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceCommandSettingsPayload {
+    play_groove_command: String,
+    testing_ports: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GlobalSettingsUpdatePayload {
+    telemetry_enabled: Option<bool>,
+    disable_groove_loading_section: Option<bool>,
+    show_fps: Option<bool>,
+    always_show_diagnostics_sidebar: Option<bool>,
+    theme_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -500,6 +567,15 @@ struct GrooveCommandResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ExternalUrlOpenResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GrooveStopResponse {
     request_id: String,
     ok: bool,
@@ -533,6 +609,32 @@ struct WorkspaceTerminalSettingsResponse {
     workspace_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     workspace_meta: Option<WorkspaceMeta>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GlobalSettings {
+    #[serde(default = "default_true")]
+    telemetry_enabled: bool,
+    #[serde(default)]
+    disable_groove_loading_section: bool,
+    #[serde(default)]
+    show_fps: bool,
+    #[serde(default)]
+    always_show_diagnostics_sidebar: bool,
+    #[serde(default = "default_theme_mode")]
+    theme_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GlobalSettingsResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    global_settings: Option<GlobalSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -937,6 +1039,47 @@ struct DiagnosticsMostConsumingProgramsResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct DiagnosticsSystemOverview {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cpu_usage_percent: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cpu_cores: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ram_total_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ram_used_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ram_usage_percent: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    swap_total_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    swap_used_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    swap_usage_percent: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    disk_total_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    disk_used_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    disk_usage_percent: Option<f64>,
+    platform: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hostname: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticsSystemOverviewResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    overview: Option<DiagnosticsSystemOverview>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GrooveBinCheckStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     configured_path: Option<String>,
@@ -1027,6 +1170,18 @@ fn default_true() -> bool {
     true
 }
 
+fn default_theme_mode() -> String {
+    "groove".to_string()
+}
+
+fn default_play_groove_command() -> String {
+    DEFAULT_PLAY_GROOVE_COMMAND_TEMPLATE.to_string()
+}
+
+fn default_testing_ports() -> Vec<u16> {
+    DEFAULT_TESTING_ENVIRONMENT_PORTS.to_vec()
+}
+
 fn normalize_default_terminal(value: &str) -> Result<String, String> {
     let normalized = value.trim().to_lowercase();
     if SUPPORTED_DEFAULT_TERMINALS.contains(&normalized.as_str()) {
@@ -1035,6 +1190,18 @@ fn normalize_default_terminal(value: &str) -> Result<String, String> {
         Err(format!(
             "defaultTerminal must be one of: {}.",
             SUPPORTED_DEFAULT_TERMINALS.join(", ")
+        ))
+    }
+}
+
+fn normalize_theme_mode(value: &str) -> Result<String, String> {
+    let normalized = value.trim().to_lowercase();
+    if SUPPORTED_THEME_MODES.contains(&normalized.as_str()) {
+        Ok(normalized)
+    } else {
+        Err(format!(
+            "themeMode must be one of: {}.",
+            SUPPORTED_THEME_MODES.join(", ")
         ))
     }
 }
@@ -1097,6 +1264,140 @@ fn parse_terminal_command_tokens(command: &str) -> Result<Vec<String>, String> {
     }
 
     Ok(tokens)
+}
+
+fn parse_play_groove_command_tokens(command: &str) -> Result<Vec<String>, String> {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return Err("playGrooveCommand must be a non-empty command string.".to_string());
+    }
+
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escaping = false;
+
+    for ch in trimmed.chars() {
+        if escaping {
+            current.push(ch);
+            escaping = false;
+            continue;
+        }
+
+        if ch == '\\' && !in_single_quote {
+            escaping = true;
+            continue;
+        }
+
+        if ch == '\'' && !in_double_quote {
+            in_single_quote = !in_single_quote;
+            continue;
+        }
+
+        if ch == '"' && !in_single_quote {
+            in_double_quote = !in_double_quote;
+            continue;
+        }
+
+        if ch.is_whitespace() && !in_single_quote && !in_double_quote {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+
+        current.push(ch);
+    }
+
+    if escaping {
+        return Err("playGrooveCommand ends with an unfinished escape (\\).".to_string());
+    }
+    if in_single_quote || in_double_quote {
+        return Err("playGrooveCommand has an unmatched quote.".to_string());
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    if tokens.is_empty() {
+        return Err("playGrooveCommand must include an executable command.".to_string());
+    }
+
+    Ok(tokens)
+}
+
+fn normalize_play_groove_command(value: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("playGrooveCommand must be a non-empty string.".to_string());
+    }
+    parse_play_groove_command_tokens(trimmed)?;
+    Ok(trimmed.to_string())
+}
+
+fn normalize_testing_ports_from_u16(ports: &[u16]) -> Vec<u16> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for port in ports {
+        if *port < MIN_TESTING_PORT || *port > MAX_TESTING_PORT {
+            continue;
+        }
+        if seen.insert(*port) {
+            normalized.push(*port);
+        }
+    }
+
+    if normalized.is_empty() {
+        return default_testing_ports();
+    }
+
+    normalized
+}
+
+fn normalize_testing_ports_from_u32(ports: &[u32]) -> Vec<u16> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for port in ports {
+        if *port < MIN_TESTING_PORT as u32 || *port > MAX_TESTING_PORT as u32 {
+            continue;
+        }
+        let Ok(port) = u16::try_from(*port) else {
+            continue;
+        };
+        if seen.insert(port) {
+            normalized.push(port);
+        }
+    }
+
+    if normalized.is_empty() {
+        return default_testing_ports();
+    }
+
+    normalized
+}
+
+fn resolve_play_groove_command(
+    command_template: &str,
+    target: &str,
+) -> Result<(String, Vec<String>), String> {
+    let tokens = parse_play_groove_command_tokens(command_template)?;
+    let contains_target_placeholder = tokens.iter().any(|token| token.contains("{target}"));
+
+    let mut resolved_tokens = tokens
+        .into_iter()
+        .map(|token| token.replace("{target}", target))
+        .collect::<Vec<_>>();
+    if !contains_target_placeholder {
+        resolved_tokens.push(target.to_string());
+    }
+
+    let Some((program, args)) = resolved_tokens.split_first() else {
+        return Err("playGrooveCommand must include an executable command.".to_string());
+    };
+
+    Ok((program.to_string(), args.to_vec()))
 }
 
 fn parse_custom_terminal_command(
@@ -1523,6 +1824,131 @@ fn workspace_state_file(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data_dir.join("active-workspace.json"))
 }
 
+fn default_global_settings() -> GlobalSettings {
+    GlobalSettings {
+        telemetry_enabled: true,
+        disable_groove_loading_section: false,
+        show_fps: false,
+        always_show_diagnostics_sidebar: false,
+        theme_mode: default_theme_mode(),
+    }
+}
+
+fn play_groove_command_for_workspace(workspace_root: &Path) -> String {
+    ensure_workspace_meta(workspace_root)
+        .map(|(workspace_meta, _)| {
+            normalize_play_groove_command(&workspace_meta.play_groove_command)
+                .unwrap_or_else(|_| default_play_groove_command())
+        })
+        .unwrap_or_else(|_| default_play_groove_command())
+}
+
+fn testing_ports_for_workspace(workspace_root: &Path) -> Vec<u16> {
+    ensure_workspace_meta(workspace_root)
+        .map(|(workspace_meta, _)| normalize_testing_ports_from_u16(&workspace_meta.testing_ports))
+        .unwrap_or_else(|_| default_testing_ports())
+}
+
+fn global_settings_file(app: &AppHandle) -> Result<PathBuf, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Failed to resolve app data directory: {error}"))?;
+    fs::create_dir_all(&app_data_dir)
+        .map_err(|error| format!("Failed to create app data directory: {error}"))?;
+    Ok(app_data_dir.join("global-settings.json"))
+}
+
+fn write_global_settings_file(path: &Path, global_settings: &GlobalSettings) -> Result<(), String> {
+    let body = serde_json::to_string_pretty(global_settings)
+        .map_err(|error| format!("Failed to serialize global settings: {error}"))?;
+    fs::write(path, format!("{body}\n"))
+        .map_err(|error| format!("Failed to write {}: {error}", path.display()))
+}
+
+fn seed_global_settings_from_active_workspace(app: &AppHandle, settings: &mut GlobalSettings) {
+    let Some(persisted_root) = read_persisted_active_workspace_root(app).ok().flatten() else {
+        return;
+    };
+    let Ok(workspace_root) = validate_workspace_root_path(&persisted_root) else {
+        return;
+    };
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    if !path_is_file(&workspace_json) {
+        return;
+    }
+
+    if let Ok(workspace_meta) = read_workspace_meta_file(&workspace_json) {
+        settings.telemetry_enabled = workspace_meta.telemetry_enabled;
+        settings.disable_groove_loading_section = workspace_meta.disable_groove_loading_section;
+        settings.show_fps = workspace_meta.show_fps;
+    }
+}
+
+fn ensure_global_settings(app: &AppHandle) -> Result<GlobalSettings, String> {
+    let settings_file = global_settings_file(app)?;
+    if !path_is_file(&settings_file) {
+        let mut settings = default_global_settings();
+        seed_global_settings_from_active_workspace(app, &mut settings);
+        write_global_settings_file(&settings_file, &settings)?;
+        return Ok(settings);
+    }
+
+    let raw = fs::read_to_string(&settings_file)
+        .map_err(|error| format!("Failed to read {}: {error}", settings_file.display()))?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&raw).map_err(|_| {
+        let settings = default_global_settings();
+        let _ = write_global_settings_file(&settings_file, &settings);
+        format!(
+            "Failed to parse {}. Recovered with defaults.",
+            settings_file.display()
+        )
+    });
+
+    let parsed = match parsed {
+        Ok(value) => value,
+        Err(_) => {
+            return Ok(default_global_settings());
+        }
+    };
+
+    let mut settings = match serde_json::from_value::<GlobalSettings>(parsed.clone()) {
+        Ok(value) => value,
+        Err(_) => {
+            let settings = default_global_settings();
+            let _ = write_global_settings_file(&settings_file, &settings);
+            return Ok(settings);
+        }
+    };
+
+    let mut should_write_back = parsed
+        .as_object()
+        .map(|obj| {
+            !obj.contains_key("telemetryEnabled")
+                || !obj.contains_key("disableGrooveLoadingSection")
+                || !obj.contains_key("showFps")
+                || !obj.contains_key("alwaysShowDiagnosticsSidebar")
+                || !obj.contains_key("themeMode")
+        })
+        .unwrap_or(true);
+
+    if let Ok(normalized_theme_mode) = normalize_theme_mode(&settings.theme_mode) {
+        if normalized_theme_mode != settings.theme_mode {
+            settings.theme_mode = normalized_theme_mode;
+            should_write_back = true;
+        }
+    } else {
+        settings.theme_mode = default_theme_mode();
+        should_write_back = true;
+    }
+
+    if should_write_back {
+        write_global_settings_file(&settings_file, &settings)?;
+    }
+
+    Ok(settings)
+}
+
 fn read_persisted_active_workspace_root(app: &AppHandle) -> Result<Option<String>, String> {
     let state_file = workspace_state_file(app)?;
     if !path_is_file(&state_file) {
@@ -1775,17 +2201,16 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         default_terminal: default_terminal_auto(),
         terminal_custom_command: None,
         telemetry_enabled: true,
+        disable_groove_loading_section: false,
+        show_fps: false,
+        play_groove_command: default_play_groove_command(),
+        testing_ports: default_testing_ports(),
     }
 }
 
-fn telemetry_enabled_for_workspace_root(workspace_root: &Path) -> bool {
-    let workspace_json = workspace_root.join(".groove").join("workspace.json");
-    if !path_is_file(&workspace_json) {
-        return true;
-    }
-
-    read_workspace_meta_file(&workspace_json)
-        .map(|workspace_meta| workspace_meta.telemetry_enabled)
+fn telemetry_enabled_for_app(app: &AppHandle) -> bool {
+    ensure_global_settings(app)
+        .map(|settings| settings.telemetry_enabled)
         .unwrap_or(true)
 }
 
@@ -1822,14 +2247,33 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
         Ok(mut workspace_meta) => {
             let expected_root_name = default_workspace_meta(workspace_root).root_name;
             let mut did_update = false;
-            let has_telemetry_enabled = fs::read_to_string(&workspace_json)
+            let parsed_workspace_json = fs::read_to_string(&workspace_json)
                 .ok()
-                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-                .and_then(|parsed| {
-                    parsed
-                        .as_object()
-                        .map(|obj| obj.contains_key("telemetryEnabled"))
-                })
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok());
+            let has_telemetry_enabled = parsed_workspace_json
+                .as_ref()
+                .and_then(|parsed| parsed.as_object())
+                .map(|obj| obj.contains_key("telemetryEnabled"))
+                .unwrap_or(true);
+            let has_disable_groove_loading_section = parsed_workspace_json
+                .as_ref()
+                .and_then(|parsed| parsed.as_object())
+                .map(|obj| obj.contains_key("disableGrooveLoadingSection"))
+                .unwrap_or(true);
+            let has_show_fps = parsed_workspace_json
+                .as_ref()
+                .and_then(|parsed| parsed.as_object())
+                .map(|obj| obj.contains_key("showFps"))
+                .unwrap_or(true);
+            let has_play_groove_command = parsed_workspace_json
+                .as_ref()
+                .and_then(|parsed| parsed.as_object())
+                .map(|obj| obj.contains_key("playGrooveCommand"))
+                .unwrap_or(true);
+            let has_testing_ports = parsed_workspace_json
+                .as_ref()
+                .and_then(|parsed| parsed.as_object())
+                .map(|obj| obj.contains_key("testingPorts"))
                 .unwrap_or(true);
             if workspace_meta.root_name != expected_root_name {
                 workspace_meta.root_name = expected_root_name;
@@ -1858,6 +2302,46 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
 
             if !has_telemetry_enabled {
                 workspace_meta.telemetry_enabled = true;
+                did_update = true;
+            }
+
+            if !has_disable_groove_loading_section {
+                workspace_meta.disable_groove_loading_section = false;
+                did_update = true;
+            }
+
+            if !has_show_fps {
+                workspace_meta.show_fps = false;
+                did_update = true;
+            }
+
+            match normalize_play_groove_command(&workspace_meta.play_groove_command) {
+                Ok(normalized_play_groove_command) => {
+                    if normalized_play_groove_command != workspace_meta.play_groove_command {
+                        workspace_meta.play_groove_command = normalized_play_groove_command;
+                        did_update = true;
+                    }
+                }
+                Err(_) => {
+                    workspace_meta.play_groove_command = default_play_groove_command();
+                    did_update = true;
+                }
+            }
+
+            let normalized_testing_ports =
+                normalize_testing_ports_from_u16(&workspace_meta.testing_ports);
+            if normalized_testing_ports != workspace_meta.testing_ports {
+                workspace_meta.testing_ports = normalized_testing_ports;
+                did_update = true;
+            }
+
+            if !has_play_groove_command {
+                workspace_meta.play_groove_command = default_play_groove_command();
+                did_update = true;
+            }
+
+            if !has_testing_ports {
+                workspace_meta.testing_ports = default_testing_ports();
                 did_update = true;
             }
 
@@ -1999,7 +2483,7 @@ fn build_workspace_context(
     persist_as_active: bool,
 ) -> WorkspaceContextResponse {
     let total_started_at = Instant::now();
-    let telemetry_enabled = telemetry_enabled_for_workspace_root(workspace_root);
+    let telemetry_enabled = telemetry_enabled_for_app(app);
     if let Some(cached) = try_cached_workspace_context(app, workspace_root, &request_id) {
         log_build_workspace_context_timing(
             telemetry_enabled,
@@ -2149,6 +2633,23 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         .and_then(|v| v.as_str())
         .map(|v| v.to_string());
     let telemetry_enabled = obj.get("telemetryEnabled").and_then(|v| v.as_bool());
+    let disable_groove_loading_section = obj
+        .get("disableGrooveLoadingSection")
+        .and_then(|v| v.as_bool());
+    let show_fps = obj.get("showFps").and_then(|v| v.as_bool());
+    let play_groove_command = obj
+        .get("playGrooveCommand")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+    let testing_ports = obj.get("testingPorts").and_then(|v| {
+        v.as_array().map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_u64())
+                .filter_map(|value| u16::try_from(value).ok())
+                .collect::<Vec<_>>()
+        })
+    });
 
     if version.is_none()
         && root_name.is_none()
@@ -2157,6 +2658,10 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         && default_terminal.is_none()
         && terminal_custom_command.is_none()
         && telemetry_enabled.is_none()
+        && disable_groove_loading_section.is_none()
+        && show_fps.is_none()
+        && play_groove_command.is_none()
+        && testing_ports.is_none()
     {
         return None;
     }
@@ -2169,6 +2674,10 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         default_terminal,
         terminal_custom_command,
         telemetry_enabled,
+        disable_groove_loading_section,
+        show_fps,
+        play_groove_command,
+        testing_ports,
     })
 }
 
@@ -2200,6 +2709,31 @@ fn workspace_meta_matches(
 
     if let Some(expected_telemetry_enabled) = expected.telemetry_enabled {
         if observed.telemetry_enabled != Some(expected_telemetry_enabled) {
+            return false;
+        }
+    }
+
+    if let Some(expected_disable_groove_loading_section) = expected.disable_groove_loading_section {
+        if observed.disable_groove_loading_section != Some(expected_disable_groove_loading_section)
+        {
+            return false;
+        }
+    }
+
+    if let Some(expected_show_fps) = expected.show_fps {
+        if observed.show_fps != Some(expected_show_fps) {
+            return false;
+        }
+    }
+
+    if let Some(expected_play_groove_command) = &expected.play_groove_command {
+        if observed.play_groove_command.as_ref() != Some(expected_play_groove_command) {
+            return false;
+        }
+    }
+
+    if let Some(expected_testing_ports) = &expected.testing_ports {
+        if observed.testing_ports.as_ref() != Some(expected_testing_ports) {
             return false;
         }
     }
@@ -2355,6 +2889,52 @@ fn ensure_git_repository_root(workspace_root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn active_workspace_root_from_state(app: &AppHandle) -> Result<PathBuf, String> {
+    let persisted_root = read_persisted_active_workspace_root(app)?
+        .ok_or_else(|| "No active workspace selected.".to_string())?;
+    validate_workspace_root_path(&persisted_root)
+}
+
+fn collect_gitignore_sanity(content: &str) -> (bool, bool, bool, Vec<String>) {
+    let mut has_groove_entry = false;
+    let mut has_workspace_entry = false;
+    let mut has_groove_comment = false;
+
+    for line in content.lines() {
+        let normalized = line.trim();
+        if normalized == GITIGNORE_REQUIRED_ENTRIES[0] {
+            has_groove_entry = true;
+        } else if normalized == GITIGNORE_REQUIRED_ENTRIES[1] {
+            has_workspace_entry = true;
+        } else if normalized == GITIGNORE_GROOVE_COMMENT {
+            has_groove_comment = true;
+        }
+    }
+
+    let mut missing_entries = Vec::new();
+    if !has_groove_entry {
+        missing_entries.push(GITIGNORE_REQUIRED_ENTRIES[0].to_string());
+    }
+    if !has_workspace_entry {
+        missing_entries.push(GITIGNORE_REQUIRED_ENTRIES[1].to_string());
+    }
+
+    (
+        has_groove_entry,
+        has_workspace_entry,
+        has_groove_comment,
+        missing_entries,
+    )
+}
+
+fn newline_for_content(content: &str) -> &'static str {
+    if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
 fn emit_workspace_ready_event(
     app: &AppHandle,
     request_id: &str,
@@ -2420,6 +3000,46 @@ fn repository_remote_url(workspace_root: &Path) -> Option<String> {
 
 fn command_cwd() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"))
+}
+
+fn open_url_in_default_browser(url: &str) -> Result<(), String> {
+    let cwd = command_cwd();
+
+    #[cfg(target_os = "linux")]
+    {
+        return Command::new("xdg-open")
+            .arg(url)
+            .current_dir(cwd)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Failed to launch xdg-open: {error}"));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return Command::new("open")
+            .arg(url)
+            .current_dir(cwd)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Failed to launch open: {error}"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .current_dir(cwd)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Failed to launch cmd start: {error}"));
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (cwd, url);
+        Err("Opening browser is unsupported on this platform.".to_string())
+    }
 }
 
 fn validate_existing_path(path: &str) -> Result<PathBuf, String> {
@@ -3161,8 +3781,21 @@ fn resolve_groove_binary(app: &AppHandle) -> GrooveBinaryResolution {
     }
     #[cfg(target_os = "macos")]
     {
-        names.push("groove-x86_64-apple-darwin".to_string());
-        names.push("groove-aarch64-apple-darwin".to_string());
+        #[cfg(target_arch = "aarch64")]
+        {
+            names.push("groove-aarch64-apple-darwin".to_string());
+            names.push("groove-x86_64-apple-darwin".to_string());
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            names.push("groove-x86_64-apple-darwin".to_string());
+            names.push("groove-aarch64-apple-darwin".to_string());
+        }
+        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+        {
+            names.push("groove-aarch64-apple-darwin".to_string());
+            names.push("groove-x86_64-apple-darwin".to_string());
+        }
     }
     #[cfg(target_os = "windows")]
     {
@@ -3275,16 +3908,20 @@ fn run_command_timeout(
     )
 }
 
-fn allocate_testing_port() -> Result<u16, String> {
-    for port in TESTING_ENVIRONMENT_PORTS {
-        if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
-            return Ok(port);
+fn allocate_testing_port(candidate_ports: &[u16], used_ports: &HashSet<u16>) -> Result<u16, String> {
+    for port in candidate_ports {
+        if used_ports.contains(port) {
+            continue;
+        }
+
+        if std::net::TcpListener::bind(("127.0.0.1", *port)).is_ok() {
+            return Ok(*port);
         }
     }
 
     Err(format!(
         "Failed to allocate testing environment port: ports {} are all in use.",
-        TESTING_ENVIRONMENT_PORTS
+        candidate_ports
             .iter()
             .map(u16::to_string)
             .collect::<Vec<_>>()
@@ -3506,6 +4143,408 @@ fn parse_groove_list_output(
     }
 
     rows
+}
+
+#[derive(Debug)]
+struct NativeGrooveListCollection {
+    rows: HashMap<String, RuntimeStateRow>,
+    cache: GrooveListNativeCache,
+    reused_worktrees: usize,
+    recomputed_worktrees: usize,
+    warning: Option<String>,
+}
+
+#[derive(Debug)]
+struct NativeLogSignals {
+    log_state: String,
+    log_target: Option<String>,
+    latest_log_path: Option<PathBuf>,
+    latest_log_mtime_ms: u128,
+}
+
+fn groove_list_native_enabled() -> bool {
+    std::env::var("GROOVE_LIST_NATIVE")
+        .map(|value| value.trim() != "0")
+        .unwrap_or(true)
+}
+
+fn resolve_groove_list_worktrees(
+    workspace_root: &Path,
+    known_worktrees: &[String],
+    dir: &Option<String>,
+) -> Result<Vec<(String, PathBuf)>, String> {
+    let worktrees_dir = workspace_root.join(dir.as_deref().unwrap_or(".worktrees"));
+    if !path_is_directory(&worktrees_dir) {
+        return Ok(Vec::new());
+    }
+
+    if !known_worktrees.is_empty() {
+        let mut rows = known_worktrees
+            .iter()
+            .map(|worktree| (worktree.clone(), worktrees_dir.join(worktree)))
+            .filter(|(_, path)| path_is_directory(path))
+            .collect::<Vec<_>>();
+        rows.sort_by(|left, right| left.0.cmp(&right.0));
+        return Ok(rows);
+    }
+
+    let entries = fs::read_dir(&worktrees_dir)
+        .map_err(|error| format!("Failed to read {}: {error}", worktrees_dir.display()))?;
+    let mut rows = Vec::<(String, PathBuf)>::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!(
+                "Failed to enumerate {} entries: {error}",
+                worktrees_dir.display()
+            )
+        })?;
+        let path = entry.path();
+        if !path_is_directory(&path) {
+            continue;
+        }
+        let Some(name) = path.file_name().map(|value| value.to_string_lossy().to_string()) else {
+            continue;
+        };
+        rows.push((name, path));
+    }
+
+    rows.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(rows)
+}
+
+fn command_mentions_worktree_path(command: &str, worktree_path: &Path) -> bool {
+    let normalized_command = command.to_lowercase();
+    let rendered = worktree_path.display().to_string().to_lowercase();
+    if normalized_command.contains(&rendered) {
+        return true;
+    }
+
+    let rendered_with_slashes = rendered.replace('\\', "/");
+    let rendered_with_backslashes = rendered.replace('/', "\\");
+    normalized_command.contains(&rendered_with_slashes)
+        || normalized_command.contains(&rendered_with_backslashes)
+}
+
+fn command_mentions_worktree_name(command: &str, worktree_path: &Path) -> bool {
+    let Some(worktree_name) = worktree_path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+    else {
+        return false;
+    };
+
+    let normalized_command = command.replace('\\', "/").to_lowercase();
+    let normalized_worktree_name = worktree_name.to_lowercase();
+
+    normalized_command.contains(&format!("/.worktree/{normalized_worktree_name}"))
+        || normalized_command.contains(&format!("/.worktrees/{normalized_worktree_name}"))
+}
+
+fn resolve_opencode_pid_for_worktree(
+    snapshot_rows: &[ProcessSnapshotRow],
+    worktree_path: &Path,
+) -> Option<i32> {
+    snapshot_rows
+        .iter()
+        .filter(|row| {
+            is_opencode_process(row.process_name.as_deref(), &row.command)
+                && (command_mentions_worktree_path(&row.command, worktree_path)
+                    || command_mentions_worktree_name(&row.command, worktree_path))
+        })
+        .map(|row| row.pid)
+        .min()
+}
+
+fn resolve_latest_log_path_for_worktree(worktree_path: &Path) -> Option<PathBuf> {
+    let log_dir = worktree_path.join(".groove").join("logs");
+    let latest_link = log_dir.join("latest.log");
+
+    if let Ok(metadata) = fs::symlink_metadata(&latest_link) {
+        if metadata.file_type().is_symlink() && latest_link.exists() {
+            if let Ok(target) = fs::read_link(&latest_link) {
+                let resolved = if target.is_absolute() {
+                    target
+                } else {
+                    log_dir.join(target)
+                };
+                if path_is_file(&resolved) {
+                    return Some(resolved);
+                }
+            }
+        }
+    }
+
+    let Ok(entries) = fs::read_dir(&log_dir) else {
+        return None;
+    };
+
+    let mut newest: Option<(u128, PathBuf)> = None;
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if !path_is_file(&path) {
+            continue;
+        }
+
+        let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if !file_name.starts_with("opencode-") || !file_name.ends_with(".log") {
+            continue;
+        }
+
+        let modified_ms = fs::metadata(&path)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0);
+
+        if newest
+            .as_ref()
+            .map(|(current, _)| modified_ms > *current)
+            .unwrap_or(true)
+        {
+            newest = Some((modified_ms, path));
+        }
+    }
+
+    newest.map(|(_, path)| path)
+}
+
+fn collect_native_log_signals(worktree_path: &Path) -> NativeLogSignals {
+    let latest_link = worktree_path
+        .join(".groove")
+        .join("logs")
+        .join("latest.log");
+
+    if let Ok(metadata) = fs::symlink_metadata(&latest_link) {
+        if metadata.file_type().is_symlink() {
+            if latest_link.exists() {
+                let target = fs::read_link(&latest_link)
+                    .ok()
+                    .and_then(|path| path.file_name().map(|value| value.to_string_lossy().to_string()))
+                    .or_else(|| Some("latest.log".to_string()));
+                let latest_log_path = resolve_latest_log_path_for_worktree(worktree_path);
+                let latest_log_mtime_ms = latest_log_path
+                    .as_ref()
+                    .and_then(|path| fs::metadata(path).ok())
+                    .and_then(|metadata| metadata.modified().ok())
+                    .and_then(|ts| ts.duration_since(UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_millis())
+                    .unwrap_or(0);
+                return NativeLogSignals {
+                    log_state: "latest".to_string(),
+                    log_target: target,
+                    latest_log_path,
+                    latest_log_mtime_ms,
+                };
+            }
+
+            return NativeLogSignals {
+                log_state: "broken-latest".to_string(),
+                log_target: None,
+                latest_log_path: None,
+                latest_log_mtime_ms: 0,
+            };
+        }
+    }
+
+    let latest_log_path = resolve_latest_log_path_for_worktree(worktree_path);
+    let latest_log_mtime_ms = latest_log_path
+        .as_ref()
+        .and_then(|path| fs::metadata(path).ok())
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|ts| ts.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+
+    NativeLogSignals {
+        log_state: "none".to_string(),
+        log_target: None,
+        latest_log_path,
+        latest_log_mtime_ms,
+    }
+}
+
+fn build_native_activity_state(
+    opencode_state: &str,
+    log_state: &str,
+    latest_log_path: Option<&Path>,
+) -> (String, Option<OpencodeActivityDetail>) {
+    if log_state == "broken-latest" {
+        return (
+            "error".to_string(),
+            Some(OpencodeActivityDetail {
+                reason: Some("broken-latest".to_string()),
+                age_s: None,
+                marker: Some("broken-symlink".to_string()),
+                log: Some("latest.log".to_string()),
+            }),
+        );
+    }
+
+    let age_s = latest_log_path
+        .and_then(|path| fs::metadata(path).ok())
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|modified| modified.elapsed().ok())
+        .map(|elapsed| elapsed.as_secs());
+    let log_name = latest_log_path
+        .and_then(|path| path.file_name())
+        .map(|value| value.to_string_lossy().to_string());
+
+    let (state, reason) = if opencode_state == "running" {
+        if let Some(age_s) = age_s {
+            if age_s <= 120 {
+                ("thinking", "running-log-fresh")
+            } else {
+                ("idle", "running-log-stale")
+            }
+        } else {
+            ("idle", "running-no-log-age")
+        }
+    } else if opencode_state == "not-running" {
+        if latest_log_path.is_some() {
+            ("finished", "process-exited-log-present")
+        } else {
+            ("unknown", "process-exited-no-log")
+        }
+    } else {
+        ("unknown", "insufficient-signals")
+    };
+
+    (
+        state.to_string(),
+        Some(OpencodeActivityDetail {
+            reason: Some(reason.to_string()),
+            age_s,
+            marker: None,
+            log: log_name,
+        }),
+    )
+}
+
+fn build_native_worktree_signature(
+    worktree_path: &Path,
+    opencode_pid: Option<i32>,
+    log_signals: &NativeLogSignals,
+) -> String {
+    let worktree_snapshot = snapshot_entry(worktree_path);
+    let groove_snapshot = snapshot_entry(&worktree_path.join(".groove"));
+    let logs_snapshot = snapshot_entry(&worktree_path.join(".groove").join("logs"));
+    let latest_snapshot = snapshot_entry(&worktree_path.join(".groove").join("logs").join("latest.log"));
+    let git_head_snapshot = snapshot_entry(&worktree_path.join(".git"));
+
+    format!(
+        "worktree={}:{}|groove={}:{}|logs={}:{}|latest={}:{}|head={}:{}|opencode_pid={}|log_state={}|log_target={}|latest_mtime={}",
+        worktree_snapshot.exists,
+        worktree_snapshot.mtime_ms,
+        groove_snapshot.exists,
+        groove_snapshot.mtime_ms,
+        logs_snapshot.exists,
+        logs_snapshot.mtime_ms,
+        latest_snapshot.exists,
+        latest_snapshot.mtime_ms,
+        git_head_snapshot.exists,
+        git_head_snapshot.mtime_ms,
+        opencode_pid.map(|value| value.to_string()).unwrap_or_default(),
+        log_signals.log_state,
+        log_signals.log_target.clone().unwrap_or_default(),
+        log_signals.latest_log_mtime_ms,
+    )
+}
+
+fn collect_groove_list_rows_native(
+    workspace_root: &Path,
+    known_worktrees: &[String],
+    dir: &Option<String>,
+    previous_cache: Option<&GrooveListNativeCache>,
+) -> Result<NativeGrooveListCollection, String> {
+    let worktrees = resolve_groove_list_worktrees(workspace_root, known_worktrees, dir)?;
+    let (process_rows, warning) = list_process_snapshot_rows()?;
+
+    let mut rows = HashMap::new();
+    let mut cache_rows = HashMap::new();
+    let mut reused_worktrees = 0usize;
+    let mut recomputed_worktrees = 0usize;
+
+    for (worktree, worktree_path) in worktrees {
+        let opencode_pid = resolve_opencode_pid_for_worktree(&process_rows, &worktree_path);
+        let log_signals = collect_native_log_signals(&worktree_path);
+        let signature = build_native_worktree_signature(&worktree_path, opencode_pid, &log_signals);
+
+        if let Some(previous_row) = previous_cache
+            .and_then(|cache| cache.rows_by_worktree.get(&worktree))
+            .filter(|cache_row| cache_row.signature == signature)
+        {
+            reused_worktrees += 1;
+            rows.insert(worktree.clone(), previous_row.row.clone());
+            cache_rows.insert(worktree, previous_row.clone());
+            continue;
+        }
+
+        recomputed_worktrees += 1;
+        let (opencode_state, opencode_instance_id) = if let Some(pid) = opencode_pid {
+            ("running".to_string(), Some(pid.to_string()))
+        } else {
+            ("not-running".to_string(), None)
+        };
+        let (opencode_activity_state, opencode_activity_detail) = build_native_activity_state(
+            &opencode_state,
+            &log_signals.log_state,
+            log_signals.latest_log_path.as_deref(),
+        );
+
+        let row = RuntimeStateRow {
+            branch: resolve_branch_from_worktree(&worktree_path)
+                .unwrap_or_else(|| branch_guess_from_worktree_name(&worktree)),
+            worktree: worktree.clone(),
+            opencode_state,
+            opencode_instance_id,
+            log_state: log_signals.log_state,
+            log_target: log_signals.log_target,
+            opencode_activity_state,
+            opencode_activity_detail,
+        };
+
+        rows.insert(worktree.clone(), row.clone());
+        cache_rows.insert(worktree, GrooveListNativeCacheRow { signature, row });
+    }
+
+    Ok(NativeGrooveListCollection {
+        rows,
+        cache: GrooveListNativeCache {
+            rows_by_worktree: cache_rows,
+        },
+        reused_worktrees,
+        recomputed_worktrees,
+        warning,
+    })
+}
+
+fn collect_groove_list_via_shell(
+    app: &AppHandle,
+    workspace_root: &Path,
+    known_worktrees: &[String],
+    dir: &Option<String>,
+) -> (CommandResult, HashMap<String, RuntimeStateRow>, Duration, Duration) {
+    let mut args = vec!["list".to_string()];
+    if let Some(dir) = dir.clone() {
+        args.push("--dir".to_string());
+        args.push(dir);
+    }
+
+    let exec_started_at = Instant::now();
+    let result = run_command(&groove_binary_path(app), &args, workspace_root);
+    let exec_elapsed = exec_started_at.elapsed();
+
+    if result.exit_code != Some(0) || result.error.is_some() {
+        return (result, HashMap::new(), exec_elapsed, Duration::ZERO);
+    }
+
+    let parse_started_at = Instant::now();
+    let rows = parse_groove_list_output(&result.stdout, known_worktrees);
+    let parse_elapsed = parse_started_at.elapsed();
+    (result, rows, exec_elapsed, parse_elapsed)
 }
 
 fn parse_pid(value: &str) -> Result<i32, String> {
@@ -3745,14 +4784,27 @@ fn command_matches_turbo_dev(command: &str) -> bool {
     command.to_lowercase().contains("next dev --turbo")
 }
 
+fn is_next_telemetry_detached_flush_command(command: &str) -> bool {
+    command
+        .replace('\\', "/")
+        .to_lowercase()
+        .contains("next/dist/telemetry/detached-flush.js")
+}
+
 fn is_opencode_process(process_name: Option<&str>, command: &str) -> bool {
     let lowered_process_name = process_name.unwrap_or_default().to_lowercase();
     let lowered_command = command.to_lowercase();
     lowered_process_name.contains("opencode") || lowered_command.contains("opencode")
 }
 
+fn is_worktree_opencode_process(process_name: Option<&str>, command: &str) -> bool {
+    command_mentions_worktrees(command) && is_opencode_process(process_name, command)
+}
+
 fn is_worktree_node_process(process_name: Option<&str>, command: &str) -> bool {
-    command_mentions_worktrees(command) && is_likely_node_command(process_name, command)
+    command_mentions_worktrees(command)
+        && is_likely_node_command(process_name, command)
+        && !is_next_telemetry_detached_flush_command(command)
 }
 
 fn stop_pid_set(pids: &[i32]) -> (usize, usize, usize, Vec<String>) {
@@ -3778,6 +4830,24 @@ fn stop_pid_set(pids: &[i32]) -> (usize, usize, usize, Vec<String>) {
     }
 
     (stopped, already_stopped, failed, errors)
+}
+
+#[cfg(target_os = "linux")]
+fn is_zombie_process(pid: i32) -> bool {
+    let stat_path = format!("/proc/{pid}/stat");
+    let Ok(stat) = fs::read_to_string(stat_path) else {
+        return false;
+    };
+
+    let Some(closing_paren_index) = stat.rfind(')') else {
+        return false;
+    };
+    let remainder = stat[closing_paren_index + 1..].trim_start();
+    let Some(state) = remainder.chars().next() else {
+        return false;
+    };
+
+    state == 'Z'
 }
 
 fn is_process_running(pid: i32) -> bool {
@@ -3809,7 +4879,19 @@ fn is_process_running(pid: i32) -> bool {
             .stderr(Stdio::null())
             .output();
 
-        output.map(|value| value.status.success()).unwrap_or(false)
+        let is_running = output.map(|value| value.status.success()).unwrap_or(false);
+        if !is_running {
+            return false;
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            if is_zombie_process(pid) {
+                return false;
+            }
+        }
+
+        true
     }
 }
 
@@ -3977,7 +5059,7 @@ fn list_opencode_process_rows() -> Result<Vec<DiagnosticsProcessRow>, String> {
     let (snapshot_rows, _warning) = list_process_snapshot_rows()?;
     let mut rows = snapshot_rows
         .into_iter()
-        .filter(|row| is_opencode_process(row.process_name.as_deref(), &row.command))
+        .filter(|row| is_worktree_opencode_process(row.process_name.as_deref(), &row.command))
         .map(|row| DiagnosticsProcessRow {
             pid: row.pid,
             process_name: row.process_name.unwrap_or_else(|| "unknown".to_string()),
@@ -4031,6 +5113,280 @@ fn get_msot_consuming_programs_output() -> Result<String, String> {
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn clamp_percentage(value: f64) -> f64 {
+    value.clamp(0.0, 100.0)
+}
+
+fn resolve_hostname() -> Option<String> {
+    if let Ok(hostname) = std::env::var("HOSTNAME") {
+        let trimmed = hostname.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    if let Ok(hostname) = std::env::var("COMPUTERNAME") {
+        let trimmed = hostname.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    let output = Command::new("hostname").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let hostname = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if hostname.is_empty() {
+        None
+    } else {
+        Some(hostname)
+    }
+}
+
+fn resolve_cpu_cores() -> Option<u32> {
+    let parallelism = std::thread::available_parallelism().ok()?.get();
+    u32::try_from(parallelism).ok()
+}
+
+#[cfg(target_os = "linux")]
+fn read_linux_cpu_ticks() -> Option<(u64, u64)> {
+    let stat = fs::read_to_string("/proc/stat").ok()?;
+    let mut lines = stat.lines();
+    let first_line = lines.next()?;
+    let mut tokens = first_line.split_whitespace();
+    if tokens.next()? != "cpu" {
+        return None;
+    }
+
+    let user = tokens.next()?.parse::<u64>().ok()?;
+    let nice = tokens.next()?.parse::<u64>().ok()?;
+    let system = tokens.next()?.parse::<u64>().ok()?;
+    let idle = tokens.next()?.parse::<u64>().ok()?;
+    let iowait = tokens
+        .next()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    let irq = tokens
+        .next()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    let softirq = tokens
+        .next()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    let steal = tokens
+        .next()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    let idle_all = idle.saturating_add(iowait);
+    let non_idle = user
+        .saturating_add(nice)
+        .saturating_add(system)
+        .saturating_add(irq)
+        .saturating_add(softirq)
+        .saturating_add(steal);
+
+    Some((idle_all, idle_all.saturating_add(non_idle)))
+}
+
+#[cfg(target_os = "linux")]
+fn read_linux_cpu_usage_percent() -> Option<f64> {
+    let (first_idle, first_total) = read_linux_cpu_ticks()?;
+    thread::sleep(Duration::from_millis(160));
+    let (second_idle, second_total) = read_linux_cpu_ticks()?;
+
+    let total_delta = second_total.saturating_sub(first_total);
+    if total_delta == 0 {
+        return None;
+    }
+
+    let idle_delta = second_idle.saturating_sub(first_idle);
+    let used_delta = total_delta.saturating_sub(idle_delta);
+    Some(clamp_percentage((used_delta as f64 / total_delta as f64) * 100.0))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_linux_cpu_usage_percent() -> Option<f64> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn read_linux_ram_usage() -> Option<(u64, u64, f64)> {
+    let meminfo = fs::read_to_string("/proc/meminfo").ok()?;
+    let mut total_kib: Option<u64> = None;
+    let mut available_kib: Option<u64> = None;
+
+    for line in meminfo.lines() {
+        if line.starts_with("MemTotal:") {
+            total_kib = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|value| value.parse::<u64>().ok());
+        } else if line.starts_with("MemAvailable:") {
+            available_kib = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|value| value.parse::<u64>().ok());
+        }
+
+        if total_kib.is_some() && available_kib.is_some() {
+            break;
+        }
+    }
+
+    let total_bytes = total_kib?.saturating_mul(1024);
+    let available_bytes = available_kib?.saturating_mul(1024);
+    let used_bytes = total_bytes.saturating_sub(available_bytes);
+    if total_bytes == 0 {
+        return None;
+    }
+
+    let usage_percent = clamp_percentage((used_bytes as f64 / total_bytes as f64) * 100.0);
+    Some((total_bytes, used_bytes, usage_percent))
+}
+
+#[cfg(target_os = "linux")]
+fn read_linux_swap_usage() -> Option<(u64, u64, f64)> {
+    let meminfo = fs::read_to_string("/proc/meminfo").ok()?;
+    let mut total_kib: Option<u64> = None;
+    let mut free_kib: Option<u64> = None;
+
+    for line in meminfo.lines() {
+        if line.starts_with("SwapTotal:") {
+            total_kib = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|value| value.parse::<u64>().ok());
+        } else if line.starts_with("SwapFree:") {
+            free_kib = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|value| value.parse::<u64>().ok());
+        }
+
+        if total_kib.is_some() && free_kib.is_some() {
+            break;
+        }
+    }
+
+    let total_bytes = total_kib?.saturating_mul(1024);
+    let free_bytes = free_kib?.saturating_mul(1024);
+    if total_bytes == 0 {
+        return Some((0, 0, 0.0));
+    }
+
+    let used_bytes = total_bytes.saturating_sub(free_bytes);
+    let usage_percent = clamp_percentage((used_bytes as f64 / total_bytes as f64) * 100.0);
+    Some((total_bytes, used_bytes, usage_percent))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_linux_swap_usage() -> Option<(u64, u64, f64)> {
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_linux_ram_usage() -> Option<(u64, u64, f64)> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn read_linux_disk_usage(path: &Path) -> Option<(u64, u64, f64)> {
+    let output = Command::new("df")
+        .args(["-kP", &path.display().to_string()])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let data_line = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .nth(1)?;
+    let columns = data_line.split_whitespace().collect::<Vec<_>>();
+    if columns.len() < 6 {
+        return None;
+    }
+
+    let total_kib = columns.get(1)?.parse::<u64>().ok()?;
+    let used_kib = columns.get(2)?.parse::<u64>().ok()?;
+    let usage_percent = columns
+        .get(4)?
+        .trim_end_matches('%')
+        .parse::<f64>()
+        .ok()
+        .map(clamp_percentage)
+        .unwrap_or_else(|| {
+            if total_kib == 0 {
+                0.0
+            } else {
+                clamp_percentage((used_kib as f64 / total_kib as f64) * 100.0)
+            }
+        });
+
+    Some((
+        total_kib.saturating_mul(1024),
+        used_kib.saturating_mul(1024),
+        usage_percent,
+    ))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_linux_disk_usage(_path: &Path) -> Option<(u64, u64, f64)> {
+    None
+}
+
+fn collect_system_overview() -> DiagnosticsSystemOverview {
+    let platform = std::env::consts::OS.to_string();
+    let hostname = resolve_hostname();
+    let cpu_cores = resolve_cpu_cores();
+    let cpu_usage_percent = read_linux_cpu_usage_percent();
+
+    let (ram_total_bytes, ram_used_bytes, ram_usage_percent) =
+        if let Some((total, used, usage_percent)) = read_linux_ram_usage() {
+            (Some(total), Some(used), Some(usage_percent))
+        } else {
+            (None, None, None)
+        };
+
+    let (swap_total_bytes, swap_used_bytes, swap_usage_percent) =
+        if let Some((total, used, usage_percent)) = read_linux_swap_usage() {
+            (Some(total), Some(used), Some(usage_percent))
+        } else {
+            (None, None, None)
+        };
+
+    let disk_target = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+    let (disk_total_bytes, disk_used_bytes, disk_usage_percent) =
+        if let Some((total, used, usage_percent)) = read_linux_disk_usage(&disk_target) {
+            (Some(total), Some(used), Some(usage_percent))
+        } else {
+            (None, None, None)
+        };
+
+    DiagnosticsSystemOverview {
+        cpu_usage_percent,
+        cpu_cores,
+        ram_total_bytes,
+        ram_used_bytes,
+        ram_usage_percent,
+        swap_total_bytes,
+        swap_used_bytes,
+        swap_usage_percent,
+        disk_total_bytes,
+        disk_used_bytes,
+        disk_usage_percent,
+        platform,
+        hostname,
+    }
 }
 
 fn ensure_testing_runtime_loaded(
@@ -4270,14 +5626,41 @@ fn stop_running_testing_instance_for_worktree(
     };
 
     let instance = runtime.persisted.running_instances[index].clone();
-    if let Some(mut child) = runtime
-        .children_by_worktree
-        .remove(&testing_child_key(workspace_root, worktree))
-    {
-        let _ = child.kill();
+    let child_key = testing_child_key(workspace_root, worktree);
+
+    let mut pids_to_stop: Vec<i32> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+
+    if let Some(child) = runtime.children_by_worktree.get(&child_key) {
+        let raw_child_pid = child.id();
+        match i32::try_from(raw_child_pid) {
+            Ok(child_pid) if child_pid > 0 => pids_to_stop.push(child_pid),
+            Ok(_) => {}
+            Err(_) => errors.push(format!(
+                "Child PID {raw_child_pid} is out of supported range for worktree '{worktree}'."
+            )),
+        }
+    }
+
+    if instance.pid > 0 && !pids_to_stop.contains(&instance.pid) {
+        pids_to_stop.push(instance.pid);
+    }
+
+    for pid in pids_to_stop {
+        if let Err(error) = stop_process_by_pid(pid) {
+            errors.push(format!("PID {pid}: {error}"));
+        }
+    }
+
+    if !errors.is_empty() {
+        return Err(format!(
+            "Failed to stop testing environment process(es) for '{worktree}' in '{workspace_root}': {}",
+            errors.join("; ")
+        ));
+    }
+
+    if let Some(mut child) = runtime.children_by_worktree.remove(&child_key) {
         let _ = child.wait();
-    } else if instance.pid > 0 && is_process_running(instance.pid) {
-        stop_process_by_pid(instance.pid)?;
     }
 
     runtime.persisted.running_instances.remove(index);
@@ -4333,6 +5716,7 @@ fn testing_instance_is_effectively_running(instance: &TestingEnvironmentInstance
 }
 
 fn start_testing_instance_for_target(
+    _app: &AppHandle,
     target: &TestingEnvironmentTarget,
     runtime: &mut TestingEnvironmentRuntimeState,
 ) -> Result<(), String> {
@@ -4358,7 +5742,14 @@ fn start_testing_instance_for_target(
     }
 
     let mut command = Command::new("pnpm");
-    let port = allocate_testing_port()?;
+    let configured_ports = testing_ports_for_workspace(Path::new(&target.workspace_root));
+    let used_ports = runtime
+        .persisted
+        .running_instances
+        .iter()
+        .filter_map(|instance| instance.port)
+        .collect::<HashSet<_>>();
+    let port = allocate_testing_port(&configured_ports, &used_ports)?;
     command
         .args(["run", "dev"])
         .current_dir(Path::new(&target.worktree_path))
@@ -4745,7 +6136,7 @@ fn workspace_get_active(app: AppHandle) -> WorkspaceContextResponse {
     let response = if let Some(persisted_root) = persisted_root {
         match validate_workspace_root_path(&persisted_root) {
             Ok(root) => {
-                telemetry_enabled = telemetry_enabled_for_workspace_root(&root);
+                telemetry_enabled = telemetry_enabled_for_app(&app);
                 if let Some(cached) = try_cached_workspace_context(&app, &root, &request_id) {
                     cached
                 } else if let Err(error) = ensure_git_repository_root(&root) {
@@ -4874,6 +6265,287 @@ fn workspace_clear_active(
 }
 
 #[tauri::command]
+fn workspace_gitignore_sanity_check(app: AppHandle) -> WorkspaceGitignoreSanityResponse {
+    let request_id = request_id();
+    let workspace_root = match active_workspace_root_from_state(&app) {
+        Ok(workspace_root) => workspace_root,
+        Err(error) => {
+            return WorkspaceGitignoreSanityResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                is_applicable: false,
+                has_groove_entry: false,
+                has_workspace_entry: false,
+                missing_entries: Vec::new(),
+                patched: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let gitignore_path = workspace_root.join(".gitignore");
+    if !path_is_file(&gitignore_path) {
+        return WorkspaceGitignoreSanityResponse {
+            request_id,
+            ok: true,
+            workspace_root: Some(workspace_root.display().to_string()),
+            is_applicable: false,
+            has_groove_entry: false,
+            has_workspace_entry: false,
+            missing_entries: Vec::new(),
+            patched: None,
+            error: None,
+        };
+    }
+
+    let content = match fs::read_to_string(&gitignore_path) {
+        Ok(content) => content,
+        Err(error) => {
+            return WorkspaceGitignoreSanityResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                is_applicable: true,
+                has_groove_entry: false,
+                has_workspace_entry: false,
+                missing_entries: Vec::new(),
+                patched: None,
+                error: Some(format!(
+                    "Failed to read {}: {error}",
+                    gitignore_path.display()
+                )),
+            }
+        }
+    };
+
+    let (has_groove_entry, has_workspace_entry, _, missing_entries) = collect_gitignore_sanity(&content);
+
+    WorkspaceGitignoreSanityResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        is_applicable: true,
+        has_groove_entry,
+        has_workspace_entry,
+        missing_entries,
+        patched: None,
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn workspace_gitignore_sanity_apply(app: AppHandle) -> WorkspaceGitignoreSanityResponse {
+    let request_id = request_id();
+    let workspace_root = match active_workspace_root_from_state(&app) {
+        Ok(workspace_root) => workspace_root,
+        Err(error) => {
+            return WorkspaceGitignoreSanityResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                is_applicable: false,
+                has_groove_entry: false,
+                has_workspace_entry: false,
+                missing_entries: Vec::new(),
+                patched: Some(false),
+                error: Some(error),
+            }
+        }
+    };
+
+    let gitignore_path = workspace_root.join(".gitignore");
+    if !path_is_file(&gitignore_path) {
+        return WorkspaceGitignoreSanityResponse {
+            request_id,
+            ok: true,
+            workspace_root: Some(workspace_root.display().to_string()),
+            is_applicable: false,
+            has_groove_entry: false,
+            has_workspace_entry: false,
+            missing_entries: Vec::new(),
+            patched: Some(false),
+            error: None,
+        };
+    }
+
+    let content = match fs::read_to_string(&gitignore_path) {
+        Ok(content) => content,
+        Err(error) => {
+            return WorkspaceGitignoreSanityResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                is_applicable: true,
+                has_groove_entry: false,
+                has_workspace_entry: false,
+                missing_entries: Vec::new(),
+                patched: Some(false),
+                error: Some(format!(
+                    "Failed to read {}: {error}",
+                    gitignore_path.display()
+                )),
+            }
+        }
+    };
+
+    let (has_groove_entry, has_workspace_entry, has_groove_comment, missing_entries) =
+        collect_gitignore_sanity(&content);
+
+    if missing_entries.is_empty() {
+        return WorkspaceGitignoreSanityResponse {
+            request_id,
+            ok: true,
+            workspace_root: Some(workspace_root.display().to_string()),
+            is_applicable: true,
+            has_groove_entry,
+            has_workspace_entry,
+            missing_entries,
+            patched: Some(false),
+            error: None,
+        };
+    }
+
+    let newline = newline_for_content(&content);
+    let mut prefix_lines = Vec::new();
+    if !has_groove_comment {
+        prefix_lines.push(GITIGNORE_GROOVE_COMMENT.to_string());
+    }
+    prefix_lines.extend(missing_entries.iter().cloned());
+
+    let mut next_content = prefix_lines.join(newline);
+    if content.is_empty() {
+        next_content.push_str(newline);
+    } else {
+        next_content.push_str(newline);
+        next_content.push_str(newline);
+        next_content.push_str(&content);
+    }
+
+    if let Err(error) = fs::write(&gitignore_path, next_content) {
+        return WorkspaceGitignoreSanityResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            is_applicable: true,
+            has_groove_entry,
+            has_workspace_entry,
+            missing_entries,
+            patched: Some(false),
+            error: Some(format!(
+                "Failed to write {}: {error}",
+                gitignore_path.display()
+            )),
+        };
+    }
+
+    WorkspaceGitignoreSanityResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        is_applicable: true,
+        has_groove_entry: true,
+        has_workspace_entry: true,
+        missing_entries: Vec::new(),
+        patched: Some(true),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn global_settings_get(app: AppHandle) -> GlobalSettingsResponse {
+    let request_id = request_id();
+    match ensure_global_settings(&app) {
+        Ok(global_settings) => GlobalSettingsResponse {
+            request_id,
+            ok: true,
+            global_settings: Some(global_settings),
+            error: None,
+        },
+        Err(error) => GlobalSettingsResponse {
+            request_id,
+            ok: false,
+            global_settings: Some(default_global_settings()),
+            error: Some(error),
+        },
+    }
+}
+
+#[tauri::command]
+fn global_settings_update(
+    app: AppHandle,
+    payload: GlobalSettingsUpdatePayload,
+) -> GlobalSettingsResponse {
+    let request_id = request_id();
+    let mut global_settings = match ensure_global_settings(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return GlobalSettingsResponse {
+                request_id,
+                ok: false,
+                global_settings: Some(default_global_settings()),
+                error: Some(error),
+            }
+        }
+    };
+
+    if let Some(telemetry_enabled) = payload.telemetry_enabled {
+        global_settings.telemetry_enabled = telemetry_enabled;
+    }
+    if let Some(disable_groove_loading_section) = payload.disable_groove_loading_section {
+        global_settings.disable_groove_loading_section = disable_groove_loading_section;
+    }
+    if let Some(show_fps) = payload.show_fps {
+        global_settings.show_fps = show_fps;
+    }
+    if let Some(always_show_diagnostics_sidebar) = payload.always_show_diagnostics_sidebar {
+        global_settings.always_show_diagnostics_sidebar = always_show_diagnostics_sidebar;
+    }
+    if let Some(theme_mode) = payload.theme_mode.as_deref() {
+        match normalize_theme_mode(theme_mode) {
+            Ok(value) => {
+                global_settings.theme_mode = value;
+            }
+            Err(error) => {
+                return GlobalSettingsResponse {
+                    request_id,
+                    ok: false,
+                    global_settings: Some(global_settings),
+                    error: Some(error),
+                }
+            }
+        }
+    }
+    let settings_file = match global_settings_file(&app) {
+        Ok(path) => path,
+        Err(error) => {
+            return GlobalSettingsResponse {
+                request_id,
+                ok: false,
+                global_settings: Some(global_settings),
+                error: Some(error),
+            }
+        }
+    };
+
+    if let Err(error) = write_global_settings_file(&settings_file, &global_settings) {
+        return GlobalSettingsResponse {
+            request_id,
+            ok: false,
+            global_settings: Some(global_settings),
+            error: Some(error),
+        };
+    }
+
+    GlobalSettingsResponse {
+        request_id,
+        ok: true,
+        global_settings: Some(global_settings),
+        error: None,
+    }
+}
+
+#[tauri::command]
 fn workspace_update_terminal_settings(
     app: AppHandle,
     payload: WorkspaceTerminalSettingsPayload,
@@ -4966,6 +6638,107 @@ fn workspace_update_terminal_settings(
     if let Some(telemetry_enabled) = payload.telemetry_enabled {
         workspace_meta.telemetry_enabled = telemetry_enabled;
     }
+    if let Some(disable_groove_loading_section) = payload.disable_groove_loading_section {
+        workspace_meta.disable_groove_loading_section = disable_groove_loading_section;
+    }
+    if let Some(show_fps) = payload.show_fps {
+        workspace_meta.show_fps = show_fps;
+    }
+    workspace_meta.updated_at = now_iso();
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    if let Err(error) = write_workspace_meta_file(&workspace_json, &workspace_meta) {
+        return WorkspaceTerminalSettingsResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            workspace_meta: None,
+            error: Some(error),
+        };
+    }
+
+    invalidate_workspace_context_cache(&app, &workspace_root);
+
+    WorkspaceTerminalSettingsResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        workspace_meta: Some(workspace_meta),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn workspace_update_commands_settings(
+    app: AppHandle,
+    payload: WorkspaceCommandSettingsPayload,
+) -> WorkspaceTerminalSettingsResponse {
+    let request_id = request_id();
+
+    let play_groove_command = match normalize_play_groove_command(&payload.play_groove_command) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+    let testing_ports = normalize_testing_ports_from_u32(&payload.testing_ports);
+
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some("No active workspace selected.".to_string()),
+            }
+        }
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match validate_workspace_root_path(&persisted_root) {
+        Ok(root) => root,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(persisted_root),
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let (mut workspace_meta, _) = match ensure_workspace_meta(&workspace_root) {
+        Ok(result) => result,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    workspace_meta.play_groove_command = play_groove_command;
+    workspace_meta.testing_ports = testing_ports;
     workspace_meta.updated_at = now_iso();
 
     let workspace_json = workspace_root.join(".groove").join("workspace.json");
@@ -6695,6 +8468,41 @@ fn gh_pr_create(payload: GhPrCreatePayload) -> GhPrCreateResponse {
 }
 
 #[tauri::command]
+fn open_external_url(url: String) -> ExternalUrlOpenResponse {
+    let request_id = request_id();
+    let trimmed_url = url.trim();
+
+    if trimmed_url.is_empty() {
+        return ExternalUrlOpenResponse {
+            request_id,
+            ok: false,
+            error: Some("URL must not be empty.".to_string()),
+        };
+    }
+
+    if !trimmed_url.starts_with("http://") && !trimmed_url.starts_with("https://") {
+        return ExternalUrlOpenResponse {
+            request_id,
+            ok: false,
+            error: Some("URL must start with http:// or https://.".to_string()),
+        };
+    }
+
+    match open_url_in_default_browser(trimmed_url) {
+        Ok(()) => ExternalUrlOpenResponse {
+            request_id,
+            ok: true,
+            error: None,
+        },
+        Err(error) => ExternalUrlOpenResponse {
+            request_id,
+            ok: false,
+            error: Some(error),
+        },
+    }
+}
+
+#[tauri::command]
 fn gh_open_branch(payload: GhBranchActionPayload) -> GhBranchActionResponse {
     let request_id = request_id();
     let (cwd, branch) = match validate_gh_branch_action_payload(&payload) {
@@ -6963,11 +8771,7 @@ fn groove_list_blocking(
         }
     };
 
-    let mut telemetry_enabled = payload
-        .workspace_meta
-        .as_ref()
-        .and_then(|meta| meta.telemetry_enabled)
-        .unwrap_or(true);
+    let telemetry_enabled = telemetry_enabled_for_app(&app);
 
     let workspace_root = match resolve_workspace_root(
         &app,
@@ -6981,7 +8785,7 @@ fn groove_list_blocking(
             let resolve_elapsed = total_started_at.elapsed();
             if telemetry_enabled {
                 eprintln!(
-                    "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=resolve-error",
+                    "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=resolve-error collector=none fallback_used=false",
                     resolve_elapsed.as_millis(),
                     exec_elapsed.as_millis(),
                     parse_elapsed.as_millis(),
@@ -6999,11 +8803,6 @@ fn groove_list_blocking(
             };
         }
     };
-    telemetry_enabled = payload
-        .workspace_meta
-        .as_ref()
-        .and_then(|meta| meta.telemetry_enabled)
-        .unwrap_or_else(|| telemetry_enabled_for_workspace_root(&workspace_root));
     let resolve_elapsed = total_started_at.elapsed();
 
     let cache_key = groove_list_cache_key(
@@ -7014,16 +8813,18 @@ fn groove_list_blocking(
     );
 
     let mut stale_response: Option<GrooveListResponse> = None;
+    let mut previous_native_cache: Option<GrooveListNativeCache> = None;
     if let Some(cache_state) = app.try_state::<GrooveListCacheState>() {
         if let Ok(mut entries) = cache_state.entries.lock() {
             if let Some(cached) = entries.get(&cache_key) {
+                previous_native_cache = cached.native_cache.clone();
                 let cache_age = cached.created_at.elapsed();
                 if cache_age <= GROOVE_LIST_CACHE_TTL {
                     let mut response = cached.response.clone();
                     response.request_id = request_id;
                     if telemetry_enabled {
                         eprintln!(
-                            "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} cache_hit=true",
+                            "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} cache_hit=true collector=cache fallback_used=false",
                             resolve_elapsed.as_millis(),
                             exec_elapsed.as_millis(),
                             parse_elapsed.as_millis(),
@@ -7063,7 +8864,7 @@ fn groove_list_blocking(
             response.request_id = request_id;
             if telemetry_enabled {
                 eprintln!(
-                    "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} stale_while_refresh=true",
+                    "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} stale_while_refresh=true collector=cache fallback_used=false",
                     resolve_elapsed.as_millis(),
                     exec_elapsed.as_millis(),
                     parse_elapsed.as_millis(),
@@ -7119,7 +8920,7 @@ fn groove_list_blocking(
         response.request_id = request_id;
         if telemetry_enabled {
             eprintln!(
-                "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} deduped=true",
+                "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} deduped=true collector=cache fallback_used=false",
                 resolve_elapsed.as_millis(),
                 exec_elapsed.as_millis(),
                 parse_elapsed.as_millis(),
@@ -7129,29 +8930,108 @@ fn groove_list_blocking(
         return response;
     }
 
-    let mut args = vec!["list".to_string()];
-    if let Some(dir) = dir.clone() {
-        args.push("--dir".to_string());
-        args.push(dir);
+    let collector: String;
+    let mut fallback_used = false;
+    let mut native_error: Option<String> = None;
+    let mut native_reused_worktrees = 0usize;
+    let mut native_recomputed_worktrees = 0usize;
+    let mut cache_native: Option<GrooveListNativeCache> = None;
+
+    let response = if groove_list_native_enabled() {
+        let native_started_at = Instant::now();
+        match collect_groove_list_rows_native(
+            &workspace_root,
+            &known_worktrees,
+            &dir,
+            previous_native_cache.as_ref(),
+        ) {
+            Ok(native) => {
+                exec_elapsed = native_started_at.elapsed();
+                collector = "native".to_string();
+                native_reused_worktrees = native.reused_worktrees;
+                native_recomputed_worktrees = native.recomputed_worktrees;
+                cache_native = Some(native.cache);
+                GrooveListResponse {
+                    request_id,
+                    ok: true,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    rows: native.rows,
+                    stdout: String::new(),
+                    stderr: native.warning.unwrap_or_default(),
+                    error: None,
+                }
+            }
+            Err(error) => {
+                fallback_used = true;
+                native_error = Some(error);
+                collector = "shell".to_string();
+                let (result, rows, shell_exec_elapsed, shell_parse_elapsed) =
+                    collect_groove_list_via_shell(&app, &workspace_root, &known_worktrees, &dir);
+                exec_elapsed = shell_exec_elapsed;
+                parse_elapsed = shell_parse_elapsed;
+
+                if result.exit_code != Some(0) || result.error.is_some() {
+                    GrooveListResponse {
+                        request_id,
+                        ok: false,
+                        workspace_root: Some(workspace_root.display().to_string()),
+                        rows: HashMap::new(),
+                        stdout: result.stdout,
+                        stderr: result.stderr,
+                        error: result
+                            .error
+                            .or_else(|| Some("groove list failed.".to_string())),
+                    }
+                } else {
+                    GrooveListResponse {
+                        request_id,
+                        ok: true,
+                        workspace_root: Some(workspace_root.display().to_string()),
+                        rows,
+                        stdout: result.stdout,
+                        stderr: result.stderr,
+                        error: None,
+                    }
+                }
+            }
+        }
+    } else {
+        collector = "shell".to_string();
+        let (result, rows, shell_exec_elapsed, shell_parse_elapsed) =
+            collect_groove_list_via_shell(&app, &workspace_root, &known_worktrees, &dir);
+        exec_elapsed = shell_exec_elapsed;
+        parse_elapsed = shell_parse_elapsed;
+
+        if result.exit_code != Some(0) || result.error.is_some() {
+            GrooveListResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                rows: HashMap::new(),
+                stdout: result.stdout,
+                stderr: result.stderr,
+                error: result
+                    .error
+                    .or_else(|| Some("groove list failed.".to_string())),
+            }
+        } else {
+            GrooveListResponse {
+                request_id,
+                ok: true,
+                workspace_root: Some(workspace_root.display().to_string()),
+                rows,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                error: None,
+            }
+        }
+    };
+
+    if response.ok && cache_native.is_none() {
+        cache_native = previous_native_cache;
     }
 
-    let exec_started_at = Instant::now();
-    let result = run_command(&groove_binary_path(&app), &args, &workspace_root);
-    exec_elapsed = exec_started_at.elapsed();
-
-    if result.exit_code != Some(0) || result.error.is_some() {
-        let response = GrooveListResponse {
-            request_id,
-            ok: false,
-            workspace_root: Some(workspace_root.display().to_string()),
-            rows: HashMap::new(),
-            stdout: result.stdout,
-            stderr: result.stderr,
-            error: result
-                .error
-                .or_else(|| Some("groove list failed.".to_string())),
-        };
-
+    if !response.ok {
         if let Some(cache_state) = app.try_state::<GrooveListCacheState>() {
             if let Some(cell) = leader_cell {
                 if let Ok(mut guard) = cell.response.lock() {
@@ -7166,30 +9046,21 @@ fn groove_list_blocking(
 
         if telemetry_enabled {
             eprintln!(
-                "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=exec-error",
+                "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=exec-error collector={} fallback_used={} native_error={} native_reused_worktrees={} native_recomputed_worktrees={}",
                 resolve_elapsed.as_millis(),
                 exec_elapsed.as_millis(),
                 parse_elapsed.as_millis(),
                 total_started_at.elapsed().as_millis(),
+                collector,
+                fallback_used,
+                native_error.is_some(),
+                native_reused_worktrees,
+                native_recomputed_worktrees,
             );
         }
 
         return response;
     }
-
-    let parse_started_at = Instant::now();
-    let rows = parse_groove_list_output(&result.stdout, &known_worktrees);
-    parse_elapsed = parse_started_at.elapsed();
-
-    let response = GrooveListResponse {
-        request_id,
-        ok: true,
-        workspace_root: Some(workspace_root.display().to_string()),
-        rows,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        error: None,
-    };
 
     if let Some(cache_state) = app.try_state::<GrooveListCacheState>() {
         if let Ok(mut entries) = cache_state.entries.lock() {
@@ -7198,6 +9069,7 @@ fn groove_list_blocking(
                 GrooveListCacheEntry {
                     created_at: Instant::now(),
                     response: response.clone(),
+                    native_cache: cache_native,
                 },
             );
         }
@@ -7214,11 +9086,16 @@ fn groove_list_blocking(
 
     if telemetry_enabled {
         eprintln!(
-            "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=ok",
+            "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=ok collector={} fallback_used={} native_error={} native_reused_worktrees={} native_recomputed_worktrees={}",
             resolve_elapsed.as_millis(),
             exec_elapsed.as_millis(),
             parse_elapsed.as_millis(),
             total_started_at.elapsed().as_millis(),
+            collector,
+            fallback_used,
+            native_error.is_some(),
+            native_reused_worktrees,
+            native_recomputed_worktrees,
         );
     }
 
@@ -7490,7 +9367,33 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
         }
     }
 
-    let result = run_command(&groove_binary_path(&app), &args, &workspace_root);
+    let result = if action == "go" {
+        let play_groove_command = play_groove_command_for_workspace(&workspace_root);
+        let command_template = play_groove_command.trim();
+        if command_template == DEFAULT_PLAY_GROOVE_COMMAND_TEMPLATE {
+            run_command(&groove_binary_path(&app), &args, &workspace_root)
+        } else {
+            let play_target = target.clone().unwrap_or_default();
+            let (program, command_args) = match resolve_play_groove_command(command_template, &play_target)
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    return GrooveCommandResponse {
+                        request_id,
+                        ok: false,
+                        exit_code: None,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(error),
+                    };
+                }
+            };
+
+            run_command(Path::new(&program), &command_args, &workspace_root)
+        }
+    } else {
+        run_command(&groove_binary_path(&app), &args, &workspace_root)
+    };
     let ok = result.exit_code == Some(0) && result.error.is_none();
     if ok {
         let stamped_worktree = payload.worktree.trim();
@@ -7760,14 +9663,25 @@ fn groove_rm(
         &payload.workspace_meta,
     ) {
         Ok(root) => root,
-        Err(error) => {
-            return GrooveCommandResponse {
-                request_id,
-                ok: false,
-                exit_code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                error: Some(error),
+        Err(primary_error) => {
+            match resolve_workspace_root(
+                &app,
+                &payload.root_name,
+                None,
+                &known_worktrees,
+                &payload.workspace_meta,
+            ) {
+                Ok(root) => root,
+                Err(_) => {
+                    return GrooveCommandResponse {
+                        request_id,
+                        ok: false,
+                        exit_code: None,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(primary_error),
+                    }
+                }
             }
         }
     };
@@ -8531,7 +10445,7 @@ fn testing_environment_set_target(
             && has_any_running_in_workspace
             && !has_running_instance_for_target
         {
-            if let Err(error) = start_testing_instance_for_target(&target, &mut runtime) {
+            if let Err(error) = start_testing_instance_for_target(&app, &target, &mut runtime) {
                 return build_testing_environment_response(
                     request_id,
                     Some(&workspace_root),
@@ -8722,7 +10636,7 @@ fn testing_environment_start(
             !(existing.workspace_root == workspace_root_string && existing.worktree == worktree)
         });
         runtime.persisted.targets.push(target.clone());
-        if let Err(error) = start_testing_instance_for_target(&target, &mut runtime) {
+        if let Err(error) = start_testing_instance_for_target(&app, &target, &mut runtime) {
             return build_testing_environment_response(
                 request_id,
                 Some(&workspace_root),
@@ -8758,7 +10672,7 @@ fn testing_environment_start(
             );
         }
         for target in targets {
-            if let Err(error) = start_testing_instance_for_target(&target, &mut runtime) {
+            if let Err(error) = start_testing_instance_for_target(&app, &target, &mut runtime) {
                 return build_testing_environment_response(
                     request_id,
                     Some(&workspace_root),
@@ -8966,9 +10880,16 @@ fn testing_environment_start_separate_terminal(
     };
     let default_terminal = normalize_default_terminal(&workspace_meta.default_terminal)
         .unwrap_or_else(|_| default_terminal_auto());
+    let configured_ports = testing_ports_for_workspace(&workspace_root);
+    let mut used_ports = runtime
+        .persisted
+        .running_instances
+        .iter()
+        .filter_map(|instance| instance.port)
+        .collect::<HashSet<_>>();
 
     for target in targets_to_start {
-        let port = match allocate_testing_port() {
+        let port = match allocate_testing_port(&configured_ports, &used_ports) {
             Ok(value) => value,
             Err(error) => {
                 return build_testing_environment_response(
@@ -8979,6 +10900,7 @@ fn testing_environment_start_separate_terminal(
                 );
             }
         };
+        used_ports.insert(port);
         let (result, command_for_state) = if default_terminal == "custom" {
             let Some(custom_command) = workspace_meta
                 .terminal_custom_command
@@ -9337,10 +11259,12 @@ fn groove_bin_repair(app: AppHandle, state: State<GrooveBinStatusState>) -> Groo
 }
 
 #[tauri::command]
-fn diagnostics_list_opencode_instances() -> DiagnosticsOpencodeInstancesResponse {
+fn diagnostics_list_opencode_instances(app: AppHandle) -> DiagnosticsOpencodeInstancesResponse {
+    let started_at = Instant::now();
     let request_id = request_id();
+    let telemetry_enabled = telemetry_enabled_for_app(&app);
 
-    match list_opencode_process_rows() {
+    let response = match list_opencode_process_rows() {
         Ok(rows) => DiagnosticsOpencodeInstancesResponse {
             request_id,
             ok: true,
@@ -9353,7 +11277,20 @@ fn diagnostics_list_opencode_instances() -> DiagnosticsOpencodeInstancesResponse
             rows: Vec::new(),
             error: Some(error),
         },
-    }
+    };
+
+    let details = format!(
+        "outcome={} rows={}",
+        if response.ok { "ok" } else { "error" },
+        response.rows.len(),
+    );
+    log_backend_timing(
+        telemetry_enabled,
+        "diagnostics.list_opencode_instances",
+        started_at.elapsed(),
+        details.as_str(),
+    );
+    response
 }
 
 #[tauri::command]
@@ -9434,10 +11371,12 @@ fn diagnostics_stop_all_opencode_instances() -> DiagnosticsStopAllResponse {
 }
 
 #[tauri::command]
-fn diagnostics_list_worktree_node_apps() -> DiagnosticsNodeAppsResponse {
+fn diagnostics_list_worktree_node_apps(app: AppHandle) -> DiagnosticsNodeAppsResponse {
+    let started_at = Instant::now();
     let request_id = request_id();
+    let telemetry_enabled = telemetry_enabled_for_app(&app);
 
-    match list_worktree_node_app_rows() {
+    let response = match list_worktree_node_app_rows() {
         Ok((rows, warning)) => DiagnosticsNodeAppsResponse {
             request_id,
             ok: true,
@@ -9452,16 +11391,32 @@ fn diagnostics_list_worktree_node_apps() -> DiagnosticsNodeAppsResponse {
             warning: None,
             error: Some(error),
         },
-    }
+    };
+
+    let details = format!(
+        "outcome={} rows={} has_warning={}",
+        if response.ok { "ok" } else { "error" },
+        response.rows.len(),
+        response.warning.is_some(),
+    );
+    log_backend_timing(
+        telemetry_enabled,
+        "diagnostics.list_worktree_node_apps",
+        started_at.elapsed(),
+        details.as_str(),
+    );
+    response
 }
 
 #[tauri::command]
-fn diagnostics_clean_all_dev_servers() -> DiagnosticsStopAllResponse {
+fn diagnostics_clean_all_dev_servers(app: AppHandle) -> DiagnosticsStopAllResponse {
+    let started_at = Instant::now();
     let request_id = request_id();
+    let telemetry_enabled = telemetry_enabled_for_app(&app);
     let (snapshot_rows, _warning) = match list_process_snapshot_rows() {
         Ok(value) => value,
         Err(error) => {
-            return DiagnosticsStopAllResponse {
+            let response = DiagnosticsStopAllResponse {
                 request_id,
                 ok: false,
                 attempted: 0,
@@ -9470,14 +11425,21 @@ fn diagnostics_clean_all_dev_servers() -> DiagnosticsStopAllResponse {
                 failed: 0,
                 errors: Vec::new(),
                 error: Some(error),
-            }
+            };
+            log_backend_timing(
+                telemetry_enabled,
+                "diagnostics.clean_all_dev_servers",
+                started_at.elapsed(),
+                "outcome=error attempted=0 stopped=0 already_stopped=0 failed=0",
+            );
+            return response;
         }
     };
 
     let pids = snapshot_rows
         .into_iter()
         .filter(|row| {
-            is_opencode_process(row.process_name.as_deref(), &row.command)
+            is_worktree_opencode_process(row.process_name.as_deref(), &row.command)
                 || is_worktree_node_process(row.process_name.as_deref(), &row.command)
                 || command_matches_turbo_dev(&row.command)
         })
@@ -9488,7 +11450,7 @@ fn diagnostics_clean_all_dev_servers() -> DiagnosticsStopAllResponse {
 
     let (stopped, already_stopped, failed, errors) = stop_pid_set(&pids);
 
-    DiagnosticsStopAllResponse {
+    let response = DiagnosticsStopAllResponse {
         request_id,
         ok: failed == 0,
         attempted: pids.len(),
@@ -9504,14 +11466,32 @@ fn diagnostics_clean_all_dev_servers() -> DiagnosticsStopAllResponse {
                 failed
             ))
         },
-    }
+    };
+
+    let details = format!(
+        "outcome={} attempted={} stopped={} already_stopped={} failed={}",
+        if response.ok { "ok" } else { "error" },
+        response.attempted,
+        response.stopped,
+        response.already_stopped,
+        response.failed,
+    );
+    log_backend_timing(
+        telemetry_enabled,
+        "diagnostics.clean_all_dev_servers",
+        started_at.elapsed(),
+        details.as_str(),
+    );
+    response
 }
 
 #[tauri::command]
-fn diagnostics_get_msot_consuming_programs() -> DiagnosticsMostConsumingProgramsResponse {
+fn diagnostics_get_msot_consuming_programs(app: AppHandle) -> DiagnosticsMostConsumingProgramsResponse {
+    let started_at = Instant::now();
     let request_id = request_id();
+    let telemetry_enabled = telemetry_enabled_for_app(&app);
 
-    match get_msot_consuming_programs_output() {
+    let response = match get_msot_consuming_programs_output() {
         Ok(output) => DiagnosticsMostConsumingProgramsResponse {
             request_id,
             ok: true,
@@ -9524,7 +11504,56 @@ fn diagnostics_get_msot_consuming_programs() -> DiagnosticsMostConsumingPrograms
             output: String::new(),
             error: Some(error),
         },
-    }
+    };
+
+    let details = format!(
+        "outcome={} output_len={}",
+        if response.ok { "ok" } else { "error" },
+        response.output.len(),
+    );
+    log_backend_timing(
+        telemetry_enabled,
+        "diagnostics.get_msot_consuming_programs",
+        started_at.elapsed(),
+        details.as_str(),
+    );
+    response
+}
+
+#[tauri::command]
+fn diagnostics_get_system_overview(app: AppHandle) -> DiagnosticsSystemOverviewResponse {
+    let started_at = Instant::now();
+    let request_id = request_id();
+    let telemetry_enabled = telemetry_enabled_for_app(&app);
+
+    let overview = collect_system_overview();
+    let response = DiagnosticsSystemOverviewResponse {
+        request_id,
+        ok: true,
+        overview: Some(overview),
+        error: None,
+    };
+
+    let details = if let Some(overview) = response.overview.as_ref() {
+        format!(
+            "outcome=ok cpu={} ram={} swap={} disk={} platform={}",
+            overview.cpu_usage_percent.is_some(),
+            overview.ram_usage_percent.is_some(),
+            overview.swap_usage_percent.is_some(),
+            overview.disk_usage_percent.is_some(),
+            overview.platform,
+        )
+    } else {
+        "outcome=ok overview=false".to_string()
+    };
+    log_backend_timing(
+        telemetry_enabled,
+        "diagnostics.get_system_overview",
+        started_at.elapsed(),
+        details.as_str(),
+    );
+
+    response
 }
 
 #[tauri::command]
@@ -9750,6 +11779,8 @@ pub fn run() {
                 *stored = Some(status);
             }
 
+            let _ = ensure_global_settings(&app.handle());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -9757,7 +11788,12 @@ pub fn run() {
             workspace_open,
             workspace_get_active,
             workspace_clear_active,
+            workspace_gitignore_sanity_check,
+            workspace_gitignore_sanity_apply,
+            global_settings_get,
+            global_settings_update,
             workspace_update_terminal_settings,
+            workspace_update_commands_settings,
             workspace_open_terminal,
             git_auth_status,
             git_status,
@@ -9781,6 +11817,7 @@ pub fn run() {
             gh_auth_logout,
             gh_pr_list,
             gh_pr_create,
+            open_external_url,
             gh_open_branch,
             gh_open_active_pr,
             gh_check_branch_pr,
@@ -9802,6 +11839,7 @@ pub fn run() {
             diagnostics_list_worktree_node_apps,
             diagnostics_clean_all_dev_servers,
             diagnostics_get_msot_consuming_programs,
+            diagnostics_get_system_overview,
             workspace_events
         ])
         .run(tauri::generate_context!())

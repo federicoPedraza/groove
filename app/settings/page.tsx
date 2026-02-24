@@ -806,14 +806,14 @@ export default function SettingsPage() {
                 }}
               />
               <span className="inline-flex items-center gap-1.5">
-                <span>Disable Groove loading section</span>
+                <span>Disable monkey</span>
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
                         type="button"
                         className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        aria-label="About Groove loading section"
+                        aria-label="About Disable monkey"
                         onClick={(event) => {
                           event.preventDefault();
                         }}
@@ -821,7 +821,7 @@ export default function SettingsPage() {
                         <CircleHelp aria-hidden="true" className="size-3" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Hides the sidebar loading indicator on desktop.</TooltipContent>
+                    <TooltipContent>Hides the sidebar monkey sprite frame on desktop.</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </span>

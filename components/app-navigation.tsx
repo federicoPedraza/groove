@@ -24,6 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   grooveList,
+  isGrooveLoadingSectionDisabled,
   isShowFpsEnabled,
   isTelemetryEnabled,
   listenWorkspaceChange,
@@ -174,6 +175,10 @@ function getIsShowFpsEnabledSnapshot(): boolean {
   return isShowFpsEnabled();
 }
 
+function getIsGrooveLoadingSectionDisabledSnapshot(): boolean {
+  return isGrooveLoadingSectionDisabled();
+}
+
 function GrooveLoadingSprite({ isLoading, isCompact = false, shouldShowFrameIndex }: GrooveLoadingSpriteProps) {
   const [, setIdleClickCount] = useState(0);
   const [isPlayingFalling, setIsPlayingFalling] = useState(false);
@@ -297,6 +302,11 @@ function AppNavigation({ hasOpenWorkspace, isHelpOpen, onHelpClick, pageSidebar 
     subscribeToGlobalSettings,
     getIsShowFpsEnabledSnapshot,
     getIsShowFpsEnabledSnapshot,
+  );
+  const shouldHideGrooveLoadingSection = useSyncExternalStore(
+    subscribeToGlobalSettings,
+    getIsGrooveLoadingSectionDisabledSnapshot,
+    getIsGrooveLoadingSectionDisabledSnapshot,
   );
 
   const isHomeActive = pathname === "/";
@@ -466,21 +476,23 @@ function AppNavigation({ hasOpenWorkspace, isHelpOpen, onHelpClick, pageSidebar 
       <div className="hidden shrink-0 md:sticky md:top-4 md:flex md:self-start md:flex-col md:gap-4">
         <Sidebar collapsed={isSidebarCollapsed}>
           <SidebarHeader>
-            <div className="flex items-center justify-center">
-              <div
-                className={cn(
-                  "flex shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/70 bg-background",
-                  isSidebarCollapsed ? "h-12 w-12" : "h-[128px] w-[144px]",
-                )}
-              >
-                <GrooveLoadingSprite
-                  isLoading={hasReadyWorktree}
-                  isCompact={isSidebarCollapsed}
-                  shouldShowFrameIndex={shouldShowFps}
-                />
+            {!shouldHideGrooveLoadingSection && (
+              <div className="flex items-center justify-center">
+                <div
+                  className={cn(
+                    "flex shrink-0 items-center justify-center overflow-hidden rounded-sm border border-border/70 bg-background",
+                    isSidebarCollapsed ? "h-12 w-12" : "h-[128px] w-[144px]",
+                  )}
+                >
+                  <GrooveLoadingSprite
+                    isLoading={hasReadyWorktree}
+                    isCompact={isSidebarCollapsed}
+                    shouldShowFrameIndex={shouldShowFps}
+                  />
+                </div>
               </div>
-            </div>
-            <div className="mt-4 flex items-center justify-between gap-2">
+            )}
+            <div className={cn("flex items-center justify-between gap-2", !shouldHideGrooveLoadingSection && "mt-4")}>
               {!isSidebarCollapsed && (
                 <div className="px-2">
                   <span className="text-sm font-bold text-foreground">GROOVE</span>

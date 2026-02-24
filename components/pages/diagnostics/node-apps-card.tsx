@@ -1,9 +1,11 @@
-import { CircleStop, Loader2, RefreshCw } from "lucide-react";
+import { CircleStop, Loader2, OctagonX, RefreshCw } from "lucide-react";
 
 import { ProcessActionButton } from "@/components/pages/diagnostics/process-action-button";
+import { SOFT_RED_BUTTON_CLASSES } from "@/components/pages/diagnostics/constants";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { DiagnosticsNodeAppRow } from "@/src/lib/ipc";
 
 type NodeAppsCardProps = {
@@ -12,9 +14,11 @@ type NodeAppsCardProps = {
   hasLoadedSnapshots: boolean;
   isLoadingNodeApps: boolean;
   isCleaningAllDevServers: boolean;
+  isClosingAllNodeInstances: boolean;
   nodeAppsError: string | null;
   nodeAppsWarning: string | null;
   onRefresh: () => void;
+  onCloseAllNodeInstances: () => void;
   onStopProcess: (pid: number) => void;
 };
 
@@ -24,16 +28,20 @@ export function NodeAppsCard({
   hasLoadedSnapshots,
   isLoadingNodeApps,
   isCleaningAllDevServers,
+  isClosingAllNodeInstances,
   nodeAppsError,
   nodeAppsWarning,
   onRefresh,
+  onCloseAllNodeInstances,
   onStopProcess,
 }: NodeAppsCardProps) {
+  const closeAllNodeLabel = isClosingAllNodeInstances ? "Closing all Node instances" : "Close all Node instances";
+
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="space-y-1">
+          <div className="space-y-2">
             <CardTitle>Current Node Apps Running</CardTitle>
             <CardDescription>
               Worktree process view for likely Node commands that include <code>.worktree/</code> or <code>.worktrees/</code> paths.
@@ -44,10 +52,36 @@ export function NodeAppsCard({
               </CardDescription>
             )}
           </div>
-          <Button type="button" size="sm" variant="outline" onClick={onRefresh} disabled={isLoadingNodeApps || isCleaningAllDevServers}>
-            {isLoadingNodeApps ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RefreshCw aria-hidden="true" className="size-4" />}
-            <span>Refresh</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onRefresh}
+              disabled={isLoadingNodeApps || isCleaningAllDevServers || isClosingAllNodeInstances}
+            >
+              {isLoadingNodeApps ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RefreshCw aria-hidden="true" className="size-4" />}
+              <span>Refresh</span>
+            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className={`h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`}
+                    onClick={onCloseAllNodeInstances}
+                    disabled={isLoadingNodeApps || isCleaningAllDevServers || isClosingAllNodeInstances || nodeAppRows.length === 0}
+                    aria-label={closeAllNodeLabel}
+                  >
+                    {isClosingAllNodeInstances ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <OctagonX aria-hidden="true" className="size-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{closeAllNodeLabel}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -78,7 +112,7 @@ export function NodeAppsCard({
               </TableHeader>
               <TableBody>
                 {nodeAppRows.map((row) => {
-                  const isPending = pendingStopPids.includes(row.pid) || isCleaningAllDevServers;
+                  const isPending = pendingStopPids.includes(row.pid) || isCleaningAllDevServers || isClosingAllNodeInstances;
                   return (
                     <TableRow key={`${row.pid}:${row.ppid}:${row.cmd}`}>
                       <TableCell className="font-mono text-xs">{String(row.pid)}</TableCell>

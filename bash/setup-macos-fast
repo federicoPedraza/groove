@@ -66,49 +66,27 @@ ensure_brew_in_path() {
   command -v brew >/dev/null 2>&1 || fail "homebrew installed but 'brew' is still unavailable in PATH"
 }
 
-ensure_node_and_npm() {
+ensure_node_and_npm_prerequisite() {
   if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
     log "node and npm are already available ($(node -v), npm $(npm -v))"
     return
   fi
 
-  log "installing node LTS via homebrew (node@22)"
-  brew list node@22 >/dev/null 2>&1 || brew install node@22
-
-  if ! brew list node@22 >/dev/null 2>&1; then
-    fail "could not install node@22 with homebrew"
-  fi
-
-  if [[ -x "$(brew --prefix node@22)/bin/node" ]]; then
-    export PATH="$(brew --prefix node@22)/bin:$PATH"
-  fi
-
-  command -v node >/dev/null 2>&1 || fail "node is still unavailable after install"
-  command -v npm >/dev/null 2>&1 || fail "npm is still unavailable after install"
-  log "node and npm ready ($(node -v), npm $(npm -v))"
+  fail "node.js and npm are required but missing. install node.js LTS manually (https://nodejs.org/en/download) and re-run this script"
 }
 
-ensure_rust() {
-  if command -v rustup >/dev/null 2>&1 || command -v cargo >/dev/null 2>&1; then
-    if [[ -f "$HOME/.cargo/env" ]]; then
-      # shellcheck disable=SC1090
-      source "$HOME/.cargo/env"
-    fi
-    command -v cargo >/dev/null 2>&1 || fail "rust tooling detected but cargo is not available"
-    log "rust is already available ($(rustc --version 2>/dev/null || true))"
-    return
-  fi
-
-  log "installing rust via rustup"
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
+ensure_rust_prerequisite() {
   if [[ -f "$HOME/.cargo/env" ]]; then
     # shellcheck disable=SC1090
     source "$HOME/.cargo/env"
   fi
 
-  command -v cargo >/dev/null 2>&1 || fail "rust installation completed but cargo is unavailable"
-  log "rust ready ($(rustc --version))"
+  if command -v rustc >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
+    log "rust is already available ($(rustc --version))"
+    return
+  fi
+
+  fail "rust is required but missing. install via rustup (https://rustup.rs/) and re-run this script"
 }
 
 ensure_create_dmg() {
@@ -132,16 +110,26 @@ run_sanity_check() {
   npm run check:rust
 }
 
+run_sidecar_check() {
+  log "checking macOS sidecars"
+  if ./bash/check-macos-sidecars; then
+    return
+  fi
+
+  fail "required macOS sidecars are missing or not executable. place both files in src-tauri/binaries/ and run: chmod +x src-tauri/binaries/groove-aarch64-apple-darwin src-tauri/binaries/groove-x86_64-apple-darwin"
+}
+
 log "starting macOS fast setup"
 ensure_homebrew
 ensure_brew_in_path
-ensure_node_and_npm
-ensure_rust
+ensure_node_and_npm_prerequisite
+ensure_rust_prerequisite
 ensure_create_dmg
 
 cd "$repo_root"
 install_project_dependencies
 run_sanity_check
+run_sidecar_check
 
 log "setup complete"
 log "next step: npm run tauri:dev"

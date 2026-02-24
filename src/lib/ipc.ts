@@ -2,8 +2,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { trackCommandExecution } from "@/lib/command-history";
+import { DEFAULT_THEME_MODE, type ThemeMode } from "@/src/lib/theme-constants";
 
 export type DefaultTerminal = "auto" | "ghostty" | "warp" | "kitty" | "gnome" | "xterm" | "none" | "custom";
+
+export type CommandIntent = "blocking" | "background";
+
+export const DEFAULT_PLAY_GROOVE_COMMAND = "groove go {target}";
+export const DEFAULT_TESTING_PORTS = [3000, 3001, 3002] as const;
+
+type InvokeCommandOptions = {
+  intent?: CommandIntent;
+};
 
 type WorkspaceMeta = {
   version: number;
@@ -13,12 +23,18 @@ type WorkspaceMeta = {
   defaultTerminal?: DefaultTerminal;
   terminalCustomCommand?: string | null;
   telemetryEnabled?: boolean;
+  disableGrooveLoadingSection?: boolean;
+  showFps?: boolean;
+  playGrooveCommand?: string;
+  testingPorts?: number[];
 };
 
 export type WorkspaceTerminalSettingsPayload = {
   defaultTerminal: DefaultTerminal;
   terminalCustomCommand?: string | null;
   telemetryEnabled?: boolean;
+  disableGrooveLoadingSection?: boolean;
+  showFps?: boolean;
 };
 
 export type WorkspaceTerminalSettingsResponse = {
@@ -26,6 +42,36 @@ export type WorkspaceTerminalSettingsResponse = {
   ok: boolean;
   workspaceRoot?: string;
   workspaceMeta?: WorkspaceMeta;
+  error?: string;
+};
+
+export type WorkspaceCommandSettingsResponse = WorkspaceTerminalSettingsResponse;
+
+export type GlobalSettings = {
+  telemetryEnabled: boolean;
+  disableGrooveLoadingSection: boolean;
+  showFps: boolean;
+  alwaysShowDiagnosticsSidebar: boolean;
+  themeMode: ThemeMode;
+};
+
+export type GlobalSettingsUpdatePayload = {
+  telemetryEnabled?: boolean;
+  disableGrooveLoadingSection?: boolean;
+  showFps?: boolean;
+  alwaysShowDiagnosticsSidebar?: boolean;
+  themeMode?: ThemeMode;
+};
+
+export type WorkspaceCommandSettingsPayload = {
+  playGrooveCommand: string;
+  testingPorts: number[];
+};
+
+export type GlobalSettingsResponse = {
+  requestId?: string;
+  ok: boolean;
+  globalSettings?: GlobalSettings;
   error?: string;
 };
 
@@ -47,6 +93,18 @@ export type WorkspaceContextResponse = {
   hasWorktreesDirectory?: boolean;
   rows: WorkspaceRow[];
   cancelled?: boolean;
+  error?: string;
+};
+
+export type WorkspaceGitignoreSanityResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  isApplicable: boolean;
+  hasGrooveEntry: boolean;
+  hasWorkspaceEntry: boolean;
+  missingEntries: string[];
+  patched?: boolean;
   error?: string;
 };
 
@@ -215,6 +273,12 @@ export type TestingEnvironmentResponse = {
   error?: string;
 };
 
+export type ExternalUrlOpenResponse = {
+  requestId?: string;
+  ok: boolean;
+  error?: string;
+};
+
 export type DiagnosticsProcessRow = {
   pid: number;
   processName: string;
@@ -265,6 +329,29 @@ export type DiagnosticsMostConsumingProgramsResponse = {
   requestId?: string;
   ok: boolean;
   output: string;
+  error?: string;
+};
+
+export type DiagnosticsSystemOverview = {
+  cpuUsagePercent?: number;
+  cpuCores?: number;
+  ramTotalBytes?: number;
+  ramUsedBytes?: number;
+  ramUsagePercent?: number;
+  swapTotalBytes?: number;
+  swapUsedBytes?: number;
+  swapUsagePercent?: number;
+  diskTotalBytes?: number;
+  diskUsedBytes?: number;
+  diskUsagePercent?: number;
+  platform: string;
+  hostname?: string;
+};
+
+export type DiagnosticsSystemOverviewResponse = {
+  requestId?: string;
+  ok: boolean;
+  overview?: DiagnosticsSystemOverview;
   error?: string;
 };
 
@@ -574,6 +661,7 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "testing_environment_get_status",
   "workspace_events",
   "workspace_get_active",
+  "workspace_gitignore_sanity_check",
   "groove_bin_status",
   "groove_bin_repair",
   "git_auth_status",
@@ -585,42 +673,159 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "gh_detect_repo",
   "gh_auth_status",
   "gh_check_branch_pr",
+  "global_settings_get",
+  "global_settings_update",
+  "diagnostics_get_system_overview",
 ]);
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 const MAX_ARGS_SUMMARY_LENGTH = 180;
+const MAX_IPC_TELEMETRY_SAMPLES = 500;
 
-let inflightInvokeCount = 0;
-let latestTelemetryEnabled = true;
+type IpcTelemetryAggregate = {
+  count: number;
+  sumMs: number;
+  maxMs: number;
+  samples: number[];
+};
 
-function resolveTelemetryEnabled(value: WorkspaceMeta | null | undefined): boolean {
-  return value?.telemetryEnabled !== false;
+export type IpcTelemetrySummaryRow = {
+  command: string;
+  count: number;
+  avg_ms: number;
+  p50_ms: number;
+  p95_ms: number;
+  max_ms: number;
+};
+
+const ipcTelemetryAggregates = new Map<string, IpcTelemetryAggregate>();
+
+declare global {
+  interface Window {
+    __grooveTelemetrySummary?: () => IpcTelemetrySummaryRow[];
+    __grooveTelemetrySummaryClear?: () => void;
+  }
 }
 
-function syncTelemetryEnabledFromResult(result: unknown): void {
+let inflightInvokeCount = 0;
+const inflightInvokes = new Map<string, { promise: Promise<unknown>; joinedCalls: number }>();
+let blockingInvokeCount = 0;
+let latestGlobalSettings: GlobalSettings = {
+  telemetryEnabled: true,
+  disableGrooveLoadingSection: false,
+  showFps: false,
+  alwaysShowDiagnosticsSidebar: false,
+  themeMode: DEFAULT_THEME_MODE,
+};
+const globalSettingsListeners = new Set<() => void>();
+const blockingInvokeListeners = new Set<() => void>();
+
+function isThemeMode(value: unknown): value is ThemeMode {
+  return value === "light" || value === "groove" || value === "dark-groove" || value === "dark";
+}
+
+function normalizeGlobalSettings(value: Partial<GlobalSettings> | null | undefined): GlobalSettings {
+  return {
+    telemetryEnabled: value?.telemetryEnabled !== false,
+    disableGrooveLoadingSection: value?.disableGrooveLoadingSection === true,
+    showFps: value?.showFps === true,
+    alwaysShowDiagnosticsSidebar: value?.alwaysShowDiagnosticsSidebar === true,
+    themeMode: isThemeMode(value?.themeMode) ? value.themeMode : DEFAULT_THEME_MODE,
+  };
+}
+
+function emitGlobalSettingsChanged(): void {
+  for (const listener of globalSettingsListeners) {
+    listener();
+  }
+}
+
+function emitBlockingInvokeChanged(): void {
+  for (const listener of blockingInvokeListeners) {
+    listener();
+  }
+}
+
+function updateBlockingInvokeCount(delta: number): void {
+  const nextCount = Math.max(0, blockingInvokeCount + delta);
+  if (nextCount === blockingInvokeCount) {
+    return;
+  }
+  blockingInvokeCount = nextCount;
+  emitBlockingInvokeChanged();
+}
+
+function syncGlobalSettingsFromResult(result: unknown): void {
   if (!result || typeof result !== "object") {
     return;
   }
 
   const response = result as {
-    ok?: unknown;
-    workspaceRoot?: unknown;
-    workspaceMeta?: WorkspaceMeta | null;
+    globalSettings?: Partial<GlobalSettings> | null;
   };
 
-  if (response.workspaceMeta && typeof response.workspaceMeta === "object") {
-    latestTelemetryEnabled = resolveTelemetryEnabled(response.workspaceMeta);
+  if (!response.globalSettings || typeof response.globalSettings !== "object") {
     return;
   }
 
-  if (response.ok === true && response.workspaceRoot == null) {
-    latestTelemetryEnabled = true;
+  const nextGlobalSettings = normalizeGlobalSettings(response.globalSettings);
+  const didChange =
+    nextGlobalSettings.telemetryEnabled !== latestGlobalSettings.telemetryEnabled ||
+    nextGlobalSettings.disableGrooveLoadingSection !== latestGlobalSettings.disableGrooveLoadingSection ||
+    nextGlobalSettings.showFps !== latestGlobalSettings.showFps ||
+    nextGlobalSettings.alwaysShowDiagnosticsSidebar !== latestGlobalSettings.alwaysShowDiagnosticsSidebar ||
+    nextGlobalSettings.themeMode !== latestGlobalSettings.themeMode;
+
+  latestGlobalSettings = nextGlobalSettings;
+
+  if (didChange) {
+    emitGlobalSettingsChanged();
   }
 }
 
 export function isTelemetryEnabled(): boolean {
-  return latestTelemetryEnabled;
+  return latestGlobalSettings.telemetryEnabled;
 }
+
+export function isGrooveLoadingSectionDisabled(): boolean {
+  return latestGlobalSettings.disableGrooveLoadingSection;
+}
+
+export function isShowFpsEnabled(): boolean {
+  return latestGlobalSettings.showFps;
+}
+
+export function isAlwaysShowDiagnosticsSidebarEnabled(): boolean {
+  return latestGlobalSettings.alwaysShowDiagnosticsSidebar;
+}
+
+export function getThemeMode(): ThemeMode {
+  return latestGlobalSettings.themeMode;
+}
+
+export function getGlobalSettingsSnapshot(): GlobalSettings {
+  return latestGlobalSettings;
+}
+
+export function subscribeToGlobalSettings(listener: () => void): () => void {
+  globalSettingsListeners.add(listener);
+  return () => {
+    globalSettingsListeners.delete(listener);
+  };
+}
+
+export function hasBlockingInvokeInFlight(): boolean {
+  return blockingInvokeCount > 0;
+}
+
+export function subscribeToBlockingInvokes(listener: () => void): () => void {
+  blockingInvokeListeners.add(listener);
+  return () => {
+    blockingInvokeListeners.delete(listener);
+  };
+}
+
+export const subscribeToWorkspaceSettings = subscribeToGlobalSettings;
 
 function summarizeArgValue(value: unknown): string {
   if (typeof value === "string") {
@@ -688,29 +893,214 @@ function resolveTelemetryOutcome(result: unknown): "ok" | "error" | "success" {
   return "success";
 }
 
-async function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+function roundTelemetryMs(value: number): number {
+  return Number(value.toFixed(2));
+}
+
+function getPercentileMs(samples: number[], percentile: number): number {
+  if (samples.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...samples].sort((a, b) => a - b);
+  if (sorted.length === 1) {
+    return sorted[0];
+  }
+
+  const position = (sorted.length - 1) * percentile;
+  const lowerIndex = Math.floor(position);
+  const upperIndex = Math.ceil(position);
+  const lower = sorted[lowerIndex];
+  const upper = sorted[upperIndex];
+  if (lowerIndex === upperIndex) {
+    return lower;
+  }
+
+  const ratio = position - lowerIndex;
+  return lower + (upper - lower) * ratio;
+}
+
+function recordIpcTelemetryDuration(command: string, durationMs: number): void {
+  const safeDurationMs = Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0;
+  const existing = ipcTelemetryAggregates.get(command);
+  if (!existing) {
+    ipcTelemetryAggregates.set(command, {
+      count: 1,
+      sumMs: safeDurationMs,
+      maxMs: safeDurationMs,
+      samples: [safeDurationMs],
+    });
+    return;
+  }
+
+  existing.count += 1;
+  existing.sumMs += safeDurationMs;
+  existing.maxMs = Math.max(existing.maxMs, safeDurationMs);
+
+  if (existing.samples.length < MAX_IPC_TELEMETRY_SAMPLES) {
+    existing.samples.push(safeDurationMs);
+    return;
+  }
+
+  const replacementIndex = Math.floor(Math.random() * existing.count);
+  if (replacementIndex < MAX_IPC_TELEMETRY_SAMPLES) {
+    existing.samples[replacementIndex] = safeDurationMs;
+  }
+}
+
+export function getIpcTelemetrySummary(): IpcTelemetrySummaryRow[] {
+  return [...ipcTelemetryAggregates.entries()]
+    .map(([command, aggregate]) => {
+      const avgMs = aggregate.count === 0 ? 0 : aggregate.sumMs / aggregate.count;
+      return {
+        command,
+        count: aggregate.count,
+        avg_ms: roundTelemetryMs(avgMs),
+        p50_ms: roundTelemetryMs(getPercentileMs(aggregate.samples, 0.5)),
+        p95_ms: roundTelemetryMs(getPercentileMs(aggregate.samples, 0.95)),
+        max_ms: roundTelemetryMs(aggregate.maxMs),
+      };
+    })
+    .sort((a, b) => b.p95_ms - a.p95_ms || b.count - a.count || a.command.localeCompare(b.command));
+}
+
+export function printIpcTelemetrySummary(): IpcTelemetrySummaryRow[] {
+  const rows = getIpcTelemetrySummary();
+  console.table(rows);
+  return rows;
+}
+
+export function clearIpcTelemetrySummary(): void {
+  ipcTelemetryAggregates.clear();
+}
+
+function attachIpcTelemetryWindowHelpers(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.__grooveTelemetrySummary = () => printIpcTelemetrySummary();
+  window.__grooveTelemetrySummaryClear = () => {
+    clearIpcTelemetrySummary();
+  };
+}
+
+attachIpcTelemetryWindowHelpers();
+
+function serializeInvokeArg(value: unknown): string {
+  if (value === undefined) {
+    return "undefined";
+  }
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => serializeInvokeArg(entry)).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${serializeInvokeArg(entry)}`).join(",")}}`;
+  }
+  return JSON.stringify(String(value));
+}
+
+function getInvokeDedupeKey(command: string, args?: Record<string, unknown>): string {
+  return `${command}:${serializeInvokeArg(args ?? null)}`;
+}
+
+async function invokeCommand<T>(command: string, args?: Record<string, unknown>, options?: InvokeCommandOptions): Promise<T> {
   const startedAtMs = globalThis.performance?.now() ?? Date.now();
   const argsSummary = summarizeInvokeArgs(args);
+  const dedupeKey = getInvokeDedupeKey(command, args);
+  const commandIntent: CommandIntent = options?.intent ?? "blocking";
+  const isBlockingInvoke = commandIntent === "blocking";
+  const existingInvoke = inflightInvokes.get(dedupeKey);
+
+  if (existingInvoke) {
+    existingInvoke.joinedCalls += 1;
+    if (isBlockingInvoke) {
+      updateBlockingInvokeCount(1);
+    }
+
+    try {
+      const result = (await existingInvoke.promise) as T;
+      const durationMs = Math.max(0, (globalThis.performance?.now() ?? Date.now()) - startedAtMs);
+      const outcome = resolveTelemetryOutcome(result);
+      syncGlobalSettingsFromResult(result);
+
+      if (isTelemetryEnabled()) {
+        recordIpcTelemetryDuration(command, durationMs);
+        console.info(`${UI_TELEMETRY_PREFIX} ipc.invoke`, {
+          command,
+          duration_ms: Number(durationMs.toFixed(2)),
+          outcome,
+          inflight: inflightInvokeCount,
+          deduped_join: true,
+          command_intent: commandIntent,
+          ...(argsSummary ? { args_summary: argsSummary } : {}),
+        });
+      }
+
+      return result;
+    } catch (error: unknown) {
+      const durationMs = Math.max(0, (globalThis.performance?.now() ?? Date.now()) - startedAtMs);
+      if (isTelemetryEnabled()) {
+        recordIpcTelemetryDuration(command, durationMs);
+        console.info(`${UI_TELEMETRY_PREFIX} ipc.invoke`, {
+          command,
+          duration_ms: Number(durationMs.toFixed(2)),
+          outcome: "throw",
+          inflight: inflightInvokeCount,
+          deduped_join: true,
+          command_intent: commandIntent,
+          ...(argsSummary ? { args_summary: argsSummary } : {}),
+        });
+      }
+      throw error;
+    } finally {
+      if (isBlockingInvoke) {
+        updateBlockingInvokeCount(-1);
+      }
+    }
+  }
 
   inflightInvokeCount += 1;
+  if (isBlockingInvoke) {
+    updateBlockingInvokeCount(1);
+  }
   const inflightAtStart = inflightInvokeCount;
-
-  try {
+  const trackedInvokePromise = (async () => {
     const invokeRunner = () => invoke<T>(command, args);
-    const result = UNTRACKED_COMMANDS.has(command)
+    return UNTRACKED_COMMANDS.has(command)
       ? await invokeRunner()
       : await trackCommandExecution(command, invokeRunner);
+  })();
+  inflightInvokes.set(dedupeKey, {
+    promise: trackedInvokePromise as Promise<unknown>,
+    joinedCalls: 0,
+  });
+
+  try {
+    const result = await trackedInvokePromise;
 
     const durationMs = Math.max(0, (globalThis.performance?.now() ?? Date.now()) - startedAtMs);
     const outcome = resolveTelemetryOutcome(result);
-    syncTelemetryEnabledFromResult(result);
+    syncGlobalSettingsFromResult(result);
 
     if (isTelemetryEnabled()) {
+      recordIpcTelemetryDuration(command, durationMs);
       console.info(`${UI_TELEMETRY_PREFIX} ipc.invoke`, {
         command,
         duration_ms: Number(durationMs.toFixed(2)),
         outcome,
         inflight: inflightAtStart,
+        deduped_joiners: inflightInvokes.get(dedupeKey)?.joinedCalls ?? 0,
+        command_intent: commandIntent,
         ...(argsSummary ? { args_summary: argsSummary } : {}),
       });
     }
@@ -719,22 +1109,29 @@ async function invokeCommand<T>(command: string, args?: Record<string, unknown>)
   } catch (error: unknown) {
     const durationMs = Math.max(0, (globalThis.performance?.now() ?? Date.now()) - startedAtMs);
     if (isTelemetryEnabled()) {
+      recordIpcTelemetryDuration(command, durationMs);
       console.info(`${UI_TELEMETRY_PREFIX} ipc.invoke`, {
         command,
         duration_ms: Number(durationMs.toFixed(2)),
         outcome: "throw",
         inflight: inflightAtStart,
+        deduped_joiners: inflightInvokes.get(dedupeKey)?.joinedCalls ?? 0,
+        command_intent: commandIntent,
         ...(argsSummary ? { args_summary: argsSummary } : {}),
       });
     }
     throw error;
   } finally {
+    inflightInvokes.delete(dedupeKey);
     inflightInvokeCount = Math.max(0, inflightInvokeCount - 1);
+    if (isBlockingInvoke) {
+      updateBlockingInvokeCount(-1);
+    }
   }
 }
 
-export function grooveList(payload: GrooveListPayload): Promise<GrooveListResponse> {
-  return invokeCommand<GrooveListResponse>("groove_list", { payload });
+export function grooveList(payload: GrooveListPayload, options?: InvokeCommandOptions): Promise<GrooveListResponse> {
+  return invokeCommand<GrooveListResponse>("groove_list", { payload }, options);
 }
 
 export function grooveRestore(payload: GrooveRestorePayload): Promise<GrooveRestoreResponse> {
@@ -777,6 +1174,10 @@ export function testingEnvironmentStop(payload: TestingEnvironmentStopPayload): 
   return invokeCommand<TestingEnvironmentResponse>("testing_environment_stop", { payload });
 }
 
+export function openExternalUrl(url: string): Promise<ExternalUrlOpenResponse> {
+  return invokeCommand<ExternalUrlOpenResponse>("open_external_url", { url });
+}
+
 export function diagnosticsListOpencodeInstances(): Promise<DiagnosticsOpencodeInstancesResponse> {
   return invokeCommand<DiagnosticsOpencodeInstancesResponse>("diagnostics_list_opencode_instances");
 }
@@ -799,6 +1200,12 @@ export function diagnosticsCleanAllDevServers(): Promise<DiagnosticsStopAllRespo
 
 export function diagnosticsGetMsotConsumingPrograms(): Promise<DiagnosticsMostConsumingProgramsResponse> {
   return invokeCommand<DiagnosticsMostConsumingProgramsResponse>("diagnostics_get_msot_consuming_programs");
+}
+
+export function diagnosticsGetSystemOverview(): Promise<DiagnosticsSystemOverviewResponse> {
+  return invokeCommand<DiagnosticsSystemOverviewResponse>("diagnostics_get_system_overview", undefined, {
+    intent: "background",
+  });
 }
 
 export function listenWorkspaceChange(
@@ -824,11 +1231,25 @@ export function workspaceOpen(workspaceRoot: string): Promise<WorkspaceContextRe
 }
 
 export function workspaceGetActive(): Promise<WorkspaceContextResponse> {
-  return invokeCommand<WorkspaceContextResponse>("workspace_get_active");
+  return invokeCommand<WorkspaceContextResponse>("workspace_get_active", undefined, {
+    intent: "background",
+  });
+}
+
+export function workspaceGitignoreSanityCheck(): Promise<WorkspaceGitignoreSanityResponse> {
+  return invokeCommand<WorkspaceGitignoreSanityResponse>("workspace_gitignore_sanity_check", undefined, {
+    intent: "background",
+  });
+}
+
+export function workspaceGitignoreSanityApply(): Promise<WorkspaceGitignoreSanityResponse> {
+  return invokeCommand<WorkspaceGitignoreSanityResponse>("workspace_gitignore_sanity_apply");
 }
 
 export function grooveBinStatus(): Promise<GrooveBinStatusResponse> {
-  return invokeCommand<GrooveBinStatusResponse>("groove_bin_status");
+  return invokeCommand<GrooveBinStatusResponse>("groove_bin_status", undefined, {
+    intent: "background",
+  });
 }
 
 export function grooveBinRepair(): Promise<GrooveBinRepairResponse> {
@@ -939,10 +1360,26 @@ export function ghCheckBranchPr(payload: GhBranchActionPayload): Promise<GhCheck
   return invokeCommand<GhCheckBranchPrResponse>("gh_check_branch_pr", { payload });
 }
 
+export function globalSettingsGet(): Promise<GlobalSettingsResponse> {
+  return invokeCommand<GlobalSettingsResponse>("global_settings_get", undefined, {
+    intent: "background",
+  });
+}
+
+export function globalSettingsUpdate(payload: GlobalSettingsUpdatePayload): Promise<GlobalSettingsResponse> {
+  return invokeCommand<GlobalSettingsResponse>("global_settings_update", { payload });
+}
+
 export function workspaceUpdateTerminalSettings(
   payload: WorkspaceTerminalSettingsPayload,
 ): Promise<WorkspaceTerminalSettingsResponse> {
   return invokeCommand<WorkspaceTerminalSettingsResponse>("workspace_update_terminal_settings", { payload });
+}
+
+export function workspaceUpdateCommandsSettings(
+  payload: WorkspaceCommandSettingsPayload,
+): Promise<WorkspaceCommandSettingsResponse> {
+  return invokeCommand<WorkspaceCommandSettingsResponse>("workspace_update_commands_settings", { payload });
 }
 
 export function workspaceOpenTerminal(payload: TestingEnvironmentStartPayload): Promise<GrooveRestoreResponse> {

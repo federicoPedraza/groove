@@ -5,6 +5,7 @@ import { SOFT_RED_BUTTON_CLASSES } from "@/components/pages/diagnostics/constant
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { DiagnosticsProcessRow } from "@/src/lib/ipc";
 
 type OpencodeInstancesCardProps = {
@@ -30,13 +31,15 @@ export function OpencodeInstancesCard({
   onCloseAll,
   onStopProcess,
 }: OpencodeInstancesCardProps) {
+  const closeAllLabel = isClosingAll ? "Closing all OpenCode instances" : "Close all OpenCode instances";
+
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="space-y-1">
+          <div className="space-y-2">
             <CardTitle>OpenCode Instances</CardTitle>
-            <CardDescription>Running OpenCode processes detected on this device.</CardDescription>
+            <CardDescription>Running worktree OpenCode processes detected for this workspace.</CardDescription>
             {opencodeRows.length > 0 && (
               <CardDescription>
                 OpenCode instances: <span className="font-medium text-foreground">{String(opencodeRows.length)}</span>
@@ -48,17 +51,24 @@ export function OpencodeInstancesCard({
               {isLoadingOpencode ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RefreshCw aria-hidden="true" className="size-4" />}
               <span>Refresh</span>
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              className={SOFT_RED_BUTTON_CLASSES}
-              onClick={onCloseAll}
-              disabled={isLoadingOpencode || isClosingAll || opencodeRows.length === 0}
-            >
-              {isClosingAll ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <OctagonX aria-hidden="true" className="size-4" />}
-              <span>Close all</span>
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className={`h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`}
+                    onClick={onCloseAll}
+                    disabled={isLoadingOpencode || isClosingAll || opencodeRows.length === 0}
+                    aria-label={closeAllLabel}
+                  >
+                    {isClosingAll ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <OctagonX aria-hidden="true" className="size-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{closeAllLabel}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
       </CardHeader>
@@ -68,10 +78,10 @@ export function OpencodeInstancesCard({
         {!opencodeError && opencodeRows.length === 0 && (
           <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
             {isLoadingOpencode
-              ? "Checking for OpenCode processes..."
+              ? "Checking for worktree OpenCode processes..."
               : hasLoadedSnapshots
-                ? "No running OpenCode processes found."
-                : "Process snapshots are not loaded yet. Click Refresh to load OpenCode instances."}
+                ? "No running worktree OpenCode processes found."
+                : "Process snapshots are not loaded yet. Click Refresh to load worktree OpenCode instances."}
           </p>
         )}
 
@@ -100,8 +110,12 @@ export function OpencodeInstancesCard({
                         <div className="flex justify-end">
                           <ProcessActionButton
                             pending={isPending}
-                            label="Close"
+                            label={`Close OpenCode process ${String(row.pid)}`}
+                            iconOnly
+                            variant="outline"
+                            className={SOFT_RED_BUTTON_CLASSES}
                             icon={<OctagonX aria-hidden="true" className="size-4" />}
+                            tooltip={isPending ? `Close OpenCode process ${String(row.pid)} in progress` : `Close OpenCode process ${String(row.pid)}`}
                             onClick={() => {
                               onStopProcess(row.pid);
                             }}

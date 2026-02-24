@@ -35,15 +35,89 @@ Expected sidecar filenames at build time include target triples, for example:
 
 At runtime, backend command resolution checks `GROOVE_BIN` first, then bundled/resource paths.
 
+## Unified setup command
+
+From the repo root, use the cross-platform setup entrypoint:
+
+```bash
+npm run setup
+```
+
+Checker-repair mode runs sidecar checks first, then applies minimal safe repair steps where possible (currently executable-bit fixes on Unix-like systems), and reruns the checks:
+
+```bash
+npm run setup -- --mode=checker-repair
+# optional positional mode form:
+npm run setup -- checker-repair
+```
+
 ## macOS quick setup
 
 From the repo root, run:
 
 ```bash
 ./bash/setup-macos-fast
+# or: npm run setup:macos
 ```
 
-This script installs/verifies Homebrew, Node.js LTS, Rust, `create-dmg`, project dependencies, and runs `npm run check:rust`.
+Prerequisites: install Node.js (with npm) and Rust (cargo/rustc) manually before running this.
+
+This script does not install Node.js or Rust; it verifies they are available, then installs/verifies Homebrew, installs `create-dmg`, installs project dependencies, and runs `npm run check:rust`.
+
+## Linux quick setup
+
+From the repo root, run:
+
+```bash
+./bash/setup-linux-fast
+# or: npm run setup:linux
+```
+
+Prerequisites: install Node.js (with npm) and Rust (cargo/rustc) manually before running this.
+
+This script does not install Node.js or Rust; it verifies they are available, attempts a best-effort install of minimal Tauri Linux system dependencies via `apt` when available, installs project dependencies, runs `npm run check:rust`, and validates Linux sidecars.
+
+## Windows quick setup
+
+From the repo root (PowerShell), run:
+
+```powershell
+.\powershell\setup-windows-fast.ps1
+# or: npm run setup:windows
+```
+
+Prerequisites: install Node.js (with npm) and Rust (cargo/rustc) manually before running this.
+
+This script does not install Node.js or Rust; it verifies they are available, checks for WebView2 Runtime presence (best effort), installs project dependencies, runs `npm run check:rust`, and validates Windows sidecars.
+
+## Universal macOS sidecars
+
+Groove requires both macOS sidecar binaries so builds and runtime resolution work on Apple Silicon and Intel Macs:
+
+- `src-tauri/binaries/groove-aarch64-apple-darwin`
+- `src-tauri/binaries/groove-x86_64-apple-darwin`
+
+Both files must exist and be executable in `src-tauri/binaries/`.
+Run `npm run sidecar:check:macos` to validate local sidecar readiness.
+
+## Linux sidecars
+
+Groove requires a Linux sidecar in `src-tauri/binaries/` for your host architecture:
+
+- `groove-x86_64-unknown-linux-gnu` (x86_64)
+- `groove-aarch64-unknown-linux-gnu` (arm64)
+
+The checked sidecar must exist and be executable.
+Run `npm run sidecar:check:linux` to validate local sidecar readiness.
+
+## Windows sidecars
+
+Groove requires at least one Windows sidecar in `src-tauri/binaries/`:
+
+- `groove-x86_64-pc-windows-msvc.exe`
+- `groove-aarch64-pc-windows-msvc.exe` (optional, for arm64)
+
+Run `npm run sidecar:check:windows` to validate local sidecar readiness.
 
 ## Run locally
 

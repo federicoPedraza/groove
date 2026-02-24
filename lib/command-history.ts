@@ -8,6 +8,7 @@ export type CommandExecutionEntry = {
   startedAt: number;
   completedAt: number | null;
   state: "running" | "success" | "error";
+  failureDetail?: string;
 };
 
 type Listener = () => void;
@@ -41,6 +42,15 @@ export function getCommandHistorySnapshot(): CommandExecutionEntry[] {
   return entries;
 }
 
+export function clearCommandHistory(): void {
+  if (entries.length === 0) {
+    return;
+  }
+
+  entries = [];
+  emitChange();
+}
+
 export function beginCommandExecution(command: string): string {
   const id = `cmd-${Date.now()}-${sequence}`;
   sequence += 1;
@@ -53,7 +63,7 @@ export function beginCommandExecution(command: string): string {
   return id;
 }
 
-export function completeCommandExecution(id: string, state: "success" | "error"): void {
+export function completeCommandExecution(id: string, state: "success" | "error", failureDetail?: string): void {
   const now = Date.now();
   let changed = false;
 
@@ -62,7 +72,12 @@ export function completeCommandExecution(id: string, state: "success" | "error")
       return entry;
     }
     changed = true;
-    return { ...entry, completedAt: now, state };
+    return {
+      ...entry,
+      completedAt: now,
+      state,
+      ...(state === "error" && failureDetail ? { failureDetail } : {}),
+    };
   });
 
   const trimmed = trimInternal();
@@ -75,19 +90,87 @@ export async function trackCommandExecution<T>(command: string, run: () => Promi
   const id = beginCommandExecution(command);
   try {
     const result = await run();
-    completeCommandExecution(id, inferResultState(result));
+    const outcome = inferResultOutcome(result);
+    completeCommandExecution(id, outcome.state, outcome.failureDetail);
     return result;
   } catch (error) {
-    completeCommandExecution(id, "error");
+    completeCommandExecution(id, "error", extractFailureDetail(error));
     throw error;
   }
 }
 
-function inferResultState(result: unknown): "success" | "error" {
+function inferResultOutcome(result: unknown): { state: "success" | "error"; failureDetail?: string } {
   if (!result || typeof result !== "object" || !("ok" in result)) {
-    return "success";
+    return { state: "success" };
   }
-  return result.ok === false ? "error" : "success";
+
+  if (result.ok !== false) {
+    return { state: "success" };
+  }
+
+  return {
+    state: "error",
+    failureDetail: extractFailureDetail(result),
+  };
+}
+
+function extractFailureDetail(value: unknown): string | undefined {
+  if (value instanceof Error) {
+    return normalizeFailureDetail(value.message);
+  }
+
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const candidate = value as {
+    error?: unknown;
+    stderr?: unknown;
+    outputSnippet?: unknown;
+    message?: unknown;
+    stdout?: unknown;
+    errors?: unknown;
+  };
+
+  const prioritizedDetails = [
+    candidate.error,
+    candidate.stderr,
+    candidate.outputSnippet,
+    candidate.message,
+    candidate.stdout,
+  ];
+
+  for (const detail of prioritizedDetails) {
+    const normalized = normalizeFailureDetail(detail);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  if (Array.isArray(candidate.errors)) {
+    const normalized = normalizeFailureDetail(candidate.errors.filter((entry) => typeof entry === "string").join("\n"));
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeFailureDetail(detail: unknown): string | undefined {
+  if (typeof detail !== "string") {
+    return undefined;
+  }
+
+  const trimmed = detail.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const MAX_FAILURE_DETAIL_LENGTH = 500;
+  return trimmed.length > MAX_FAILURE_DETAIL_LENGTH
+    ? `${trimmed.slice(0, MAX_FAILURE_DETAIL_LENGTH - 1)}…`
+    : trimmed;
 }
 
 export function formatCommandRelativeTime(entry: CommandExecutionEntry, now: number): string {

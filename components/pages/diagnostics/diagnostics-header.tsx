@@ -2,6 +2,7 @@ import { BrushCleaning, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { SOFT_RED_BUTTON_CLASSES } from "@/components/pages/diagnostics/constants";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type DiagnosticsHeaderProps = {
   isLoadingProcessSnapshots: boolean;
@@ -15,13 +16,15 @@ type DiagnosticsHeaderProps = {
 
 export function DiagnosticsHeader({
   isLoadingProcessSnapshots,
-  hasLoadedProcessSnapshots,
   isLoadingMostConsumingPrograms,
   isCleaningAllDevServers,
   onLoadProcessSnapshots,
   onLoadMostConsumingPrograms,
   onCleanAll,
 }: DiagnosticsHeaderProps) {
+  const refreshProcessSnapshotsLabel = "Refresh all";
+  const cleanAllLabel = isCleaningAllDevServers ? "Cleaning all processes" : "Clean all processes";
+
   return (
     <header className="rounded-xl border bg-card p-4 shadow-xs">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -34,33 +37,46 @@ export function DiagnosticsHeader({
             type="button"
             size="sm"
             variant="outline"
-            onClick={onLoadProcessSnapshots}
-            disabled={isLoadingProcessSnapshots}
-          >
-            {isLoadingProcessSnapshots ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RefreshCw aria-hidden="true" className="size-4" />}
-            <span>{hasLoadedProcessSnapshots ? "Refresh process snapshots" : "Load process snapshots"}</span>
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
             onClick={onLoadMostConsumingPrograms}
             disabled={isLoadingMostConsumingPrograms}
           >
             {isLoadingMostConsumingPrograms ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RefreshCw aria-hidden="true" className="size-4" />}
             <span>Load top processes</span>
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="destructive"
-            className={SOFT_RED_BUTTON_CLASSES}
-            onClick={onCleanAll}
-            disabled={isCleaningAllDevServers}
-          >
-            {isCleaningAllDevServers ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <BrushCleaning aria-hidden="true" className="size-4" />}
-            <span>Clean all</span>
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 w-8 p-0"
+                  onClick={onLoadProcessSnapshots}
+                  disabled={isLoadingProcessSnapshots}
+                  aria-label={refreshProcessSnapshotsLabel}
+                >
+                  {isLoadingProcessSnapshots ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RefreshCw aria-hidden="true" className="size-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{refreshProcessSnapshotsLabel}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className={`h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`}
+                  onClick={onCleanAll}
+                  disabled={isCleaningAllDevServers}
+                  aria-label={cleanAllLabel}
+                >
+                  {isCleaningAllDevServers ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <BrushCleaning aria-hidden="true" className="size-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{cleanAllLabel}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
     </header>

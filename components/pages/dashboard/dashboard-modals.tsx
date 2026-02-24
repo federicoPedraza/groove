@@ -55,6 +55,7 @@ export function DashboardModals({
   onRunUnsetTestingTargetAction,
 }: DashboardModalsProps) {
   const unsetTargetIsRunning = unsetTestingEnvironmentConfirm?.status === "running";
+  const isForgetDeletedWorktree = cutConfirmRow?.status === "deleted";
 
   return (
     <>
@@ -65,13 +66,15 @@ export function DashboardModals({
             setCutConfirmRow(null);
           }
         }}
-        title="Cut this groove?"
+        title={isForgetDeletedWorktree ? "Forget this deleted worktree forever?" : "Cut this groove?"}
         description={
           cutConfirmRow
-            ? `This removes worktree "${cutConfirmRow.worktree}" (branch "${cutConfirmRow.branchGuess}").`
+            ? isForgetDeletedWorktree
+              ? `This permanently removes deleted worktree "${cutConfirmRow.worktree}" from Groove's local state.`
+              : `This removes worktree "${cutConfirmRow.worktree}" (branch "${cutConfirmRow.branchGuess}").`
             : "This removes the selected worktree."
         }
-        confirmLabel="Cut groove"
+        confirmLabel={isForgetDeletedWorktree ? "Forget forever" : "Cut groove"}
         cancelLabel="Cancel"
         destructive
         onConfirm={() => {

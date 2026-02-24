@@ -1,13 +1,15 @@
 import type { LucideIcon } from "lucide-react";
-import { CheckCircle2, History, LoaderCircle, XCircle } from "lucide-react";
+import { CheckCircle2, History, LoaderCircle, Trash2, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   formatCommandRelativeTime,
+  clearCommandHistory,
   getCommandHistorySnapshot,
   subscribeToCommandHistory,
   type CommandExecutionEntry,
 } from "@/lib/command-history";
+import { setIsCommandHistoryPanelOpen } from "@/lib/command-history-panel-state";
 import { getCommandMetadata } from "@/lib/command-metadata";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -68,6 +70,11 @@ function CommandHistoryRow({ entry, now }: { entry: CommandExecutionEntry; now: 
           {relativeTime}
         </span>
       </div>
+      {entry.state === "error" && entry.failureDetail ? (
+        <p className="mt-1.5 whitespace-pre-wrap break-words rounded-sm border border-rose-200/60 bg-rose-100/45 px-2 py-1 text-[11px] text-rose-900/90 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-100/90">
+          {entry.failureDetail}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -77,6 +84,15 @@ export function CommandHistoryPanel() {
   const [now, setNow] = useState<number>(() => Date.now());
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const historyListRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setIsCommandHistoryPanelOpen(isOpen);
+
+    return () => {
+      setIsCommandHistoryPanelOpen(false);
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -90,6 +106,18 @@ export function CommandHistoryPanel() {
     return () => {
       window.clearInterval(intervalId);
     };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    if (!historyListRef.current) {
+      return;
+    }
+
+    historyListRef.current.scrollTop = historyListRef.current.scrollHeight;
   }, [isOpen]);
 
   useEffect(() => {
@@ -126,7 +154,7 @@ export function CommandHistoryPanel() {
   }, [isOpen]);
 
   const completedEntries = useMemo(
-    () => entries.filter((entry) => entry.completedAt !== null).slice(0, 20),
+    () => entries.filter((entry) => entry.completedAt !== null).slice(0, 20).reverse(),
     [entries],
   );
 
@@ -142,10 +170,23 @@ export function CommandHistoryPanel() {
           )}
         >
           <div className="px-1 pb-2">
-            <p className="text-sm font-semibold text-foreground">Command history</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-foreground">Command history</p>
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label="Clear all command history"
+                title="Clear all command history"
+                className="h-7 w-7 p-0"
+                onClick={clearCommandHistory}
+                disabled={entries.length === 0}
+              >
+                <Trash2 className="size-3.5" aria-hidden="true" />
+              </Button>
+            </div>
             <p className="text-[11px] text-muted-foreground">Last 20 completed commands</p>
           </div>
-          <div className="max-h-96 space-y-1.5 overflow-y-auto pr-1" aria-live="polite">
+          <div ref={historyListRef} className="max-h-96 space-y-1.5 overflow-y-auto pr-1" aria-live="polite">
             {completedEntries.length === 0 ? (
               <p className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
                 No completed commands yet.
@@ -167,7 +208,7 @@ export function CommandHistoryPanel() {
         onClick={() => {
           setIsOpen((open) => !open);
         }}
-        className="h-11 w-11 rounded-full border border-border/70 bg-background/90 px-0 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/70"
+        className="h-11 w-11 rounded-full border border-border/70 bg-background/90 px-0 shadow-lg"
       >
         <History className="size-5" aria-hidden="true" />
       </Button>

@@ -1,7 +1,11 @@
 "use client";
 
+import { FolderOpen, X } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
 import { DashboardHeader } from "@/components/pages/dashboard/dashboard-header";
 import { DashboardModals } from "@/components/pages/dashboard/dashboard-modals";
 import { TestingEnvironmentPanel } from "@/components/pages/dashboard/testing-environment-panel";
@@ -39,6 +43,12 @@ export default function Home() {
     isCreatePending,
     workspaceMeta,
     workspaceRoot,
+    recentDirectories,
+    gitignoreSanity,
+    gitignoreSanityStatusMessage,
+    gitignoreSanityErrorMessage,
+    isGitignoreSanityChecking,
+    isGitignoreSanityApplyPending,
     forceCutConfirmLoading,
     groupedWorktreeItems,
     setIsCloseWorkspaceConfirmOpen,
@@ -49,6 +59,8 @@ export default function Home() {
     setCreateBase,
     setUnsetTestingEnvironmentConfirm,
     pickDirectory,
+    openRecentDirectory,
+    applyGitignoreSanityPatch,
     refreshWorktrees,
     copyBranchName,
     runRestoreAction,
@@ -64,43 +76,120 @@ export default function Home() {
     closeCurrentWorkspace,
   } = useDashboardState();
 
+  const workspaceDisplayName = workspaceMeta?.rootName ?? "No directory selected";
+  const hasDirectory = Boolean(activeWorkspace);
+
   return (
-    <PageShell>
-      {!activeWorkspace ? (
-        <Card className="mx-auto w-full max-w-xl" aria-live="polite">
-          <CardHeader>
-            <CardTitle>No directory selected</CardTitle>
-            <CardDescription>Select a local folder to create or load its Groove workspace.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
+    <PageShell
+      noDirectoryOpenState={{
+        isVisible: !activeWorkspace,
+        isBusy,
+        statusMessage,
+        errorMessage,
+        onSelectDirectory: pickDirectory,
+        onOpenRecentDirectory: openRecentDirectory,
+      }}
+      pageSidebar={({ collapsed }) => (
+        <Sidebar collapsed={collapsed}>
+          <SidebarHeader>
+            {collapsed ? (
+              <h2 className="text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dir</h2>
+            ) : (
+              <h2 className="text-sm font-semibold">Directory</h2>
+            )}
+          </SidebarHeader>
+          <SidebarContent className="space-y-3">
+            {!collapsed && (
+              <div className="space-y-1 rounded-md border bg-muted/30 px-3 py-2">
+                <p className="text-xs text-muted-foreground">Current directory</p>
+                <p className="truncate text-sm font-medium" title={workspaceDisplayName}>
+                  {workspaceDisplayName}
+                </p>
+                <p className="truncate text-xs text-muted-foreground" title={workspaceRoot ?? undefined}>
+                  {workspaceRoot ?? "No path selected"}
+                </p>
+              </div>
+            )}
             <Button
               type="button"
+              variant="secondary"
+              size="sm"
               onClick={() => {
                 void pickDirectory();
               }}
               disabled={isBusy}
+              className={collapsed ? "w-full px-0" : "w-full"}
+              aria-label="Change directory"
             >
-              {isBusy ? "Opening picker..." : "Select directory"}
+              <FolderOpen aria-hidden="true" className="size-4" />
+              {!collapsed && <span>Change directory</span>}
             </Button>
-            {statusMessage && (
-              <p className="rounded-md border border-emerald-600/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">{statusMessage}</p>
+            {!collapsed && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isBusy || recentDirectories.length === 0}
+                    className="w-full justify-between"
+                    aria-label="Recent directories"
+                  >
+                    <span>Recent directories</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-2rem)]">
+                  {recentDirectories.map((directoryPath) => (
+                    <DropdownMenuItem
+                      key={directoryPath}
+                      title={directoryPath}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void openRecentDirectory(directoryPath);
+                      }}
+                      className="truncate"
+                    >
+                      {directoryPath}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
-            {errorMessage && (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{errorMessage}</p>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setIsCloseWorkspaceConfirmOpen(true);
+              }}
+              disabled={isBusy || !hasDirectory}
+              className={collapsed ? "w-full px-0" : "w-full"}
+              aria-label="Close directory"
+            >
+              <X aria-hidden="true" className="size-4" />
+              {!collapsed && <span>Close directory</span>}
+            </Button>
+          </SidebarContent>
+        </Sidebar>
+      )}
+    >
+      {!activeWorkspace ? null : (
         <div aria-live="polite" className="space-y-3">
           <DashboardHeader
-            workspaceRootName={workspaceMeta?.rootName}
-            workspaceRoot={workspaceRoot}
+            gitignoreSanity={gitignoreSanity}
+            isGitignoreSanityChecking={isGitignoreSanityChecking}
+            isGitignoreSanityApplyPending={isGitignoreSanityApplyPending}
+            gitignoreSanityStatusMessage={gitignoreSanityStatusMessage}
+            gitignoreSanityErrorMessage={gitignoreSanityErrorMessage}
             isBusy={isBusy}
             isCreatePending={isCreatePending}
             onCreate={() => {
               setCreateBranch("");
               setCreateBase("");
               setIsCreateModalOpen(true);
+            }}
+            onApplyGitignoreSanityPatch={() => {
+              void applyGitignoreSanityPatch();
             }}
             onRefresh={() => {
               void refreshWorktrees();
@@ -114,7 +203,7 @@ export default function Home() {
           />
 
           <Card>
-            <CardContent className="space-y-3 pt-6">
+            <CardContent className="space-y-3">
               <TestingEnvironmentPanel
                 environments={testingEnvironments}
                 testingEnvironmentColorByWorktree={testingEnvironmentColorByWorktree}
@@ -129,7 +218,12 @@ export default function Home() {
                   void runOpenTestingTerminalAction(worktree);
                 }}
                 onRequestUnset={(environment) => {
-                  setUnsetTestingEnvironmentConfirm(environment);
+                  if (environment.status === "running") {
+                    setUnsetTestingEnvironmentConfirm(environment);
+                    return;
+                  }
+
+                  void runUnsetTestingTargetAction(environment, true);
                 }}
               />
 

@@ -130,3 +130,397 @@ body {
 code {
   @apply rounded bg-muted px-1 py-0.5;
 }
+
+.groove-loading-sprite {
+  display: block;
+  flex: 0 0 auto;
+  width: 144px;
+  height: 96px;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.5));
+}
+
+.groove-loading-sprite-idle {
+  background-image: url("/idle.png");
+  background-size: 1584px 96px;
+  animation: groove-idle-sprite 5.3333333s steps(1, end) infinite;
+}
+
+.groove-loading-sprite-running {
+  background-image: url("/running.png");
+  background-size: 2736px 96px;
+  animation: groove-running-sprite 10s steps(19) infinite;
+}
+
+.groove-loading-sprite-falling {
+  background-image: url("/falling.png");
+  background-size: 2592px 60px;
+  background-position: 0 18px;
+  animation: groove-falling-sprite 4s steps(1, end) 1;
+}
+
+@keyframes groove-idle-sprite {
+  0% {
+    background-position: 0 0;
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+  }
+
+  5% {
+    background-position: -144px 0;
+    -webkit-mask-position: -144px 0;
+    mask-position: -144px 0;
+  }
+
+  10% {
+    background-position: -288px 0;
+    -webkit-mask-position: -288px 0;
+    mask-position: -288px 0;
+  }
+
+  15% {
+    background-position: -432px 0;
+    -webkit-mask-position: -432px 0;
+    mask-position: -432px 0;
+  }
+
+  20% {
+    background-position: -576px 0;
+    -webkit-mask-position: -576px 0;
+    mask-position: -576px 0;
+  }
+
+  25% {
+    background-position: -720px 0;
+    -webkit-mask-position: -720px 0;
+    mask-position: -720px 0;
+  }
+
+  30% {
+    background-position: -864px 0;
+    -webkit-mask-position: -864px 0;
+    mask-position: -864px 0;
+  }
+
+  35% {
+    background-position: -1008px 0;
+    -webkit-mask-position: -1008px 0;
+    mask-position: -1008px 0;
+  }
+
+  40% {
+    background-position: -1152px 0;
+    -webkit-mask-position: -1152px 0;
+    mask-position: -1152px 0;
+  }
+
+  45% {
+    background-position: -1296px 0;
+    -webkit-mask-position: -1296px 0;
+    mask-position: -1296px 0;
+  }
+
+  50% {
+    background-position: -1440px 0;
+    -webkit-mask-position: -1440px 0;
+    mask-position: -1440px 0;
+  }
+
+  55% {
+    background-position: -1296px 0;
+    -webkit-mask-position: -1296px 0;
+    mask-position: -1296px 0;
+  }
+
+  60% {
+    background-position: -1152px 0;
+    -webkit-mask-position: -1152px 0;
+    mask-position: -1152px 0;
+  }
+
+  65% {
+    background-position: -1008px 0;
+    -webkit-mask-position: -1008px 0;
+    mask-position: -1008px 0;
+  }
+
+  70% {
+    background-position: -864px 0;
+    -webkit-mask-position: -864px 0;
+    mask-position: -864px 0;
+  }
+
+  75% {
+    background-position: -720px 0;
+    -webkit-mask-position: -720px 0;
+    mask-position: -720px 0;
+  }
+
+  80% {
+    background-position: -576px 0;
+    -webkit-mask-position: -576px 0;
+    mask-position: -576px 0;
+  }
+
+  85% {
+    background-position: -432px 0;
+    -webkit-mask-position: -432px 0;
+    mask-position: -432px 0;
+  }
+
+  90% {
+    background-position: -288px 0;
+    -webkit-mask-position: -288px 0;
+    mask-position: -288px 0;
+  }
+
+  95% {
+    background-position: -144px 0;
+    -webkit-mask-position: -144px 0;
+    mask-position: -144px 0;
+  }
+
+  100% {
+    background-position: 0 0;
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+  }
+}
+
+@keyframes groove-running-sprite {
+  to {
+    background-position: -2736px 0;
+    -webkit-mask-position: -2736px 0;
+    mask-position: -2736px 0;
+  }
+}
+
+@keyframes groove-falling-sprite {
+  0% {
+    background-position: 0 18px;
+    -webkit-mask-position: 0 18px;
+    mask-position: 0 18px;
+  }
+
+  25% {
+    background-position: -144px 18px;
+    -webkit-mask-position: -144px 18px;
+    mask-position: -144px 18px;
+  }
+
+  27.5% {
+    background-position: -288px 18px;
+    -webkit-mask-position: -288px 18px;
+    mask-position: -288px 18px;
+  }
+
+  30% {
+    background-position: -432px 18px;
+    -webkit-mask-position: -432px 18px;
+    mask-position: -432px 18px;
+  }
+
+  32.5% {
+    background-position: -576px 18px;
+    -webkit-mask-position: -576px 18px;
+    mask-position: -576px 18px;
+  }
+
+  35% {
+    background-position: -720px 18px;
+    -webkit-mask-position: -720px 18px;
+    mask-position: -720px 18px;
+  }
+
+  37.5% {
+    background-position: -864px 18px;
+    -webkit-mask-position: -864px 18px;
+    mask-position: -864px 18px;
+  }
+
+  40% {
+    background-position: -1008px 18px;
+    -webkit-mask-position: -1008px 18px;
+    mask-position: -1008px 18px;
+  }
+
+  42.5% {
+    background-position: -1152px 18px;
+    -webkit-mask-position: -1152px 18px;
+    mask-position: -1152px 18px;
+  }
+
+  45% {
+    background-position: -1296px 18px;
+    -webkit-mask-position: -1296px 18px;
+    mask-position: -1296px 18px;
+  }
+
+  47.5% {
+    background-position: -1440px 18px;
+    -webkit-mask-position: -1440px 18px;
+    mask-position: -1440px 18px;
+  }
+
+  50% {
+    background-position: -1584px 18px;
+    -webkit-mask-position: -1584px 18px;
+    mask-position: -1584px 18px;
+  }
+
+  52.5% {
+    background-position: -1728px 18px;
+    -webkit-mask-position: -1728px 18px;
+    mask-position: -1728px 18px;
+  }
+
+  55% {
+    background-position: -1872px 18px;
+    -webkit-mask-position: -1872px 18px;
+    mask-position: -1872px 18px;
+  }
+
+  57.5% {
+    background-position: -2016px 18px;
+    -webkit-mask-position: -2016px 18px;
+    mask-position: -2016px 18px;
+  }
+
+  60% {
+    background-position: -2160px 18px;
+    -webkit-mask-position: -2160px 18px;
+    mask-position: -2160px 18px;
+  }
+
+  62.5% {
+    background-position: -2304px 18px;
+    -webkit-mask-position: -2304px 18px;
+    mask-position: -2304px 18px;
+  }
+
+  65% {
+    background-position: -2448px 18px;
+    -webkit-mask-position: -2448px 18px;
+    mask-position: -2448px 18px;
+  }
+
+  67.5% {
+    background-position: -2448px 18px;
+    -webkit-mask-position: -2448px 18px;
+    mask-position: -2448px 18px;
+  }
+
+  70% {
+    background-position: -2016px 18px;
+    -webkit-mask-position: -2016px 18px;
+    mask-position: -2016px 18px;
+  }
+
+  72.5% {
+    background-position: -2448px 18px;
+    -webkit-mask-position: -2448px 18px;
+    mask-position: -2448px 18px;
+  }
+
+  75% {
+    background-position: -2016px 18px;
+    -webkit-mask-position: -2016px 18px;
+    mask-position: -2016px 18px;
+  }
+
+  77.5% {
+    background-position: -2448px 18px;
+    -webkit-mask-position: -2448px 18px;
+    mask-position: -2448px 18px;
+  }
+
+  80% {
+    background-position: -2016px 18px;
+    -webkit-mask-position: -2016px 18px;
+    mask-position: -2016px 18px;
+  }
+
+  82.5% {
+    background-position: -2448px 18px;
+    -webkit-mask-position: -2448px 18px;
+    mask-position: -2448px 18px;
+  }
+
+  85% {
+    background-position: -2016px 18px;
+    -webkit-mask-position: -2016px 18px;
+    mask-position: -2016px 18px;
+  }
+
+  87.5% {
+    background-position: -2448px 18px;
+    -webkit-mask-position: -2448px 18px;
+    mask-position: -2448px 18px;
+  }
+
+  90% {
+    background-position: -2016px 18px;
+    -webkit-mask-position: -2016px 18px;
+    mask-position: -2016px 18px;
+  }
+
+  92.5% {
+    background-position: -2448px 18px;
+    -webkit-mask-position: -2448px 18px;
+    mask-position: -2448px 18px;
+  }
+
+  95% {
+    background-position: -2016px 18px;
+    -webkit-mask-position: -2016px 18px;
+    mask-position: -2016px 18px;
+  }
+
+  97.5% {
+    background-position: -2448px 18px;
+    -webkit-mask-position: -2448px 18px;
+    mask-position: -2448px 18px;
+  }
+
+  100% {
+    background-position: -2448px 18px;
+    -webkit-mask-position: -2448px 18px;
+    mask-position: -2448px 18px;
+  }
+}
+
+@supports ((-webkit-mask-image: url("")) or (mask-image: url(""))) {
+  .groove-loading-sprite {
+    background-image: none;
+    background-color: color-mix(in oklch, var(--foreground) 85%, var(--primary) 15%);
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: 0 0;
+    mask-repeat: no-repeat;
+    mask-position: 0 0;
+  }
+
+  .groove-loading-sprite-idle {
+    -webkit-mask-image: url("/idle.png");
+    -webkit-mask-size: 1584px 96px;
+    mask-image: url("/idle.png");
+    mask-size: 1584px 96px;
+  }
+
+  .groove-loading-sprite-running {
+    -webkit-mask-image: url("/running.png");
+    -webkit-mask-size: 2736px 96px;
+    mask-image: url("/running.png");
+    mask-size: 2736px 96px;
+  }
+
+  .groove-loading-sprite-falling {
+    -webkit-mask-image: url("/falling.png");
+    -webkit-mask-size: 2592px 60px;
+    -webkit-mask-position: 0 18px;
+    mask-image: url("/falling.png");
+    mask-size: 2592px 60px;
+    mask-position: 0 18px;
+  }
+}

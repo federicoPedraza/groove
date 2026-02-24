@@ -20,7 +20,6 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import {
   ACTIVE_GREEN_BUTTON_CLASSES,
@@ -35,16 +34,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { appendRequestId } from "@/lib/utils/common/request-id";
+import { toast } from "@/lib/toast";
 import { buildCreatePrUrl } from "@/lib/utils/git/pull-request-url";
 import {
   ghCheckBranchPr,
   ghOpenActivePr,
   ghOpenBranch,
-  gitAheadBehind,
   gitListFileStates,
   gitCommit,
-  gitCurrentBranch,
   gitHasStagedChanges,
   gitHasUpstream,
   gitMergeAbort,
@@ -166,9 +163,7 @@ export function WorktreeRowActions({
       branch: branchName,
     });
     if (!result.ok) {
-      toast.error(`Failed to open branch ${branchName}.`, {
-        description: result.error,
-      });
+      toast.error("Failed to open branch.");
     }
   };
 
@@ -209,9 +204,7 @@ export function WorktreeRowActions({
       branch: branchName,
     });
     if (!result.ok) {
-      toast.error(`Failed to open active PR for ${branchName}.`, {
-        description: result.error,
-      });
+      toast.error("Failed to open active PR.");
     }
   };
 
@@ -230,27 +223,19 @@ export function WorktreeRowActions({
       ]);
 
       if (!statusResult.ok) {
-        toast.error(`Failed to refresh git state for ${row.worktree}.`, {
-          description: appendRequestId(statusResult.error ?? statusResult.outputSnippet, statusResult.requestId),
-        });
+        toast.error("Failed to refresh git state.");
       }
 
       if (!stagedResult.ok) {
-        toast.error(`Failed to check staged changes for ${row.worktree}.`, {
-          description: appendRequestId(stagedResult.error ?? stagedResult.outputSnippet, stagedResult.requestId),
-        });
+        toast.error("Failed to check staged changes.");
       }
 
       if (!mergeResult.ok) {
-        toast.error(`Failed to check merge status for ${row.worktree}.`, {
-          description: appendRequestId(mergeResult.error ?? mergeResult.outputSnippet, mergeResult.requestId),
-        });
+        toast.error("Failed to check merge status.");
       }
 
       if (!upstreamResult.ok) {
-        toast.error(`Failed to check upstream status for ${row.worktree}.`, {
-          description: appendRequestId(upstreamResult.error ?? upstreamResult.outputSnippet, upstreamResult.requestId),
-        });
+        toast.error("Failed to check upstream status.");
       }
 
       if (mergeResult.ok) {
@@ -260,7 +245,7 @@ export function WorktreeRowActions({
         setHasUpstream(upstreamResult.value);
       }
     } catch {
-      toast.error(`Failed to refresh git state for ${row.worktree}.`);
+      toast.error("Failed to refresh git state.");
     } finally {
       setIsGitConditionRefreshPending(false);
     }
@@ -269,9 +254,7 @@ export function WorktreeRowActions({
   const ensureCleanWorktree = async (actionLabel: string): Promise<boolean> => {
     const result = await gitStatus({ path: row.path });
     if (!result.ok) {
-      toast.error(`Failed to check git status before ${actionLabel.toLowerCase()}.`, {
-        description: appendRequestId(result.error ?? result.outputSnippet, result.requestId),
-      });
+      toast.error(`Failed to check git status before ${actionLabel.toLowerCase()}.`);
       return false;
     }
 
@@ -279,9 +262,7 @@ export function WorktreeRowActions({
       return true;
     }
 
-    toast.warning(`${actionLabel} blocked: worktree has uncommitted changes.`, {
-      description: `${result.modified} modified, ${result.added} added, ${result.deleted} deleted, ${result.untracked} untracked files.`,
-    });
+    toast.warning(`${actionLabel} blocked: worktree has uncommitted changes.`);
     return false;
   };
 
@@ -305,20 +286,16 @@ export function WorktreeRowActions({
     try {
       const result = await action();
       if (result.ok) {
-        toast.success(`${actionLabel} completed for ${row.worktree}.`, {
-          description: appendRequestId(result.outputSnippet, result.requestId),
-        });
+        toast.success(`${actionLabel} completed.`);
         if (options?.refreshConditionsAfterSuccess) {
           void refreshGitDropdownConditions();
         }
         return true;
       }
-      toast.error(`${actionLabel} failed for ${row.worktree}.`, {
-        description: appendRequestId(result.error ?? result.outputSnippet, result.requestId),
-      });
+      toast.error(`${actionLabel} failed.`);
       return false;
     } catch {
-      toast.error(`${actionLabel} request failed for ${row.worktree}.`);
+      toast.error(`${actionLabel} request failed.`);
       return false;
     } finally {
       setPendingGitAction(null);
@@ -332,32 +309,16 @@ export function WorktreeRowActions({
 
     setPendingGitAction("Refresh status");
     try {
-      const [status, branch, aheadBehind] = await Promise.all([
-        gitStatus({ path: row.path }),
-        gitCurrentBranch({ path: row.path }),
-        gitAheadBehind({ path: row.path }),
-      ]);
+      const status = await gitStatus({ path: row.path });
 
       if (!status.ok) {
-        toast.error(`Failed to refresh git status for ${row.worktree}.`, {
-          description: appendRequestId(status.error ?? status.outputSnippet, status.requestId),
-        });
+        toast.error("Failed to refresh git status.");
         return;
       }
 
-      const branchText = branch.ok ? branch.branch ?? "detached" : "unknown";
-      const aheadBehindText = aheadBehind.ok
-        ? `ahead ${aheadBehind.ahead}, behind ${aheadBehind.behind}`
-        : "ahead/behind unavailable";
-      const dirtyText = status.dirty
-        ? `${status.modified} modified, ${status.added} added, ${status.deleted} deleted, ${status.untracked} untracked`
-        : "clean working tree";
-
-      toast.success(`Git status refreshed for ${row.worktree}.`, {
-        description: `Branch ${branchText}; ${aheadBehindText}; ${dirtyText}.`,
-      });
+      toast.success("Git status refreshed.");
     } catch {
-      toast.error(`Failed to refresh git status for ${row.worktree}.`);
+      toast.error("Failed to refresh git status.");
     } finally {
       setPendingGitAction(null);
     }
@@ -374,9 +335,7 @@ export function WorktreeRowActions({
     try {
       const result = await gitListFileStates({ path: row.path });
       if (!result.ok) {
-        toast.error(`Failed to load file states for ${row.worktree}.`, {
-          description: appendRequestId(result.error ?? result.outputSnippet, result.requestId),
-        });
+        toast.error("Failed to load file states.");
         return;
       }
 
@@ -387,7 +346,7 @@ export function WorktreeRowActions({
       });
       clearCommitingSelection();
     } catch {
-      toast.error(`Failed to load file states for ${row.worktree}.`);
+      toast.error("Failed to load file states.");
     } finally {
       setIsCommitingStatePending(false);
     }
@@ -737,24 +696,44 @@ export function WorktreeRowActions({
         </>
       )}
       {status === "deleted" && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="default"
-              size="sm"
-              className="h-8 w-8 p-0"
-              onClick={() => {
-                onRepair(row);
-              }}
-              aria-label={`Restore ${row.worktree}`}
-              disabled={rowPending}
-            >
-              {restorePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RotateCcw aria-hidden="true" className="size-4" />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Restore</TooltipContent>
-        </Tooltip>
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={() => {
+                  onRepair(row);
+                }}
+                aria-label={`Restore ${row.worktree}`}
+                disabled={rowPending}
+              >
+                {restorePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RotateCcw aria-hidden="true" className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Restore</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={`h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`}
+                onClick={() => {
+                  onCutConfirm(row);
+                }}
+                aria-label={`Forget deleted worktree ${row.worktree} forever`}
+                disabled={rowPending}
+              >
+                {cutPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <X aria-hidden="true" className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Forget forever</TooltipContent>
+          </Tooltip>
+        </>
       )}
       {status === "paused" && (
         <>

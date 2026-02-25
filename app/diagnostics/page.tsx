@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 
 import { DiagnosticsHeader } from "@/components/pages/diagnostics/diagnostics-header";
 import { DiagnosticsSystemSidebar } from "@/components/pages/diagnostics/diagnostics-system-sidebar";
@@ -28,6 +28,10 @@ import {
   type DiagnosticsProcessRow,
   type DiagnosticsStopAllResponse,
   type DiagnosticsStopResponse,
+  type WorkspaceGitignoreSanityResponse,
+  workspaceGetActive,
+  workspaceGitignoreSanityApply,
+  workspaceGitignoreSanityCheck,
 } from "@/src/lib/ipc";
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
@@ -48,6 +52,7 @@ export default function DiagnosticsPage() {
   const [isLoadingNodeApps, setIsLoadingNodeApps] = useState(false);
   const [hasLoadedProcessSnapshots, setHasLoadedProcessSnapshots] = useState(false);
   const [isClosingAll, setIsClosingAll] = useState(false);
+  const [isClosingAllNodeInstances, setIsClosingAllNodeInstances] = useState(false);
   const [isCleaningAllDevServers, setIsCleaningAllDevServers] = useState(false);
   const [pendingStopPids, setPendingStopPids] = useState<number[]>([]);
   const [opencodeError, setOpencodeError] = useState<string | null>(null);
@@ -59,6 +64,97 @@ export default function DiagnosticsPage() {
   const [systemOverview, setSystemOverview] = useState<DiagnosticsSystemOverview | null>(null);
   const [systemOverviewError, setSystemOverviewError] = useState<string | null>(null);
   const [isLoadingSystemOverview, setIsLoadingSystemOverview] = useState(false);
+  const [hasActiveWorkspace, setHasActiveWorkspace] = useState(false);
+  const [gitignoreSanity, setGitignoreSanity] = useState<WorkspaceGitignoreSanityResponse | null>(null);
+  const [gitignoreSanityStatusMessage, setGitignoreSanityStatusMessage] = useState<string | null>(null);
+  const [gitignoreSanityErrorMessage, setGitignoreSanityErrorMessage] = useState<string | null>(null);
+  const [isGitignoreSanityChecking, setIsGitignoreSanityChecking] = useState(false);
+  const [isGitignoreSanityApplyPending, setIsGitignoreSanityApplyPending] = useState(false);
+
+  const clearGitignoreSanityState = useCallback((): void => {
+    setHasActiveWorkspace(false);
+    setGitignoreSanity(null);
+    setGitignoreSanityStatusMessage(null);
+    setGitignoreSanityErrorMessage(null);
+    setIsGitignoreSanityChecking(false);
+    setIsGitignoreSanityApplyPending(false);
+  }, []);
+
+  const loadGitignoreSanityCheck = useCallback(
+    async (options?: { showPending?: boolean; clearStatusMessage?: boolean }): Promise<void> => {
+      const showPending = options?.showPending !== false;
+
+      try {
+        if (showPending) {
+          setIsGitignoreSanityChecking(true);
+        }
+        if (options?.clearStatusMessage) {
+          setGitignoreSanityStatusMessage(null);
+        }
+
+        const workspace = await workspaceGetActive();
+        if (!workspace.ok || !workspace.workspaceRoot) {
+          clearGitignoreSanityState();
+          return;
+        }
+
+        setHasActiveWorkspace(true);
+        const result = await workspaceGitignoreSanityCheck();
+        if (!result.ok) {
+          setGitignoreSanity(null);
+          setGitignoreSanityErrorMessage(result.error ?? "Failed to check .gitignore sanity.");
+          return;
+        }
+
+        setGitignoreSanity(result);
+        setGitignoreSanityErrorMessage(null);
+      } catch {
+        setGitignoreSanity(null);
+        setGitignoreSanityErrorMessage("Failed to check .gitignore sanity.");
+      } finally {
+        if (showPending) {
+          setIsGitignoreSanityChecking(false);
+        }
+      }
+    },
+    [clearGitignoreSanityState],
+  );
+
+  const applyGitignoreSanityPatch = useCallback(async (): Promise<void> => {
+    try {
+      setIsGitignoreSanityApplyPending(true);
+      setGitignoreSanityStatusMessage(null);
+      setGitignoreSanityErrorMessage(null);
+
+      const workspace = await workspaceGetActive();
+      if (!workspace.ok || !workspace.workspaceRoot) {
+        clearGitignoreSanityState();
+        return;
+      }
+
+      setHasActiveWorkspace(true);
+      const result = await workspaceGitignoreSanityApply();
+      if (!result.ok) {
+        setGitignoreSanityErrorMessage(result.error ?? "Failed to apply .gitignore sanity patch.");
+        return;
+      }
+
+      setGitignoreSanity(result);
+      if (!result.isApplicable) {
+        setGitignoreSanityStatusMessage("No .gitignore found in the active workspace.");
+      } else if (result.patched) {
+        setGitignoreSanityStatusMessage("Applied Groove .gitignore sanity patch.");
+      } else {
+        setGitignoreSanityStatusMessage("Groove .gitignore sanity patch is already applied.");
+      }
+
+      await loadGitignoreSanityCheck({ showPending: false });
+    } catch {
+      setGitignoreSanityErrorMessage("Failed to apply .gitignore sanity patch.");
+    } finally {
+      setIsGitignoreSanityApplyPending(false);
+    }
+  }, [clearGitignoreSanityState, loadGitignoreSanityCheck]);
 
   useEffect(() => {
     const mountDurationMs = Math.max(0, performance.now() - diagnosticsEnterPerfMsRef.current);
@@ -247,6 +343,10 @@ export default function DiagnosticsPage() {
     };
   }, [loadSystemOverview]);
 
+  useEffect(() => {
+    void loadGitignoreSanityCheck({ clearStatusMessage: true });
+  }, [loadGitignoreSanityCheck]);
+
   const runStopProcessAction = async (pid: number): Promise<void> => {
     setPendingStopPids((prev) => (prev.includes(pid) ? prev : [...prev, pid]));
 
@@ -283,6 +383,58 @@ export default function DiagnosticsPage() {
       toast.error(`Stop request failed for PID ${String(pid)}.`);
     } finally {
       setPendingStopPids((prev) => prev.filter((candidate) => candidate !== pid));
+    }
+  };
+
+  const runStopWorktreeProcessesAction = async (worktree: string, pids: number[], processLabel: string): Promise<void> => {
+    const uniquePids = [...new Set(pids)];
+    if (uniquePids.length === 0) {
+      return;
+    }
+
+    setPendingStopPids((prev) => [...new Set([...prev, ...uniquePids])]);
+
+    try {
+      const stopResults = await Promise.all(uniquePids.map(async (pid) => ({ pid, result: (await diagnosticsStopProcess(pid)) as DiagnosticsStopResponse })));
+
+      let stopped = 0;
+      let alreadyStopped = 0;
+      let failed = 0;
+
+      for (const { result } of stopResults) {
+        if (!result.ok) {
+          failed += 1;
+          continue;
+        }
+
+        if (result.alreadyStopped) {
+          alreadyStopped += 1;
+        } else {
+          stopped += 1;
+        }
+      }
+
+      if (failed > 0) {
+        toast.error(`Some ${processLabel} cleanup actions failed for ${worktree}.`, {
+          description: `attempted=${String(uniquePids.length)}, stopped=${String(stopped)}, alreadyStopped=${String(alreadyStopped)}, failed=${String(failed)}`,
+        });
+      } else {
+        toast.success(`${processLabel} cleanup completed for ${worktree}.`, {
+          description: `attempted=${String(uniquePids.length)}, stopped=${String(stopped)}, alreadyStopped=${String(alreadyStopped)}, failed=0`,
+        });
+      }
+
+      const [nextOpencodeRows, nextNodeApps] = await Promise.all([loadOpencodeRows(false), loadNodeAppRows(false)]);
+      const hasRemainingTargetProcess = uniquePids.some(
+        (pid) => nextOpencodeRows.some((row) => row.pid === pid) || nextNodeApps.some((row) => row.pid === pid),
+      );
+      if (hasRemainingTargetProcess) {
+        toast.error(`Some ${processLabel} processes in ${worktree} are still running after cleanup.`);
+      }
+    } catch {
+      toast.error(`Cleanup request failed for ${worktree} ${processLabel} processes.`);
+    } finally {
+      setPendingStopPids((prev) => prev.filter((candidate) => !uniquePids.includes(candidate)));
     }
   };
 
@@ -347,6 +499,20 @@ export default function DiagnosticsPage() {
     }
   };
 
+  const runCloseAllNodeInstancesAction = async (): Promise<void> => {
+    const uniquePids = [...new Set(nodeAppRows.map((row) => row.pid))];
+    if (uniquePids.length === 0) {
+      return;
+    }
+
+    setIsClosingAllNodeInstances(true);
+    try {
+      await runStopWorktreeProcessesAction("all worktrees", uniquePids, "Node app");
+    } finally {
+      setIsClosingAllNodeInstances(false);
+    }
+  };
+
   const runGetMsotConsumingProgramsAction = async (): Promise<void> => {
     setIsLoadingMostConsumingPrograms(true);
     setMostConsumingProgramsError(null);
@@ -373,6 +539,40 @@ export default function DiagnosticsPage() {
       setIsLoadingMostConsumingPrograms(false);
     }
   };
+
+  const shouldShowApplyPatch = Boolean(
+    hasActiveWorkspace && gitignoreSanity?.isApplicable && gitignoreSanity.missingEntries.length > 0,
+  );
+  const shouldShowGitignoreSanityPanel = Boolean(
+    isGitignoreSanityChecking ||
+      gitignoreSanityErrorMessage ||
+      !hasActiveWorkspace ||
+      !gitignoreSanity?.isApplicable ||
+      gitignoreSanity.missingEntries.length > 0 ||
+      (gitignoreSanity?.isApplicable && gitignoreSanity.missingEntries.length === 0),
+  );
+  const isGitignoreSanityHealthy = Boolean(
+    hasActiveWorkspace &&
+      !isGitignoreSanityChecking &&
+      !gitignoreSanityErrorMessage &&
+      gitignoreSanity?.isApplicable &&
+      gitignoreSanity.missingEntries.length === 0,
+  );
+
+  let gitignoreSanityLabel = "Checking .gitignore sanity...";
+  if (!hasActiveWorkspace && !isGitignoreSanityChecking) {
+    gitignoreSanityLabel = "No active workspace selected.";
+  } else if (gitignoreSanityErrorMessage) {
+    gitignoreSanityLabel = "Unable to check .gitignore sanity.";
+  } else if (!isGitignoreSanityChecking) {
+    if (!gitignoreSanity?.isApplicable) {
+      gitignoreSanityLabel = "No .gitignore found in this directory.";
+    } else if (gitignoreSanity.missingEntries.length > 0) {
+      gitignoreSanityLabel = `Missing ${gitignoreSanity.missingEntries.join(" and ")} in .gitignore.`;
+    } else {
+      gitignoreSanityLabel = ".gitignore includes Groove entries.";
+    }
+  }
 
   return (
     <PageShell
@@ -403,6 +603,34 @@ export default function DiagnosticsPage() {
           void runCleanAllDevServersAction();
         }}
       />
+
+      {shouldShowGitignoreSanityPanel ? (
+        <div
+          className={`rounded-md border px-3 py-2 ${
+            isGitignoreSanityHealthy ? "border-emerald-700/30 bg-emerald-500/10" : "border-amber-700/30 bg-amber-500/10"
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">Groove sanity: {gitignoreSanityLabel}</p>
+            {shouldShowApplyPatch ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  void applyGitignoreSanityPatch();
+                }}
+                disabled={isGitignoreSanityChecking || isGitignoreSanityApplyPending}
+              >
+                {isGitignoreSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+                <span>Apply Patch</span>
+              </Button>
+            ) : null}
+          </div>
+          {gitignoreSanityStatusMessage ? <p className="mt-1 text-xs text-emerald-700">{gitignoreSanityStatusMessage}</p> : null}
+          {gitignoreSanityErrorMessage ? <p className="mt-1 text-xs text-destructive">{gitignoreSanityErrorMessage}</p> : null}
+        </div>
+      ) : null}
 
       {mostConsumingProgramsError && (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{mostConsumingProgramsError}</p>
@@ -435,17 +663,20 @@ export default function DiagnosticsPage() {
         hasLoadedSnapshots={hasLoadedProcessSnapshots}
         isLoadingNodeApps={isLoadingNodeApps}
         isCleaningAllDevServers={isCleaningAllDevServers}
-        isClosingAllNodeInstances={isCleaningAllDevServers}
+        isClosingAllNodeInstances={isClosingAllNodeInstances}
         nodeAppsError={nodeAppsError}
         nodeAppsWarning={nodeAppsWarning}
         onRefresh={() => {
           void loadNodeAppRows();
         }}
         onCloseAllNodeInstances={() => {
-          void runCleanAllDevServersAction();
+          void runCloseAllNodeInstancesAction();
         }}
         onStopProcess={(pid) => {
           void runStopProcessAction(pid);
+        }}
+        onStopWorktreeProcesses={(worktree, pids) => {
+          void runStopWorktreeProcessesAction(worktree, pids, "Node app");
         }}
       />
 
@@ -464,6 +695,9 @@ export default function DiagnosticsPage() {
         }}
         onStopProcess={(pid) => {
           void runStopProcessAction(pid);
+        }}
+        onStopWorktreeProcesses={(worktree, pids) => {
+          void runStopWorktreeProcessesAction(worktree, pids, "OpenCode");
         }}
       />
     </PageShell>

@@ -28,6 +28,7 @@ import {
   testingEnvironmentGetStatus,
   testingEnvironmentSetTarget,
   testingEnvironmentStart,
+  testingEnvironmentStartSeparateTerminal,
   testingEnvironmentStop,
   workspaceClearActive,
   workspaceEvents,
@@ -913,7 +914,7 @@ export function useDashboardState() {
           target: row.branchGuess,
         })) as RestoreApiResponse;
         if (result.ok) {
-          toast.success("Play groove completed.");
+          toast.success("Opened opencode in terminal.");
           await rescanWorktrees({ force: true });
           scheduleRuntimeStateFetch(0);
           await fetchTestingEnvironmentState();
@@ -1042,6 +1043,36 @@ export function useDashboardState() {
       }
 
       toast.error("Failed to run local testing environment.");
+    } catch {
+      toast.error("Local testing start request failed.");
+    } finally {
+      setIsTestingInstancePending(false);
+    }
+  }, [fetchTestingEnvironmentState, knownWorktrees, testingTargetWorktrees.length, workspaceMeta]);
+
+  const runStartTestingInstanceSeparateTerminalAction = useCallback(async (worktree?: string): Promise<void> => {
+    if (!workspaceMeta || (testingTargetWorktrees.length === 0 && !worktree)) {
+      toast.error("Select a testing target before running locally.");
+      return;
+    }
+
+    setIsTestingInstancePending(true);
+    try {
+      const result = await testingEnvironmentStartSeparateTerminal({
+        rootName: workspaceMeta.rootName,
+        knownWorktrees,
+        workspaceMeta,
+        ...(worktree ? { worktree } : {}),
+      });
+
+      if (result.ok) {
+        setTestingEnvironment(result);
+        toast.success("Started local testing in a new terminal.");
+        await fetchTestingEnvironmentState();
+        return;
+      }
+
+      toast.error("Failed to run local testing environment in a new terminal.");
     } catch {
       toast.error("Local testing start request failed.");
     } finally {
@@ -1193,6 +1224,7 @@ export function useDashboardState() {
     runUnsetTestingTargetAction,
     onSelectTestingTarget,
     runStartTestingInstanceAction,
+    runStartTestingInstanceSeparateTerminalAction,
     runOpenTestingTerminalAction,
     runStopTestingInstanceAction,
     closeCurrentWorkspace,

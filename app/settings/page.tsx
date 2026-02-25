@@ -5,7 +5,7 @@ import { CircleHelp, Copy, Loader2 } from "lucide-react";
 
 import { PageShell } from "@/components/pages/page-shell";
 import { CommandsSettingsForm } from "@/components/pages/settings/commands-settings-form";
-import { TerminalSettingsForm } from "@/components/pages/settings/terminal-settings-form";
+import { WorktreeSymlinkPathsModal } from "@/components/pages/settings/worktree-symlink-paths-modal";
 import type { SaveState, WorkspaceMeta } from "@/components/pages/settings/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,8 +26,7 @@ import {
   workspaceGetActive,
   workspacePickAndOpen,
   workspaceUpdateCommandsSettings,
-  workspaceUpdateTerminalSettings,
-  type DefaultTerminal,
+  workspaceUpdateWorktreeSymlinkPaths,
   type GhAuthStatusResponse,
   type GhDetectRepoResponse,
   type WorkspaceCommandSettingsPayload,
@@ -109,16 +108,20 @@ export default function SettingsPage() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [connectionMessageType, setConnectionMessageType] = useState<"success" | "error" | null>(null);
-  const [defaultTerminal, setDefaultTerminal] = useState<DefaultTerminal>("auto");
-  const [terminalCustomCommand, setTerminalCustomCommand] = useState("");
   const [telemetryEnabled, setTelemetryEnabled] = useState(globalSettingsSnapshot.telemetryEnabled);
   const [disableGrooveLoadingSection, setDisableGrooveLoadingSection] = useState(globalSettingsSnapshot.disableGrooveLoadingSection);
   const [showFps, setShowFps] = useState(globalSettingsSnapshot.showFps);
   const [alwaysShowDiagnosticsSidebar, setAlwaysShowDiagnosticsSidebar] = useState(globalSettingsSnapshot.alwaysShowDiagnosticsSidebar);
   const [playGrooveCommand, setPlayGrooveCommand] = useState(DEFAULT_PLAY_GROOVE_COMMAND);
   const [testingPorts, setTestingPorts] = useState<number[]>([...DEFAULT_TESTING_PORTS]);
+  const [openTerminalAtWorktreeCommand, setOpenTerminalAtWorktreeCommand] = useState("");
+  const [runLocalCommand, setRunLocalCommand] = useState("");
+  const [worktreeSymlinkPaths, setWorktreeSymlinkPaths] = useState<string[]>([]);
+  const [isWorktreeSymlinkModalOpen, setIsWorktreeSymlinkModalOpen] = useState(false);
+  const [isWorktreeSymlinkSaving, setIsWorktreeSymlinkSaving] = useState(false);
+  const [worktreeSymlinkMessage, setWorktreeSymlinkMessage] = useState<string | null>(null);
+  const [worktreeSymlinkMessageType, setWorktreeSymlinkMessageType] = useState<"success" | "error" | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemeMode());
   const [isGitHubCliLoading, setIsGitHubCliLoading] = useState(false);
   const [gitHubCliStatus, setGitHubCliStatus] = useState<GhAuthStatusResponse | null>(null);
@@ -228,6 +231,8 @@ export default function SettingsPage() {
         const result = await workspaceUpdateCommandsSettings({
           playGrooveCommand: payload.playGrooveCommand,
           testingPorts: payload.testingPorts,
+          openTerminalAtWorktreeCommand: payload.openTerminalAtWorktreeCommand ?? null,
+          runLocalCommand: payload.runLocalCommand ?? null,
         });
 
         if (!result.ok || !result.workspaceMeta) {
@@ -242,15 +247,22 @@ export default function SettingsPage() {
           result.workspaceMeta.testingPorts && result.workspaceMeta.testingPorts.length > 0
             ? result.workspaceMeta.testingPorts
             : [...DEFAULT_TESTING_PORTS];
+        const savedOpenTerminalAtWorktreeCommand = result.workspaceMeta.openTerminalAtWorktreeCommand ?? "";
+        const savedRunLocalCommand = result.workspaceMeta.runLocalCommand ?? "";
 
         setWorkspaceMeta(result.workspaceMeta);
         setPlayGrooveCommand(savedPlayGrooveCommand);
         setTestingPorts(savedTestingPorts);
+        setOpenTerminalAtWorktreeCommand(savedOpenTerminalAtWorktreeCommand);
+        setRunLocalCommand(savedRunLocalCommand);
+        setWorktreeSymlinkPaths(result.workspaceMeta.worktreeSymlinkPaths ?? []);
         return {
           ok: true,
           payload: {
             playGrooveCommand: savedPlayGrooveCommand,
             testingPorts: savedTestingPorts,
+            openTerminalAtWorktreeCommand: savedOpenTerminalAtWorktreeCommand,
+            runLocalCommand: savedRunLocalCommand,
           },
         };
       } catch {
@@ -329,6 +341,9 @@ export default function SettingsPage() {
           setWorkspaceRoot(null);
           setPlayGrooveCommand(DEFAULT_PLAY_GROOVE_COMMAND);
           setTestingPorts([...DEFAULT_TESTING_PORTS]);
+          setOpenTerminalAtWorktreeCommand("");
+          setRunLocalCommand("");
+          setWorktreeSymlinkPaths([]);
           setGitHubCliStatus(null);
           setGitHubCliRepo(null);
           setGitHubCliError(null);
@@ -345,16 +360,16 @@ export default function SettingsPage() {
 
         setWorkspaceMeta(result.workspaceMeta);
         setWorkspaceRoot(result.workspaceRoot ?? null);
-        setDefaultTerminal(result.workspaceMeta.defaultTerminal ?? "auto");
-        setTerminalCustomCommand(result.workspaceMeta.terminalCustomCommand ?? "");
         setPlayGrooveCommand(result.workspaceMeta.playGrooveCommand ?? DEFAULT_PLAY_GROOVE_COMMAND);
         setTestingPorts(
           result.workspaceMeta.testingPorts && result.workspaceMeta.testingPorts.length > 0
             ? result.workspaceMeta.testingPorts
             : [...DEFAULT_TESTING_PORTS],
         );
+        setOpenTerminalAtWorktreeCommand(result.workspaceMeta.openTerminalAtWorktreeCommand ?? "");
+        setRunLocalCommand(result.workspaceMeta.runLocalCommand ?? "");
+        setWorktreeSymlinkPaths(result.workspaceMeta.worktreeSymlinkPaths ?? []);
         setSaveState("idle");
-        setSaveMessage(null);
 
         const durationMs = Math.max(0, performance.now() - startedAtMs);
         logSettingsTelemetry("workspace_get_active.settings", {
@@ -369,6 +384,9 @@ export default function SettingsPage() {
           setWorkspaceRoot(null);
           setPlayGrooveCommand(DEFAULT_PLAY_GROOVE_COMMAND);
           setTestingPorts([...DEFAULT_TESTING_PORTS]);
+          setOpenTerminalAtWorktreeCommand("");
+          setRunLocalCommand("");
+          setWorktreeSymlinkPaths([]);
           setErrorMessage("Failed to load the active workspace context.");
           setGitHubCliStatus(null);
           setGitHubCliRepo(null);
@@ -405,46 +423,6 @@ export default function SettingsPage() {
     void loadGitHubCliStatus(workspaceRoot, { deferAuth: true });
   }, [gitHubCliCheckedRoot, isGitHubCliLoading, loadGitHubCliStatus, workspaceRoot]);
 
-  const onSave = async (): Promise<void> => {
-    if (!workspaceMeta) {
-      setSaveState("error");
-      setSaveMessage("Select an active workspace before saving terminal settings.");
-      return;
-    }
-
-    const trimmedCommand = terminalCustomCommand.trim();
-    if (defaultTerminal === "custom" && trimmedCommand.length === 0) {
-      setSaveState("error");
-      setSaveMessage("Custom command is required when terminal is set to Custom command.");
-      return;
-    }
-
-    setSaveState("saving");
-    setSaveMessage(null);
-
-    try {
-      const result = await workspaceUpdateTerminalSettings({
-        defaultTerminal,
-        terminalCustomCommand: trimmedCommand.length > 0 ? trimmedCommand : null,
-      });
-
-      if (!result.ok || !result.workspaceMeta) {
-        setSaveState("error");
-        setSaveMessage(result.error ?? "Failed to save terminal settings.");
-        return;
-      }
-
-      setWorkspaceMeta(result.workspaceMeta);
-      setDefaultTerminal(result.workspaceMeta.defaultTerminal ?? "auto");
-      setTerminalCustomCommand(result.workspaceMeta.terminalCustomCommand ?? "");
-      setSaveState("success");
-      setSaveMessage("Settings saved.");
-    } catch {
-      setSaveState("error");
-      setSaveMessage("Failed to save terminal settings.");
-    }
-  };
-
   const onConnectRepository = async (): Promise<void> => {
     setIsConnecting(true);
     setConnectionMessage(null);
@@ -465,16 +443,16 @@ export default function SettingsPage() {
 
       setWorkspaceMeta(result.workspaceMeta);
       setWorkspaceRoot(result.workspaceRoot ?? null);
-      setDefaultTerminal(result.workspaceMeta.defaultTerminal ?? "auto");
-      setTerminalCustomCommand(result.workspaceMeta.terminalCustomCommand ?? "");
       setPlayGrooveCommand(result.workspaceMeta.playGrooveCommand ?? DEFAULT_PLAY_GROOVE_COMMAND);
       setTestingPorts(
         result.workspaceMeta.testingPorts && result.workspaceMeta.testingPorts.length > 0
           ? result.workspaceMeta.testingPorts
           : [...DEFAULT_TESTING_PORTS],
       );
+      setOpenTerminalAtWorktreeCommand(result.workspaceMeta.openTerminalAtWorktreeCommand ?? "");
+      setRunLocalCommand(result.workspaceMeta.runLocalCommand ?? "");
+      setWorktreeSymlinkPaths(result.workspaceMeta.worktreeSymlinkPaths ?? []);
       setSaveState("idle");
-      setSaveMessage(null);
       setConnectionMessage(`Connected to repository: ${result.workspaceRoot ?? result.workspaceMeta.rootName}`);
       setConnectionMessageType("success");
       setGitHubCliCheckedRoot(null);
@@ -490,6 +468,43 @@ export default function SettingsPage() {
   const onCopyGitHubCliInstruction = (): void => {
     void navigator.clipboard.writeText("gh auth login");
   };
+
+  const onApplyWorktreeSymlinkPaths = useCallback(
+    async (paths: string[]) => {
+      if (!workspaceMeta) {
+        setWorktreeSymlinkMessageType("error");
+        setWorktreeSymlinkMessage("Connect a repository before editing worktree symlink paths.");
+        return;
+      }
+
+      setIsWorktreeSymlinkSaving(true);
+      setWorktreeSymlinkMessage(null);
+      setWorktreeSymlinkMessageType(null);
+
+      try {
+        const response = await workspaceUpdateWorktreeSymlinkPaths({
+          worktreeSymlinkPaths: paths,
+        });
+        if (!response.ok || !response.workspaceMeta) {
+          setWorktreeSymlinkMessageType("error");
+          setWorktreeSymlinkMessage(response.error ?? "Failed to save worktree symlink paths.");
+          return;
+        }
+
+        setWorkspaceMeta(response.workspaceMeta);
+        setWorktreeSymlinkPaths(response.workspaceMeta.worktreeSymlinkPaths ?? []);
+        setIsWorktreeSymlinkModalOpen(false);
+        setWorktreeSymlinkMessageType("success");
+        setWorktreeSymlinkMessage("Worktree symlink paths updated.");
+      } catch {
+        setWorktreeSymlinkMessageType("error");
+        setWorktreeSymlinkMessage("Failed to save worktree symlink paths.");
+      } finally {
+        setIsWorktreeSymlinkSaving(false);
+      }
+    },
+    [workspaceMeta],
+  );
 
   const onRefreshGitHubCliStatus = async (): Promise<void> => {
     await loadGitHubCliStatus(workspaceRoot);
@@ -550,32 +565,63 @@ export default function SettingsPage() {
           <CommandsSettingsForm
             playGrooveCommand={playGrooveCommand}
             testingPorts={testingPorts}
+            openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
+            runLocalCommand={runLocalCommand}
             disabled={!workspaceMeta}
             disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace command settings." : undefined}
             onSave={onSaveCommandSettings}
           />
 
-          {workspaceMeta && (
-            <TerminalSettingsForm
-              defaultTerminal={defaultTerminal}
-              terminalCustomCommand={terminalCustomCommand}
-              saveState={saveState}
-              saveMessage={saveMessage}
-              onDefaultTerminalChange={(value) => {
-                setDefaultTerminal(value);
-                setSaveState("idle");
-                setSaveMessage(null);
-              }}
-              onTerminalCustomCommandChange={(value) => {
-                setTerminalCustomCommand(value);
-                setSaveState("idle");
-                setSaveMessage(null);
-              }}
-              onSave={() => {
-                void onSave();
-              }}
-            />
-          )}
+            <div className="space-y-3 rounded-md border border-dashed px-3 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-sm font-medium text-foreground">Worktree symlinked paths</h2>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!workspaceMeta || isWorktreeSymlinkSaving}
+                  onClick={() => {
+                    setWorktreeSymlinkMessage(null);
+                    setWorktreeSymlinkMessageType(null);
+                    setIsWorktreeSymlinkModalOpen(true);
+                  }}
+                >
+                  Edit
+                </Button>
+              </div>
+
+            <p className="text-xs text-muted-foreground">Groove symlinks these paths into worktrees when they exist in the repository root.</p>
+
+            <ul className="space-y-1 text-sm text-foreground">
+              {worktreeSymlinkPaths.map((path) => (
+                <li key={path}>
+                  <code>{path}</code>
+                </li>
+              ))}
+              {worktreeSymlinkPaths.length === 0 && <li className="text-muted-foreground">No configured paths.</li>}
+            </ul>
+
+            {!workspaceMeta && <p className="text-xs text-muted-foreground">Connect a repository to edit this list.</p>}
+            {worktreeSymlinkMessage && worktreeSymlinkMessageType === "success" && (
+              <p className="text-xs text-green-800">{worktreeSymlinkMessage}</p>
+            )}
+            {worktreeSymlinkMessage && worktreeSymlinkMessageType === "error" && (
+              <p className="text-xs text-destructive">{worktreeSymlinkMessage}</p>
+            )}
+          </div>
+
+          <WorktreeSymlinkPathsModal
+            open={isWorktreeSymlinkModalOpen}
+            workspaceRoot={workspaceRoot}
+            selectedPaths={worktreeSymlinkPaths}
+            savePending={isWorktreeSymlinkSaving}
+            onApply={onApplyWorktreeSymlinkPaths}
+            onOpenChange={(open) => {
+              if (!isWorktreeSymlinkSaving) {
+                setIsWorktreeSymlinkModalOpen(open);
+              }
+            }}
+          />
 
           <div className="space-y-3 rounded-md border border-dashed px-3 py-3">
             <div className="flex items-center justify-between gap-2">

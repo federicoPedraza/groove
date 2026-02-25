@@ -1,11 +1,13 @@
-import { CircleStop, Loader2, OctagonX, RefreshCw } from "lucide-react";
+import { ChevronDown, CircleStop, Loader2, OctagonX, RefreshCw } from "lucide-react";
 
 import { ProcessActionButton } from "@/components/pages/diagnostics/process-action-button";
 import { SOFT_RED_BUTTON_CLASSES } from "@/components/pages/diagnostics/constants";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { groupRowsByWorktree } from "@/lib/utils/worktree/process-grouping";
 import type { DiagnosticsNodeAppRow } from "@/src/lib/ipc";
 
 type NodeAppsCardProps = {
@@ -20,6 +22,7 @@ type NodeAppsCardProps = {
   onRefresh: () => void;
   onCloseAllNodeInstances: () => void;
   onStopProcess: (pid: number) => void;
+  onStopWorktreeProcesses: (worktree: string, pids: number[]) => void;
 };
 
 export function NodeAppsCard({
@@ -34,8 +37,10 @@ export function NodeAppsCard({
   onRefresh,
   onCloseAllNodeInstances,
   onStopProcess,
+  onStopWorktreeProcesses,
 }: NodeAppsCardProps) {
   const closeAllNodeLabel = isClosingAllNodeInstances ? "Closing all Node instances" : "Close all Node instances";
+  const groupedNodeApps = groupRowsByWorktree(nodeAppRows, (row) => row.cmd);
 
   return (
     <Card>
@@ -48,7 +53,7 @@ export function NodeAppsCard({
             </CardDescription>
             {nodeAppRows.length > 0 && (
               <CardDescription>
-                Running in worktrees: <span className="font-medium text-foreground">{String(nodeAppRows.length)}</span>
+                Running in worktrees: <span className="font-medium text-foreground">{String(groupedNodeApps.length)}</span>
               </CardDescription>
             )}
           </div>
@@ -99,46 +104,82 @@ export function NodeAppsCard({
           </p>
         )}
 
-        {nodeAppRows.length > 0 && (
-          <div className="rounded-lg border" role="region" aria-label="Current node apps running table">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>PID</TableHead>
-                  <TableHead>PPID</TableHead>
-                  <TableHead>Command</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {nodeAppRows.map((row) => {
-                  const isPending = pendingStopPids.includes(row.pid) || isCleaningAllDevServers || isClosingAllNodeInstances;
-                  return (
-                    <TableRow key={`${row.pid}:${row.ppid}:${row.cmd}`}>
-                      <TableCell className="font-mono text-xs">{String(row.pid)}</TableCell>
-                      <TableCell className="font-mono text-xs">{String(row.ppid)}</TableCell>
-                      <TableCell className="max-w-md truncate text-xs text-muted-foreground" title={row.cmd}>
-                        {row.cmd}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-end">
-                          <ProcessActionButton
-                            pending={isPending}
-                            label="Stop"
-                            icon={<CircleStop aria-hidden="true" className="size-4" />}
-                            onClick={() => {
-                              onStopProcess(row.pid);
-                            }}
-                          />
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+        {nodeAppRows.length > 0 &&
+          groupedNodeApps.map((group) => {
+            const groupPids = group.rows.map((row) => row.pid);
+            const isGroupPending = groupPids.some((pid) => pendingStopPids.includes(pid)) || isCleaningAllDevServers || isClosingAllNodeInstances;
+
+            return (
+              <Collapsible key={group.worktree} className="space-y-2">
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-between [&[data-state=open]>svg]:rotate-180"
+                    aria-label={`Toggle Node app process group for ${group.worktree}`}
+                  >
+                    <span>
+                      {group.worktree} ({String(group.rows.length)})
+                    </span>
+                    <ChevronDown aria-hidden="true" className="size-4 transition-transform duration-200" />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="rounded-lg border" role="region" aria-label={`Node app processes for ${group.worktree}`}>
+                    <div className="flex justify-end border-b p-2">
+                      <ProcessActionButton
+                        pending={isGroupPending}
+                        label={`Clean Node apps in ${group.worktree}`}
+                        variant="outline"
+                        className={SOFT_RED_BUTTON_CLASSES}
+                        icon={<OctagonX aria-hidden="true" className="size-4" />}
+                        onClick={() => {
+                          onStopWorktreeProcesses(group.worktree, groupPids);
+                        }}
+                      />
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>PID</TableHead>
+                          <TableHead>PPID</TableHead>
+                          <TableHead>Command</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {group.rows.map((row) => {
+                          const isPending = pendingStopPids.includes(row.pid) || isCleaningAllDevServers || isClosingAllNodeInstances;
+                          return (
+                            <TableRow key={`${row.pid}:${row.ppid}:${row.cmd}`}>
+                              <TableCell className="font-mono text-xs">{String(row.pid)}</TableCell>
+                              <TableCell className="font-mono text-xs">{String(row.ppid)}</TableCell>
+                              <TableCell className="max-w-md truncate text-xs text-muted-foreground" title={row.cmd}>
+                                {row.cmd}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex justify-end">
+                                  <ProcessActionButton
+                                    pending={isPending}
+                                    label="Stop"
+                                    icon={<CircleStop aria-hidden="true" className="size-4" />}
+                                    onClick={() => {
+                                      onStopProcess(row.pid);
+                                    }}
+                                  />
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })}
       </CardContent>
     </Card>
   );

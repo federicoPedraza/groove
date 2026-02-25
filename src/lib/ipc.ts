@@ -8,7 +8,8 @@ export type DefaultTerminal = "auto" | "ghostty" | "warp" | "kitty" | "gnome" | 
 
 export type CommandIntent = "blocking" | "background";
 
-export const DEFAULT_PLAY_GROOVE_COMMAND = "groove go {target}";
+export const DEFAULT_PLAY_GROOVE_COMMAND = "ghostty --working-directory={worktree} -e opencode";
+export const DEFAULT_RUN_LOCAL_COMMAND = "pnpm run dev";
 export const DEFAULT_TESTING_PORTS = [3000, 3001, 3002] as const;
 
 type InvokeCommandOptions = {
@@ -22,11 +23,14 @@ type WorkspaceMeta = {
   updatedAt: string;
   defaultTerminal?: DefaultTerminal;
   terminalCustomCommand?: string | null;
+  openTerminalAtWorktreeCommand?: string | null;
+  runLocalCommand?: string | null;
   telemetryEnabled?: boolean;
   disableGrooveLoadingSection?: boolean;
   showFps?: boolean;
   playGrooveCommand?: string;
   testingPorts?: number[];
+  worktreeSymlinkPaths?: string[];
 };
 
 export type WorkspaceTerminalSettingsPayload = {
@@ -47,6 +51,29 @@ export type WorkspaceTerminalSettingsResponse = {
 
 export type WorkspaceCommandSettingsResponse = WorkspaceTerminalSettingsResponse;
 
+export type WorkspaceWorktreeSymlinkPathsPayload = {
+  worktreeSymlinkPaths: string[];
+};
+
+export type WorkspaceBrowseEntriesPayload = {
+  relativePath?: string | null;
+};
+
+export type WorkspaceBrowseEntry = {
+  name: string;
+  path: string;
+  isDir: boolean;
+};
+
+export type WorkspaceBrowseEntriesResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  relativePath: string;
+  entries: WorkspaceBrowseEntry[];
+  error?: string;
+};
+
 export type GlobalSettings = {
   telemetryEnabled: boolean;
   disableGrooveLoadingSection: boolean;
@@ -66,6 +93,8 @@ export type GlobalSettingsUpdatePayload = {
 export type WorkspaceCommandSettingsPayload = {
   playGrooveCommand: string;
   testingPorts: number[];
+  openTerminalAtWorktreeCommand?: string | null;
+  runLocalCommand?: string | null;
 };
 
 export type GlobalSettingsResponse = {
@@ -676,6 +705,7 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "global_settings_get",
   "global_settings_update",
   "diagnostics_get_system_overview",
+  "workspace_list_symlink_entries",
 ]);
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
@@ -1380,6 +1410,20 @@ export function workspaceUpdateCommandsSettings(
   payload: WorkspaceCommandSettingsPayload,
 ): Promise<WorkspaceCommandSettingsResponse> {
   return invokeCommand<WorkspaceCommandSettingsResponse>("workspace_update_commands_settings", { payload });
+}
+
+export function workspaceUpdateWorktreeSymlinkPaths(
+  payload: WorkspaceWorktreeSymlinkPathsPayload,
+): Promise<WorkspaceCommandSettingsResponse> {
+  return invokeCommand<WorkspaceCommandSettingsResponse>("workspace_update_worktree_symlink_paths", { payload });
+}
+
+export function workspaceListSymlinkEntries(
+  payload: WorkspaceBrowseEntriesPayload = {},
+): Promise<WorkspaceBrowseEntriesResponse> {
+  return invokeCommand<WorkspaceBrowseEntriesResponse>("workspace_list_symlink_entries", { payload }, {
+    intent: "background",
+  });
 }
 
 export function workspaceOpenTerminal(payload: TestingEnvironmentStartPayload): Promise<GrooveRestoreResponse> {

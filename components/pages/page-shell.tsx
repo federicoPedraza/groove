@@ -15,8 +15,11 @@ import {
   grooveBinStatus,
   isShowFpsEnabled,
   isTelemetryEnabled,
+  listenWorkspaceChange,
+  listenWorkspaceReady,
   subscribeToGlobalSettings,
   workspaceGetActive,
+  workspaceGitignoreSanityCheck,
   type DiagnosticsSystemOverview,
   type DiagnosticsSystemOverviewResponse,
   type GrooveBinCheckStatus,
@@ -136,6 +139,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
   const [diagnosticsOverview, setDiagnosticsOverview] = useState<DiagnosticsSystemOverview | null>(null);
   const [diagnosticsOverviewError, setDiagnosticsOverviewError] = useState<string | null>(null);
   const [isDiagnosticsOverviewLoading, setIsDiagnosticsOverviewLoading] = useState(false);
+  const [hasDiagnosticsSanityWarning, setHasDiagnosticsSanityWarning] = useState(false);
   const shouldShowFps = useSyncExternalStore(
     subscribeToGlobalSettings,
     getIsShowFpsEnabledSnapshot,
@@ -329,6 +333,84 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
     }
   }, []);
 
+  const refreshDiagnosticsSanityWarning = useCallback(async (): Promise<void> => {
+    if (!hasOpenWorkspace) {
+      setHasDiagnosticsSanityWarning(false);
+      return;
+    }
+
+    try {
+      const workspaceResult = await workspaceGetActive();
+      if (!workspaceResult.ok || !workspaceResult.workspaceRoot) {
+        setHasDiagnosticsSanityWarning(false);
+        return;
+      }
+
+      const sanityResult = await workspaceGitignoreSanityCheck();
+      if (!sanityResult.ok) {
+        setHasDiagnosticsSanityWarning(false);
+        return;
+      }
+
+      setHasDiagnosticsSanityWarning(sanityResult.isApplicable && sanityResult.missingEntries.length > 0);
+    } catch {
+      setHasDiagnosticsSanityWarning(false);
+    }
+  }, [hasOpenWorkspace]);
+
+  useEffect(() => {
+    if (!hasOpenWorkspace) {
+      setHasDiagnosticsSanityWarning(false);
+      return;
+    }
+
+    let isClosed = false;
+    const unlistenHandlers: Array<() => void> = [];
+
+    const cleanupListeners = (): void => {
+      for (const unlisten of unlistenHandlers.splice(0)) {
+        try {
+          unlisten();
+        } catch {
+          // Ignore listener cleanup errors during unmount.
+        }
+      }
+    };
+
+    const refreshIfOpen = (): void => {
+      if (isClosed) {
+        return;
+      }
+      void refreshDiagnosticsSanityWarning();
+    };
+
+    refreshIfOpen();
+
+    void (async () => {
+      try {
+        const [unlistenReady, unlistenChange] = await Promise.all([
+          listenWorkspaceReady(refreshIfOpen),
+          listenWorkspaceChange(refreshIfOpen),
+        ]);
+
+        if (isClosed) {
+          unlistenReady();
+          unlistenChange();
+          return;
+        }
+
+        unlistenHandlers.push(unlistenReady, unlistenChange);
+      } catch {
+        cleanupListeners();
+      }
+    })();
+
+    return () => {
+      isClosed = true;
+      cleanupListeners();
+    };
+  }, [hasOpenWorkspace, refreshDiagnosticsSanityWarning]);
+
   useEffect(() => {
     if (!shouldAppendDiagnosticsSidebar) {
       return;
@@ -390,6 +472,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
       <div className="mx-auto flex w-full max-w-7xl gap-4">
         <AppNavigation
           hasOpenWorkspace={hasOpenWorkspace}
+          hasDiagnosticsSanityWarning={hasDiagnosticsSanityWarning}
           isHelpOpen={isHelpModalOpen}
           onHelpClick={() => setIsHelpModalOpen(true)}
           pageSidebar={resolvedNavigationSidebar}

@@ -25,7 +25,10 @@
 .DS_Store
 *.pem
 /.worktrees/
+/.workspace/
 /.groove/
+.workspace/
+.groove/
 
 # debug
 npm-debug.log*

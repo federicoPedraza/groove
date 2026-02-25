@@ -38,7 +38,7 @@ export function TerminalSettingsForm({
     <div className="space-y-3 rounded-md border border-dashed px-3 py-3">
       <div className="space-y-1">
         <label id="default-terminal-label" className="text-sm font-medium text-foreground">
-          Default terminal
+          Terminal for Open Terminal and testing actions
         </label>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -85,11 +85,11 @@ export function TerminalSettingsForm({
           onChange={(event) => {
             onTerminalCustomCommandChange(event.target.value);
           }}
-          placeholder="Example: ghostty --working-directory {worktree}"
+          placeholder="Example: ghostty --working-directory={worktree}"
           disabled={saveState === "saving" || !customCommandEnabled}
         />
         <p className="text-xs text-muted-foreground">
-          Used when default terminal is set to Custom command. Supports <code>{"{worktree}"}</code> and <code>GROOVE_WORKTREE</code>.
+          Used when terminal is set to Custom command. Supports <code>{"{worktree}"}</code> and <code>GROOVE_WORKTREE</code>.
         </p>
       </div>
 

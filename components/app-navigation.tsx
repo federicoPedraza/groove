@@ -1,7 +1,7 @@
 "use client";
 
 import { Link, useLocation } from "react-router-dom";
-import { ActivitySquare, CircleHelp, LayoutDashboard, PanelLeft, Settings } from "lucide-react";
+import { ActivitySquare, CircleHelp, LayoutDashboard, PanelLeft, Settings, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import {
@@ -19,7 +19,10 @@ import {
   sidebarMenuButtonClassName,
 } from "@/components/ui/sidebar";
 import {
+  Tooltip,
+  TooltipContent,
   TooltipProvider,
+  TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
@@ -56,6 +59,7 @@ function clearNavigationStartMarker(): void {
 
 type AppNavigationProps = {
   hasOpenWorkspace: boolean;
+  hasDiagnosticsSanityWarning: boolean;
   isHelpOpen: boolean;
   onHelpClick: () => void;
   pageSidebar?: ReactNode | ((args: { collapsed: boolean }) => ReactNode);
@@ -293,7 +297,7 @@ function GrooveLoadingSprite({ isLoading, isCompact = false, shouldShowFrameInde
   );
 }
 
-function AppNavigation({ hasOpenWorkspace, isHelpOpen, onHelpClick, pageSidebar }: AppNavigationProps) {
+function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOpen, onHelpClick, pageSidebar }: AppNavigationProps) {
   const { pathname } = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -536,6 +540,16 @@ function AppNavigation({ hasOpenWorkspace, isHelpOpen, onHelpClick, pageSidebar 
                   >
                     <ActivitySquare aria-hidden="true" className="size-4 shrink-0" />
                     {!isSidebarCollapsed && <span>Diagnostics</span>}
+                    {hasDiagnosticsSanityWarning ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="ml-auto inline-flex text-amber-600">
+                            <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>A sanity check has failed</TooltipContent>
+                      </Tooltip>
+                    ) : null}
                   </Link>
                 )}
                 <Link
@@ -604,11 +618,21 @@ function AppNavigation({ hasOpenWorkspace, isHelpOpen, onHelpClick, pageSidebar 
                     recordNavigationStart("/diagnostics");
                     setIsMobileSidebarOpen(false);
                   }}
-                >
-                  <ActivitySquare aria-hidden="true" className="size-4 shrink-0" />
-                  <span>Diagnostics</span>
-                </Link>
-              )}
+                  >
+                    <ActivitySquare aria-hidden="true" className="size-4 shrink-0" />
+                    <span>Diagnostics</span>
+                    {hasDiagnosticsSanityWarning ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="ml-auto inline-flex text-amber-600">
+                            <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>A sanity check has failed</TooltipContent>
+                      </Tooltip>
+                    ) : null}
+                  </Link>
+                )}
               <Link
                 to="/settings"
                 className={sidebarMenuButtonClassName({ isActive: isSettingsActive })}

@@ -7,6 +7,8 @@ export type WorkspaceMeta = {
   updatedAt: string;
   defaultTerminal?: "auto" | "ghostty" | "warp" | "kitty" | "gnome" | "xterm" | "none" | "custom";
   terminalCustomCommand?: string | null;
+  openTerminalAtWorktreeCommand?: string | null;
+  runLocalCommand?: string | null;
 };
 
 export type WorktreeRow = WorkspaceRow;

@@ -1,7 +1,8 @@
-import { CirclePause, ExternalLink, FlaskConical, Loader2, Pause, Play, Terminal, X } from "lucide-react";
+import { ChevronDown, CirclePause, ExternalLink, FlaskConical, Loader2, Pause, Play, Terminal, X } from "lucide-react";
 
 import { ACTIVE_ORANGE_BUTTON_CLASSES, SOFT_ORANGE_BUTTON_CLASSES } from "@/components/pages/dashboard/constants";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TestingEnvironmentColor } from "@/components/pages/dashboard/types";
 import { cn } from "@/lib/utils";
@@ -13,6 +14,7 @@ type TestingEnvironmentPanelProps = {
   isTestingInstancePending: boolean;
   onStop: (worktree: string) => void;
   onRunLocal: (worktree: string) => void;
+  onRunLocalSeparateTerminal: (worktree: string) => void;
   onOpenTerminal: (worktree: string) => void;
   onRequestUnset: (environment: TestingEnvironmentEntry) => void;
 };
@@ -23,6 +25,7 @@ export function TestingEnvironmentPanel({
   isTestingInstancePending,
   onStop,
   onRunLocal,
+  onRunLocalSeparateTerminal,
   onOpenTerminal,
   onRequestUnset,
 }: TestingEnvironmentPanelProps) {
@@ -127,18 +130,46 @@ export function TestingEnvironmentPanel({
                       <span>Stop local</span>
                     </Button>
                   ) : (
-                    <Button
-                      type="button"
-                      variant="default"
-                      size="sm"
-                      onClick={() => {
-                        onRunLocal(environment.worktree);
-                      }}
-                      disabled={isTestingInstancePending}
-                    >
-                      {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Play aria-hidden="true" className="size-4" />}
-                      <span>Run local</span>
-                    </Button>
+                    <div className="inline-flex rounded-md">
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        className="rounded-r-none"
+                        onClick={() => {
+                          onRunLocal(environment.worktree);
+                        }}
+                        disabled={isTestingInstancePending}
+                      >
+                        {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Play aria-hidden="true" className="size-4" />}
+                        <span>Run local</span>
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="default"
+                            size="sm"
+                            className="rounded-l-none border-l border-primary/30 px-2"
+                            disabled={isTestingInstancePending}
+                            aria-label="More local run options"
+                          >
+                            {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <ChevronDown aria-hidden="true" className="size-4" />}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            disabled={isTestingInstancePending}
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              onRunLocalSeparateTerminal(environment.worktree);
+                            }}
+                          >
+                            Run local on a new terminal
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   )}
                   <Tooltip>
                     <TooltipTrigger asChild>

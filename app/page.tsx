@@ -44,11 +44,6 @@ export default function Home() {
     workspaceMeta,
     workspaceRoot,
     recentDirectories,
-    gitignoreSanity,
-    gitignoreSanityStatusMessage,
-    gitignoreSanityErrorMessage,
-    isGitignoreSanityChecking,
-    isGitignoreSanityApplyPending,
     forceCutConfirmLoading,
     groupedWorktreeItems,
     setIsCloseWorkspaceConfirmOpen,
@@ -60,7 +55,6 @@ export default function Home() {
     setUnsetTestingEnvironmentConfirm,
     pickDirectory,
     openRecentDirectory,
-    applyGitignoreSanityPatch,
     refreshWorktrees,
     copyBranchName,
     runRestoreAction,
@@ -70,6 +64,7 @@ export default function Home() {
     runPlayGrooveAction,
     onSelectTestingTarget,
     runStartTestingInstanceAction,
+    runStartTestingInstanceSeparateTerminalAction,
     runOpenTestingTerminalAction,
     runStopTestingInstanceAction,
     runUnsetTestingTargetAction,
@@ -176,11 +171,6 @@ export default function Home() {
       {!activeWorkspace ? null : (
         <div aria-live="polite" className="space-y-3">
           <DashboardHeader
-            gitignoreSanity={gitignoreSanity}
-            isGitignoreSanityChecking={isGitignoreSanityChecking}
-            isGitignoreSanityApplyPending={isGitignoreSanityApplyPending}
-            gitignoreSanityStatusMessage={gitignoreSanityStatusMessage}
-            gitignoreSanityErrorMessage={gitignoreSanityErrorMessage}
             isBusy={isBusy}
             isCreatePending={isCreatePending}
             onCreate={() => {
@@ -188,17 +178,8 @@ export default function Home() {
               setCreateBase("");
               setIsCreateModalOpen(true);
             }}
-            onApplyGitignoreSanityPatch={() => {
-              void applyGitignoreSanityPatch();
-            }}
             onRefresh={() => {
               void refreshWorktrees();
-            }}
-            onPickDirectory={() => {
-              void pickDirectory();
-            }}
-            onCloseWorkspace={() => {
-              setIsCloseWorkspaceConfirmOpen(true);
             }}
           />
 
@@ -213,6 +194,9 @@ export default function Home() {
                 }}
                 onRunLocal={(worktree) => {
                   void runStartTestingInstanceAction(worktree);
+                }}
+                onRunLocalSeparateTerminal={(worktree) => {
+                  void runStartTestingInstanceSeparateTerminalAction(worktree);
                 }}
                 onOpenTerminal={(worktree) => {
                   void runOpenTestingTerminalAction(worktree);

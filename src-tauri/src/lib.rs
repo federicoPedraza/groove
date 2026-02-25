@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+#[cfg(target_os = "linux")]
+use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -23,9 +25,12 @@ const WORKSPACE_EVENTS_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100)
 const GROOVE_LIST_CACHE_TTL: Duration = Duration::from_secs(45);
 const GROOVE_LIST_CACHE_STALE_TTL: Duration = Duration::from_secs(50);
 const DEFAULT_TESTING_ENVIRONMENT_PORTS: [u16; 3] = [3000, 3001, 3002];
+const DEFAULT_WORKTREE_SYMLINK_PATHS: [&str; 4] = [".env", ".env.local", ".convex", "node_modules"];
 const MIN_TESTING_PORT: u16 = 1;
 const MAX_TESTING_PORT: u16 = 65535;
-const DEFAULT_PLAY_GROOVE_COMMAND_TEMPLATE: &str = "groove go {target}";
+const DEFAULT_PLAY_GROOVE_COMMAND_TEMPLATE: &str =
+    "ghostty --working-directory={worktree} -e opencode";
+const DEFAULT_RUN_LOCAL_COMMAND: &str = "pnpm run dev";
 const SUPPORTED_DEFAULT_TERMINALS: [&str; 8] = [
     "auto", "ghostty", "warp", "kitty", "gnome", "xterm", "none", "custom",
 ];
@@ -184,6 +189,9 @@ struct WorkspaceMetaContext {
     show_fps: Option<bool>,
     play_groove_command: Option<String>,
     testing_ports: Option<Vec<u16>>,
+    open_terminal_at_worktree_command: Option<String>,
+    run_local_command: Option<String>,
+    worktree_symlink_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -207,6 +215,12 @@ struct WorkspaceMeta {
     play_groove_command: String,
     #[serde(default = "default_testing_ports")]
     testing_ports: Vec<u16>,
+    #[serde(default)]
+    open_terminal_at_worktree_command: Option<String>,
+    #[serde(default)]
+    run_local_command: Option<String>,
+    #[serde(default = "default_worktree_symlink_paths")]
+    worktree_symlink_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -346,6 +360,21 @@ struct WorkspaceTerminalSettingsPayload {
 struct WorkspaceCommandSettingsPayload {
     play_groove_command: String,
     testing_ports: Vec<u32>,
+    open_terminal_at_worktree_command: Option<String>,
+    run_local_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceWorktreeSymlinkPathsPayload {
+    #[serde(default)]
+    worktree_symlink_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceBrowseEntriesPayload {
+    relative_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -609,6 +638,27 @@ struct WorkspaceTerminalSettingsResponse {
     workspace_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     workspace_meta: Option<WorkspaceMeta>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceBrowseEntry {
+    name: String,
+    path: String,
+    is_dir: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceBrowseEntriesResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    relative_path: String,
+    entries: Vec<WorkspaceBrowseEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -1182,6 +1232,13 @@ fn default_testing_ports() -> Vec<u16> {
     DEFAULT_TESTING_ENVIRONMENT_PORTS.to_vec()
 }
 
+fn default_worktree_symlink_paths() -> Vec<String> {
+    DEFAULT_WORKTREE_SYMLINK_PATHS
+        .iter()
+        .map(|value| value.to_string())
+        .collect()
+}
+
 fn normalize_default_terminal(value: &str) -> Result<String, String> {
     let normalized = value.trim().to_lowercase();
     if SUPPORTED_DEFAULT_TERMINALS.contains(&normalized.as_str()) {
@@ -1335,6 +1392,34 @@ fn normalize_play_groove_command(value: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
+fn normalize_open_terminal_at_worktree_command(
+    value: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(trimmed) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    parse_terminal_command_tokens(trimmed).map_err(|error| {
+        error.replace(
+            "terminalCustomCommand",
+            "openTerminalAtWorktreeCommand",
+        )
+    })?;
+
+    Ok(Some(trimmed.to_string()))
+}
+
+fn normalize_run_local_command(value: Option<&str>) -> Result<Option<String>, String> {
+    let Some(trimmed) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    parse_terminal_command_tokens(trimmed)
+        .map_err(|error| error.replace("terminalCustomCommand", "runLocalCommand"))?;
+
+    Ok(Some(trimmed.to_string()))
+}
+
 fn normalize_testing_ports_from_u16(ports: &[u16]) -> Vec<u16> {
     let mut seen = HashSet::new();
     let mut normalized = Vec::new();
@@ -1378,18 +1463,99 @@ fn normalize_testing_ports_from_u32(ports: &[u32]) -> Vec<u16> {
     normalized
 }
 
+fn normalize_worktree_symlink_paths(paths: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for path in paths {
+        let trimmed = path.trim();
+        if trimmed.is_empty() || trimmed.contains('\\') {
+            continue;
+        }
+
+        let candidate = Path::new(trimmed);
+        if candidate.is_absolute() {
+            continue;
+        }
+
+        let mut parts = Vec::new();
+        let mut valid = true;
+        for component in candidate.components() {
+            match component {
+                Component::Normal(value) => {
+                    let part = value.to_string_lossy().trim().to_string();
+                    if part.is_empty() {
+                        valid = false;
+                        break;
+                    }
+                    parts.push(part);
+                }
+                Component::ParentDir
+                | Component::CurDir
+                | Component::RootDir
+                | Component::Prefix(_) => {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+
+        if !valid || parts.is_empty() {
+            continue;
+        }
+
+        let rendered = parts.join("/");
+        if is_restricted_worktree_symlink_path(&rendered) {
+            continue;
+        }
+        if seen.insert(rendered.clone()) {
+            normalized.push(rendered);
+        }
+    }
+
+    normalized
+}
+
+fn validate_worktree_symlink_paths(paths: &[String]) -> Result<Vec<String>, String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for path in paths {
+        let candidate = normalize_worktree_symlink_paths(std::slice::from_ref(path));
+        let Some(value) = candidate.into_iter().next() else {
+            return Err(format!(
+                "worktreeSymlinkPaths contains an invalid or restricted path: \"{}\".",
+                path.trim()
+            ));
+        };
+
+        if seen.insert(value.clone()) {
+            normalized.push(value);
+        }
+    }
+
+    Ok(normalized)
+}
+
 fn resolve_play_groove_command(
     command_template: &str,
     target: &str,
+    worktree_path: &Path,
 ) -> Result<(String, Vec<String>), String> {
     let tokens = parse_play_groove_command_tokens(command_template)?;
+    let worktree = worktree_path.display().to_string();
+    let contains_worktree_placeholder = tokens.iter().any(|token| token.contains("{worktree}"));
     let contains_target_placeholder = tokens.iter().any(|token| token.contains("{target}"));
 
     let mut resolved_tokens = tokens
         .into_iter()
-        .map(|token| token.replace("{target}", target))
+        .map(|token| {
+            token
+                .replace("{worktree}", &worktree)
+                .replace("{target}", target)
+        })
         .collect::<Vec<_>>();
-    if !contains_target_placeholder {
+    if !contains_worktree_placeholder && !contains_target_placeholder {
         resolved_tokens.push(target.to_string());
     }
 
@@ -1423,29 +1589,23 @@ fn parse_custom_terminal_command(
     Ok((program.to_string(), args.to_vec()))
 }
 
-fn run_command_with_worktree_env(
-    binary: &str,
-    args: &[String],
-    cwd: &Path,
+fn resolve_run_local_command(
+    command_template: &str,
     worktree_path: &Path,
-    port: Option<u16>,
-    timeout: Duration,
-) -> CommandResult {
-    let mut command = Command::new(binary);
-    command
-        .args(args)
-        .current_dir(cwd)
-        .env("GROOVE_WORKTREE", worktree_path.display().to_string());
-    if let Some(port) = port {
-        command.env("PORT", port.to_string());
-    }
+) -> Result<(String, Vec<String>), String> {
+    let tokens = parse_terminal_command_tokens(command_template)
+        .map_err(|error| error.replace("terminalCustomCommand", "runLocalCommand"))?;
+    let worktree = worktree_path.display().to_string();
+    let resolved_tokens = tokens
+        .into_iter()
+        .map(|token| token.replace("{worktree}", &worktree))
+        .collect::<Vec<_>>();
 
-    run_command_with_timeout(
-        command,
-        timeout,
-        format!("Failed to execute custom command {binary}"),
-        format!("custom command {binary}"),
-    )
+    let Some((program, args)) = resolved_tokens.split_first() else {
+        return Err("runLocalCommand must include an executable command.".to_string());
+    };
+
+    Ok((program.to_string(), args.to_vec()))
 }
 
 fn run_command_with_timeout(
@@ -1583,7 +1743,7 @@ fn launch_plain_terminal(
     let mut candidates: Vec<(String, Vec<String>)> = match normalized_terminal {
         "ghostty" => vec![(
             "ghostty".to_string(),
-            vec!["--working-directory".to_string(), worktree.clone()],
+            vec![format!("--working-directory={worktree}")],
         )],
         "warp" => vec![(
             "warp".to_string(),
@@ -1603,7 +1763,7 @@ fn launch_plain_terminal(
             let mut terminals = vec![
                 (
                     "ghostty".to_string(),
-                    vec!["--working-directory".to_string(), worktree.clone()],
+                    vec![format!("--working-directory={worktree}")],
                 ),
                 (
                     "warp".to_string(),
@@ -1669,6 +1829,43 @@ fn launch_plain_terminal(
             launch_errors.join(" | ")
         ))
     }
+}
+
+fn launch_open_terminal_at_worktree_command(
+    worktree_path: &Path,
+    workspace_meta: &WorkspaceMeta,
+) -> Result<String, String> {
+    if let Some(command_override) = workspace_meta
+        .open_terminal_at_worktree_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let (program, args) = parse_custom_terminal_command(command_override, worktree_path)?;
+        spawn_terminal_process(&program, &args, worktree_path, worktree_path).map_err(|error| {
+            format!("Failed to launch terminal command {program}: {error}")
+        })?;
+
+        return Ok(
+            std::iter::once(program.as_str())
+                .chain(args.iter().map(|value| value.as_str()))
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+    }
+
+    launch_plain_terminal(
+        worktree_path,
+        &workspace_meta.default_terminal,
+        workspace_meta.terminal_custom_command.as_deref(),
+    )
+}
+
+fn is_restricted_worktree_symlink_path(path: &str) -> bool {
+    path.split('/')
+        .next()
+        .map(|part| part.eq_ignore_ascii_case(".worktrees"))
+        .unwrap_or(false)
 }
 
 fn is_safe_path_token(value: &str) -> bool {
@@ -1749,6 +1946,48 @@ fn validate_optional_relative_path(
     }
 
     Ok(Some(trimmed.to_string()))
+}
+
+fn normalize_browse_relative_path(value: Option<&str>) -> Result<String, String> {
+    let Some(trimmed) = value.map(str::trim).filter(|entry| !entry.is_empty()) else {
+        return Ok(String::new());
+    };
+
+    if trimmed.contains('\\') {
+        return Err("relativePath must use forward slashes only.".to_string());
+    }
+
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return Err("relativePath must be a relative path.".to_string());
+    }
+
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(value) => {
+                let part = value.to_string_lossy().trim().to_string();
+                if part.is_empty() {
+                    return Err("relativePath contains invalid path segments.".to_string());
+                }
+                parts.push(part);
+            }
+            Component::ParentDir | Component::CurDir | Component::RootDir | Component::Prefix(_) => {
+                return Err("relativePath contains unsafe path segments.".to_string());
+            }
+        }
+    }
+
+    if parts.is_empty() {
+        return Ok(String::new());
+    }
+
+    let normalized = parts.join("/");
+    if is_restricted_worktree_symlink_path(&normalized) {
+        return Err("relativePath cannot browse restricted workspace directories.".to_string());
+    }
+
+    Ok(normalized)
 }
 
 fn path_is_directory(path: &Path) -> bool {
@@ -1847,6 +2086,90 @@ fn testing_ports_for_workspace(workspace_root: &Path) -> Vec<u16> {
     ensure_workspace_meta(workspace_root)
         .map(|(workspace_meta, _)| normalize_testing_ports_from_u16(&workspace_meta.testing_ports))
         .unwrap_or_else(|_| default_testing_ports())
+}
+
+fn run_local_command_for_workspace(workspace_root: &Path) -> Option<String> {
+    ensure_workspace_meta(workspace_root)
+        .ok()
+        .and_then(|(workspace_meta, _)| {
+            normalize_run_local_command(workspace_meta.run_local_command.as_deref()).unwrap_or(None)
+        })
+}
+
+fn worktree_symlink_paths_for_workspace(workspace_root: &Path) -> Vec<String> {
+    ensure_workspace_meta(workspace_root)
+        .map(|(workspace_meta, _)| {
+            normalize_worktree_symlink_paths(&workspace_meta.worktree_symlink_paths)
+        })
+        .unwrap_or_else(|_| default_worktree_symlink_paths())
+}
+
+fn create_symlink(source: &Path, destination: &Path) -> Result<(), std::io::Error> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(source, destination)
+    }
+
+    #[cfg(windows)]
+    {
+        if source.is_dir() {
+            std::os::windows::fs::symlink_dir(source, destination)
+        } else {
+            std::os::windows::fs::symlink_file(source, destination)
+        }
+    }
+}
+
+fn apply_configured_worktree_symlinks(workspace_root: &Path, worktree_path: &Path) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let configured_paths = worktree_symlink_paths_for_workspace(workspace_root);
+
+    for relative_path in configured_paths {
+        if is_restricted_worktree_symlink_path(&relative_path) {
+            warnings.push(format!(
+                "Skipped restricted symlink path \"{}\".",
+                relative_path
+            ));
+            continue;
+        }
+
+        let source_path = workspace_root.join(&relative_path);
+        if !source_path.exists() {
+            continue;
+        }
+
+        let destination_path = worktree_path.join(&relative_path);
+        if destination_path == source_path || destination_path.starts_with(&source_path) {
+            warnings.push(format!(
+                "Skipped symlink \"{}\" because it would create a recursive or self-referential link.",
+                relative_path
+            ));
+            continue;
+        }
+
+        if destination_path.exists() || fs::symlink_metadata(&destination_path).is_ok() {
+            continue;
+        }
+
+        if let Some(parent) = destination_path.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                warnings.push(format!(
+                    "Could not prepare destination for symlink \"{}\": {error}",
+                    relative_path
+                ));
+                continue;
+            }
+        }
+
+        if let Err(error) = create_symlink(&source_path, &destination_path) {
+            warnings.push(format!(
+                "Could not symlink \"{}\" into worktree: {error}",
+                relative_path
+            ));
+        }
+    }
+
+    warnings
 }
 
 fn global_settings_file(app: &AppHandle) -> Result<PathBuf, String> {
@@ -2205,6 +2528,9 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         show_fps: false,
         play_groove_command: default_play_groove_command(),
         testing_ports: default_testing_ports(),
+        open_terminal_at_worktree_command: None,
+        run_local_command: None,
+        worktree_symlink_paths: default_worktree_symlink_paths(),
     }
 }
 
@@ -2275,6 +2601,16 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 .and_then(|parsed| parsed.as_object())
                 .map(|obj| obj.contains_key("testingPorts"))
                 .unwrap_or(true);
+            let has_run_local_command = parsed_workspace_json
+                .as_ref()
+                .and_then(|parsed| parsed.as_object())
+                .map(|obj| obj.contains_key("runLocalCommand"))
+                .unwrap_or(true);
+            let has_worktree_symlink_paths = parsed_workspace_json
+                .as_ref()
+                .and_then(|parsed| parsed.as_object())
+                .map(|obj| obj.contains_key("worktreeSymlinkPaths"))
+                .unwrap_or(true);
             if workspace_meta.root_name != expected_root_name {
                 workspace_meta.root_name = expected_root_name;
                 did_update = true;
@@ -2335,6 +2671,34 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 did_update = true;
             }
 
+            let normalized_open_terminal_at_worktree_command =
+                normalize_open_terminal_at_worktree_command(
+                    workspace_meta.open_terminal_at_worktree_command.as_deref(),
+                )
+                .unwrap_or(None);
+            if workspace_meta.open_terminal_at_worktree_command
+                != normalized_open_terminal_at_worktree_command
+            {
+                workspace_meta.open_terminal_at_worktree_command =
+                    normalized_open_terminal_at_worktree_command;
+                did_update = true;
+            }
+
+            let normalized_run_local_command =
+                normalize_run_local_command(workspace_meta.run_local_command.as_deref())
+                    .unwrap_or(None);
+            if workspace_meta.run_local_command != normalized_run_local_command {
+                workspace_meta.run_local_command = normalized_run_local_command;
+                did_update = true;
+            }
+
+            let normalized_worktree_symlink_paths =
+                normalize_worktree_symlink_paths(&workspace_meta.worktree_symlink_paths);
+            if workspace_meta.worktree_symlink_paths != normalized_worktree_symlink_paths {
+                workspace_meta.worktree_symlink_paths = normalized_worktree_symlink_paths;
+                did_update = true;
+            }
+
             if !has_play_groove_command {
                 workspace_meta.play_groove_command = default_play_groove_command();
                 did_update = true;
@@ -2342,6 +2706,16 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
 
             if !has_testing_ports {
                 workspace_meta.testing_ports = default_testing_ports();
+                did_update = true;
+            }
+
+            if !has_run_local_command {
+                workspace_meta.run_local_command = None;
+                did_update = true;
+            }
+
+            if !has_worktree_symlink_paths {
+                workspace_meta.worktree_symlink_paths = default_worktree_symlink_paths();
                 did_update = true;
             }
 
@@ -2650,6 +3024,23 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
                 .collect::<Vec<_>>()
         })
     });
+    let open_terminal_at_worktree_command = obj
+        .get("openTerminalAtWorktreeCommand")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+    let run_local_command = obj
+        .get("runLocalCommand")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+    let worktree_symlink_paths = obj.get("worktreeSymlinkPaths").and_then(|v| {
+        v.as_array().map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+        })
+    });
 
     if version.is_none()
         && root_name.is_none()
@@ -2662,6 +3053,9 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         && show_fps.is_none()
         && play_groove_command.is_none()
         && testing_ports.is_none()
+        && open_terminal_at_worktree_command.is_none()
+        && run_local_command.is_none()
+        && worktree_symlink_paths.is_none()
     {
         return None;
     }
@@ -2678,6 +3072,9 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         show_fps,
         play_groove_command,
         testing_ports,
+        open_terminal_at_worktree_command,
+        run_local_command,
+        worktree_symlink_paths,
     })
 }
 
@@ -2734,6 +3131,28 @@ fn workspace_meta_matches(
 
     if let Some(expected_testing_ports) = &expected.testing_ports {
         if observed.testing_ports.as_ref() != Some(expected_testing_ports) {
+            return false;
+        }
+    }
+
+    if let Some(expected_open_terminal_at_worktree_command) =
+        &expected.open_terminal_at_worktree_command
+    {
+        if observed.open_terminal_at_worktree_command.as_ref()
+            != Some(expected_open_terminal_at_worktree_command)
+        {
+            return false;
+        }
+    }
+
+    if let Some(expected_run_local_command) = &expected.run_local_command {
+        if observed.run_local_command.as_ref() != Some(expected_run_local_command) {
+            return false;
+        }
+    }
+
+    if let Some(expected_worktree_symlink_paths) = &expected.worktree_symlink_paths {
+        if observed.worktree_symlink_paths.as_ref() != Some(expected_worktree_symlink_paths) {
             return false;
         }
     }
@@ -4567,8 +4986,19 @@ fn ensure_worktree_in_dir(
     worktree: &str,
     dir: &str,
 ) -> Result<PathBuf, String> {
-    let expected_worktrees_dir = workspace_root.join(dir);
-    let target = expected_worktrees_dir.join(worktree);
+    let expected_suffix = Path::new(dir).join(worktree);
+    let (expected_worktrees_dir, target) = if workspace_root.ends_with(&expected_suffix) {
+        let parent = workspace_root.parent().ok_or_else(|| {
+            format!(
+                "Could not resolve parent worktrees directory for \"{}\".",
+                workspace_root.display()
+            )
+        })?;
+        (parent.to_path_buf(), workspace_root.to_path_buf())
+    } else {
+        let expected_worktrees_dir = workspace_root.join(dir);
+        (expected_worktrees_dir.clone(), expected_worktrees_dir.join(worktree))
+    };
     let expected_resolved = expected_worktrees_dir
         .canonicalize()
         .unwrap_or_else(|_| expected_worktrees_dir.clone());
@@ -5442,7 +5872,7 @@ fn reconcile_testing_runtime(runtime: &mut TestingEnvironmentRuntimeState) -> bo
     let before = runtime.persisted.running_instances.len();
     runtime.persisted.running_instances.retain(|instance| {
         if instance.pid <= 0 {
-            return true;
+            return false;
         }
         is_process_running(instance.pid)
     });
@@ -5709,7 +6139,7 @@ fn unset_testing_target_for_worktree(
 
 fn testing_instance_is_effectively_running(instance: &TestingEnvironmentInstance) -> bool {
     if instance.pid <= 0 {
-        return true;
+        return false;
     }
 
     is_process_running(instance.pid)
@@ -5741,22 +6171,35 @@ fn start_testing_instance_for_target(
         )?;
     }
 
-    let mut command = Command::new("pnpm");
+    let run_local_command = run_local_command_for_workspace(Path::new(&target.workspace_root));
+    let command_template = run_local_command
+        .as_deref()
+        .unwrap_or(DEFAULT_RUN_LOCAL_COMMAND);
+    let (program, args) =
+        resolve_run_local_command(command_template, Path::new(&target.worktree_path))?;
+    let mut command = Command::new(&program);
     let configured_ports = testing_ports_for_workspace(Path::new(&target.workspace_root));
     let used_ports = runtime
         .persisted
         .running_instances
         .iter()
+        .filter(|instance| testing_instance_is_effectively_running(instance))
         .filter_map(|instance| instance.port)
         .collect::<HashSet<_>>();
     let port = allocate_testing_port(&configured_ports, &used_ports)?;
     command
-        .args(["run", "dev"])
+        .args(args.iter().map(|value| value.as_str()))
         .current_dir(Path::new(&target.worktree_path))
         .env("PORT", port.to_string())
+        .env("GROOVE_WORKTREE", &target.worktree_path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+
+    #[cfg(target_os = "linux")]
+    {
+        command.process_group(0);
+    }
 
     let child = command
         .spawn()
@@ -5779,7 +6222,10 @@ fn start_testing_instance_for_target(
             workspace_root: target.workspace_root.clone(),
             worktree: target.worktree.clone(),
             worktree_path: target.worktree_path.clone(),
-            command: "pnpm run dev".to_string(),
+            command: std::iter::once(program.as_str())
+                .chain(args.iter().map(|value| value.as_str()))
+                .collect::<Vec<_>>()
+                .join(" "),
             started_at: now_iso(),
         });
     runtime.children_by_worktree.insert(
@@ -5810,6 +6256,26 @@ fn snapshot_entry(path: &Path) -> SnapshotEntry {
             mtime_ms: 0,
         }
     }
+}
+
+fn snapshot_runtime_pids_by_worktree(
+    workspace_root: &Path,
+    known_worktrees: &[String],
+) -> HashMap<String, Option<i32>> {
+    let Ok((snapshot_rows, _warning)) = list_process_snapshot_rows() else {
+        return HashMap::new();
+    };
+
+    let mut runtime_by_worktree = HashMap::new();
+    for worktree in known_worktrees {
+        let worktree_path = workspace_root.join(".worktrees").join(worktree);
+        runtime_by_worktree.insert(
+            worktree.clone(),
+            resolve_opencode_pid_for_worktree(&snapshot_rows, &worktree_path),
+        );
+    }
+
+    runtime_by_worktree
 }
 
 fn log_backend_timing(telemetry_enabled: bool, event: &str, elapsed: Duration, details: &str) {
@@ -6688,6 +7154,33 @@ fn workspace_update_commands_settings(
         }
     };
     let testing_ports = normalize_testing_ports_from_u32(&payload.testing_ports);
+    let open_terminal_at_worktree_command = match normalize_open_terminal_at_worktree_command(
+        payload.open_terminal_at_worktree_command.as_deref(),
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+    let run_local_command = match normalize_run_local_command(payload.run_local_command.as_deref())
+    {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
 
     let persisted_root = match read_persisted_active_workspace_root(&app) {
         Ok(Some(value)) => value,
@@ -6739,6 +7232,8 @@ fn workspace_update_commands_settings(
 
     workspace_meta.play_groove_command = play_groove_command;
     workspace_meta.testing_ports = testing_ports;
+    workspace_meta.open_terminal_at_worktree_command = open_terminal_at_worktree_command;
+    workspace_meta.run_local_command = run_local_command;
     workspace_meta.updated_at = now_iso();
 
     let workspace_json = workspace_root.join(".groove").join("workspace.json");
@@ -6759,6 +7254,239 @@ fn workspace_update_commands_settings(
         ok: true,
         workspace_root: Some(workspace_root.display().to_string()),
         workspace_meta: Some(workspace_meta),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn workspace_update_worktree_symlink_paths(
+    app: AppHandle,
+    payload: WorkspaceWorktreeSymlinkPathsPayload,
+) -> WorkspaceTerminalSettingsResponse {
+    let request_id = request_id();
+    let worktree_symlink_paths = match validate_worktree_symlink_paths(&payload.worktree_symlink_paths)
+    {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some("No active workspace selected.".to_string()),
+            }
+        }
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match validate_workspace_root_path(&persisted_root) {
+        Ok(root) => root,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(persisted_root),
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let (mut workspace_meta, _) = match ensure_workspace_meta(&workspace_root) {
+        Ok(result) => result,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    workspace_meta.worktree_symlink_paths = worktree_symlink_paths;
+    workspace_meta.updated_at = now_iso();
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    if let Err(error) = write_workspace_meta_file(&workspace_json, &workspace_meta) {
+        return WorkspaceTerminalSettingsResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            workspace_meta: None,
+            error: Some(error),
+        };
+    }
+
+    invalidate_workspace_context_cache(&app, &workspace_root);
+
+    WorkspaceTerminalSettingsResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        workspace_meta: Some(workspace_meta),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn workspace_list_symlink_entries(
+    app: AppHandle,
+    payload: WorkspaceBrowseEntriesPayload,
+) -> WorkspaceBrowseEntriesResponse {
+    let request_id = request_id();
+    let relative_path = match normalize_browse_relative_path(payload.relative_path.as_deref()) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceBrowseEntriesResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                relative_path: String::new(),
+                entries: Vec::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return WorkspaceBrowseEntriesResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                relative_path,
+                entries: Vec::new(),
+                error: Some("No active workspace selected.".to_string()),
+            }
+        }
+        Err(error) => {
+            return WorkspaceBrowseEntriesResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                relative_path,
+                entries: Vec::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match validate_workspace_root_path(&persisted_root) {
+        Ok(root) => root,
+        Err(error) => {
+            return WorkspaceBrowseEntriesResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(persisted_root),
+                relative_path,
+                entries: Vec::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let browse_root = if relative_path.is_empty() {
+        workspace_root.clone()
+    } else {
+        workspace_root.join(&relative_path)
+    };
+    if !path_is_directory(&browse_root) {
+        return WorkspaceBrowseEntriesResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            relative_path,
+            entries: Vec::new(),
+            error: Some("Requested path is not a directory in this workspace.".to_string()),
+        };
+    }
+
+    let mut entries = Vec::new();
+    let read_dir = match fs::read_dir(&browse_root) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceBrowseEntriesResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                relative_path,
+                entries: Vec::new(),
+                error: Some(format!(
+                    "Failed to read directory \"{}\": {error}",
+                    browse_root.display()
+                )),
+            }
+        }
+    };
+
+    for entry in read_dir {
+        let entry = match entry {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.trim().is_empty() {
+            continue;
+        }
+
+        if relative_path.is_empty() && is_restricted_worktree_symlink_path(&name) {
+            continue;
+        }
+
+        let file_type = match entry.file_type() {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let child_relative_path = if relative_path.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{}", relative_path, name)
+        };
+
+        entries.push(WorkspaceBrowseEntry {
+            name,
+            path: child_relative_path,
+            is_dir: file_type.is_dir(),
+        });
+    }
+
+    entries.sort_by(|left, right| {
+        right
+            .is_dir
+            .cmp(&left.is_dir)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+
+    WorkspaceBrowseEntriesResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        relative_path,
+        entries,
         error: None,
     }
 }
@@ -6856,13 +7584,9 @@ fn workspace_open_terminal(app: AppHandle, payload: TestingEnvironmentStartPaylo
         }
     };
 
-    let default_terminal = normalize_default_terminal(&workspace_meta.default_terminal)
-        .unwrap_or_else(|_| default_terminal_auto());
-
-    let launched_command = match launch_plain_terminal(
+    let launched_command = match launch_open_terminal_at_worktree_command(
         Path::new(&worktree_path),
-        &default_terminal,
-        workspace_meta.terminal_custom_command.as_deref(),
+        &workspace_meta,
     ) {
         Ok(command) => command,
         Err(error) => {
@@ -9294,7 +10018,12 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
         .clone()
         .or(inferred_worktree_dir)
         .unwrap_or_else(|| ".worktrees".to_string());
-    let expected_worktree_path = workspace_root.join(&worktree_dir).join(&worktree);
+    let expected_suffix = Path::new(&worktree_dir).join(&worktree);
+    let expected_worktree_path = if workspace_root.ends_with(&expected_suffix) {
+        workspace_root.clone()
+    } else {
+        workspace_root.join(&worktree_dir).join(&worktree)
+    };
     if !path_is_directory(&expected_worktree_path) {
         let recreate_branch = tombstone
             .as_ref()
@@ -9350,48 +10079,62 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
         };
     }
 
-    let mut args = if action == "go" {
-        vec!["go".to_string(), target.clone().unwrap_or_default()]
-    } else {
-        vec!["restore".to_string(), worktree.clone()]
-    };
+    let mut result = if action == "go" {
+        let play_groove_command = play_groove_command_for_workspace(&workspace_root);
+        let command_template = play_groove_command.trim();
+        let play_target = target.clone().unwrap_or_default();
+        let (program, command_args) = match resolve_play_groove_command(
+            command_template,
+            &play_target,
+            &expected_worktree_path,
+        ) {
+            Ok(value) => value,
+            Err(error) => {
+                return GrooveCommandResponse {
+                    request_id,
+                    ok: false,
+                    exit_code: None,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    error: Some(error),
+                };
+            }
+        };
 
-    if let Some(dir) = dir {
-        args.push("--dir".to_string());
-        args.push(dir);
-    }
-    if action == "restore" {
+        match spawn_terminal_process(
+            &program,
+            &command_args,
+            &expected_worktree_path,
+            &expected_worktree_path,
+        ) {
+            Ok(()) => CommandResult {
+                exit_code: Some(0),
+                stdout: std::iter::once(program.as_str())
+                    .chain(command_args.iter().map(|value| value.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                stderr: String::new(),
+                error: None,
+            },
+            Err(error) => CommandResult {
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(format!(
+                    "Failed to launch Play Groove command {program}: {error}"
+                )),
+            },
+        }
+    } else {
+        let mut args = vec!["restore".to_string(), worktree.clone()];
+        if let Some(dir) = dir {
+            args.push("--dir".to_string());
+            args.push(dir);
+        }
         if let Some(log_file) = log_file {
             args.push("--opencode-log-file".to_string());
             args.push(log_file);
         }
-    }
-
-    let result = if action == "go" {
-        let play_groove_command = play_groove_command_for_workspace(&workspace_root);
-        let command_template = play_groove_command.trim();
-        if command_template == DEFAULT_PLAY_GROOVE_COMMAND_TEMPLATE {
-            run_command(&groove_binary_path(&app), &args, &workspace_root)
-        } else {
-            let play_target = target.clone().unwrap_or_default();
-            let (program, command_args) = match resolve_play_groove_command(command_template, &play_target)
-            {
-                Ok(value) => value,
-                Err(error) => {
-                    return GrooveCommandResponse {
-                        request_id,
-                        ok: false,
-                        exit_code: None,
-                        stdout: String::new(),
-                        stderr: String::new(),
-                        error: Some(error),
-                    };
-                }
-            };
-
-            run_command(Path::new(&program), &command_args, &workspace_root)
-        }
-    } else {
         run_command(&groove_binary_path(&app), &args, &workspace_root)
     };
     let ok = result.exit_code == Some(0) && result.error.is_none();
@@ -9419,6 +10162,20 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
                 stderr: result.stderr,
                 error: Some(error),
             };
+        }
+
+        if action == "restore" {
+            let symlink_warnings =
+                apply_configured_worktree_symlinks(&workspace_root, &expected_worktree_path);
+            if !symlink_warnings.is_empty() {
+                if !result.stderr.trim().is_empty() {
+                    result.stderr.push('\n');
+                }
+                result.stderr.push_str(&format!(
+                    "Warning: {}",
+                    symlink_warnings.join("; ")
+                ));
+            }
         }
 
         invalidate_workspace_context_cache(&app, &workspace_root);
@@ -9540,6 +10297,8 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
         }
     };
 
+    let worktree_dir = dir.clone().unwrap_or_else(|| ".worktrees".to_string());
+
     let mut args = vec!["create".to_string(), branch.to_string()];
     if let Some(base) = base {
         args.push("--base".to_string());
@@ -9550,7 +10309,7 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
         args.push(dir);
     }
 
-    let result = run_command(&groove_binary_path(&app), &args, &workspace_root);
+    let mut result = run_command(&groove_binary_path(&app), &args, &workspace_root);
     let ok = result.exit_code == Some(0) && result.error.is_none();
     if ok {
         let stamped_worktree = branch.replace('/', "_");
@@ -9565,6 +10324,19 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
                 stderr: result.stderr,
                 error: Some(error),
             };
+        }
+
+        if let Ok(worktree_path) = ensure_worktree_in_dir(&workspace_root, &stamped_worktree, &worktree_dir) {
+            let symlink_warnings = apply_configured_worktree_symlinks(&workspace_root, &worktree_path);
+            if !symlink_warnings.is_empty() {
+                if !result.stderr.trim().is_empty() {
+                    result.stderr.push('\n');
+                }
+                result.stderr.push_str(&format!(
+                    "Warning: {}",
+                    symlink_warnings.join("; ")
+                ));
+            }
         }
 
         invalidate_workspace_context_cache(&app, &workspace_root);
@@ -10870,21 +11642,25 @@ fn testing_environment_start_separate_terminal(
     let workspace_meta = match ensure_workspace_meta(&workspace_root) {
         Ok((meta, _)) => meta,
         Err(error) => {
-            return build_testing_environment_response(
-                request_id,
-                Some(&workspace_root),
-                &runtime.persisted,
-                Some(error),
-            )
+        return build_testing_environment_response(
+            request_id,
+            Some(&workspace_root),
+            &runtime.persisted,
+            Some(error),
+        );
         }
     };
-    let default_terminal = normalize_default_terminal(&workspace_meta.default_terminal)
-        .unwrap_or_else(|_| default_terminal_auto());
+    let configured_terminal = if workspace_meta.default_terminal == "none" {
+        "auto".to_string()
+    } else {
+        workspace_meta.default_terminal.clone()
+    };
     let configured_ports = testing_ports_for_workspace(&workspace_root);
     let mut used_ports = runtime
         .persisted
         .running_instances
         .iter()
+        .filter(|instance| testing_instance_is_effectively_running(instance))
         .filter_map(|instance| instance.port)
         .collect::<HashSet<_>>();
 
@@ -10901,72 +11677,22 @@ fn testing_environment_start_separate_terminal(
             }
         };
         used_ports.insert(port);
-        let (result, command_for_state) = if default_terminal == "custom" {
-            let Some(custom_command) = workspace_meta
-                .terminal_custom_command
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            else {
-                return build_testing_environment_response(
-                    request_id,
-                    Some(&workspace_root),
-                    &runtime.persisted,
-                    Some(
-                        "Default terminal is set to custom, but terminalCustomCommand is empty."
-                            .to_string(),
-                    ),
-                );
-            };
-
-            let parsed_command = match parse_custom_terminal_command(
-                custom_command,
-                Path::new(&target.worktree_path),
-            ) {
-                Ok(parsed) => parsed,
-                Err(error) => {
-                    return build_testing_environment_response(
-                        request_id,
-                        Some(&workspace_root),
-                        &runtime.persisted,
-                        Some(error),
-                    );
-                }
-            };
-            let (program, args) = parsed_command;
-            let command_for_state = std::iter::once(program.as_str())
-                .chain(args.iter().map(|value| value.as_str()))
-                .collect::<Vec<_>>()
-                .join(" ");
-            (
-                run_command_with_worktree_env(
-                    &program,
-                    &args,
-                    &workspace_root,
-                    Path::new(&target.worktree_path),
-                    Some(port),
-                    SEPARATE_TERMINAL_COMMAND_TIMEOUT,
-                ),
-                command_for_state,
-            )
-        } else {
-            let args = vec![
-                "run".to_string(),
-                target.worktree.clone(),
-                "--terminal".to_string(),
-                default_terminal.clone(),
-            ];
-            (
-                run_command_timeout(
-                    &groove_binary_path(&app),
-                    &args,
-                    &workspace_root,
-                    SEPARATE_TERMINAL_COMMAND_TIMEOUT,
-                    Some(port),
-                ),
-                format!("groove {}", args.join(" ")),
-            )
-        };
+        let args = vec![
+            "run".to_string(),
+            target.worktree.clone(),
+            "--terminal".to_string(),
+            configured_terminal.clone(),
+        ];
+        let (result, command_for_state) = (
+            run_command_timeout(
+                &groove_binary_path(&app),
+                &args,
+                &workspace_root,
+                SEPARATE_TERMINAL_COMMAND_TIMEOUT,
+                Some(port),
+            ),
+            format!("groove {}", args.join(" ")),
+        );
 
         if result.exit_code != Some(0) || result.error.is_some() {
             let output_line = result
@@ -11657,6 +12383,7 @@ fn workspace_events(
     let app_handle = app.clone();
     let request_id_clone = request_id.clone();
     let workspace_root_clone = workspace_root.clone();
+    let known_worktrees_clone = known_worktrees.clone();
     let worker_generation_clone = worker_generation.clone();
 
     let handle = thread::spawn(move || {
@@ -11670,6 +12397,8 @@ fn workspace_events(
         }
 
         let workspace_root_display = workspace_root_clone.display().to_string();
+        let mut runtime_pids_by_worktree =
+            snapshot_runtime_pids_by_worktree(&workspace_root_clone, &known_worktrees_clone);
 
         let _ = app_handle.emit(
             "workspace-ready",
@@ -11682,6 +12411,7 @@ fn workspace_events(
 
         let mut index: u64 = 0;
         let mut pending_sources = HashSet::<String>::new();
+        let mut pending_runtime_sources = HashSet::<String>::new();
         let mut last_emit_at = Instant::now()
             .checked_sub(WORKSPACE_EVENTS_MIN_EMIT_INTERVAL)
             .unwrap_or_else(Instant::now);
@@ -11704,6 +12434,47 @@ fn workspace_events(
                         .unwrap_or_else(|_| target.display().to_string());
                     pending_sources.insert(source);
                 }
+            }
+
+            let next_runtime_pids_by_worktree =
+                snapshot_runtime_pids_by_worktree(&workspace_root_clone, &known_worktrees_clone);
+            for worktree in &known_worktrees_clone {
+                let previous_pid = runtime_pids_by_worktree
+                    .get(worktree)
+                    .copied()
+                    .unwrap_or(None);
+                let next_pid = next_runtime_pids_by_worktree
+                    .get(worktree)
+                    .copied()
+                    .unwrap_or(None);
+
+                if previous_pid != next_pid {
+                    pending_runtime_sources.insert(format!(".worktrees/{worktree}"));
+                }
+            }
+            runtime_pids_by_worktree = next_runtime_pids_by_worktree;
+
+            if !pending_runtime_sources.is_empty()
+                && last_emit_at.elapsed() >= WORKSPACE_EVENTS_MIN_EMIT_INTERVAL
+            {
+                index += 1;
+                let mut sources = pending_runtime_sources.drain().collect::<Vec<_>>();
+                sources.sort();
+                let source_count = sources.len();
+
+                invalidate_groove_list_cache_for_workspace(&app_handle, &workspace_root_clone);
+                let _ = app_handle.emit(
+                    "workspace-change",
+                    serde_json::json!({
+                        "index": index,
+                        "source": sources.first().cloned().unwrap_or_default(),
+                        "sources": sources,
+                        "sourceCount": source_count,
+                        "workspaceRoot": workspace_root_display,
+                        "kind": "runtime"
+                    }),
+                );
+                last_emit_at = Instant::now();
             }
 
             if !pending_sources.is_empty()
@@ -11794,6 +12565,8 @@ pub fn run() {
             global_settings_update,
             workspace_update_terminal_settings,
             workspace_update_commands_settings,
+            workspace_update_worktree_symlink_paths,
+            workspace_list_symlink_entries,
             workspace_open_terminal,
             git_auth_status,
             git_status,

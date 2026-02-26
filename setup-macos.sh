@@ -19,6 +19,7 @@ usage:
   ./setup-macos.sh [--verbose] [--no-color]
 
 Step-by-step macOS setup with visible checks and status output.
+Builds macOS distributables as part of setup.
 
 options:
   --verbose   show full command output while running steps
@@ -76,6 +77,18 @@ step "Validate macOS sidecar readiness"
 run_cmd "executing ./bash/check-macos-sidecars" ./bash/check-macos-sidecars
 pass "macOS sidecar check passed"
 
+step "Build macOS distributables"
+run_cmd "running npm run tauri:build:macos" npm run tauri:build:macos
+
+macos_bundle_dir="$repo_root/src-tauri/target/release/bundle"
+if find "$macos_bundle_dir" -type f -name "*.dmg" | grep -q .; then
+  pass "macOS build artifacts generated in $macos_bundle_dir"
+else
+  fail_msg "No macOS dmg artifact found in $macos_bundle_dir"
+  exit 1
+fi
+
 step "Next actions"
-info "Run: npm run tauri:dev"
-pass "You're ready to develop on macOS"
+info "Artifacts available at: $macos_bundle_dir"
+info "Run: npm run tauri:dev (development mode)"
+pass "You're ready on macOS"

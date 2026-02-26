@@ -101,7 +101,9 @@ What they do:
 - show detected tool versions
 - run the existing fast setup scripts (`bash/setup-*-fast`)
 - run sidecar checks (`bash/check-*-sidecars`)
-- print a clear summary and next step (`npm run tauri:dev`)
+- build distributables (`tauri:build:linux` on Linux, `tauri:build:macos` on macOS)
+- ensure Linux AppImage outputs are executable
+- print a clear summary and artifact location
 
 Troubleshooting tips:
 - If preflight fails, install the missing tool and re-run.

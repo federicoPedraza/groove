@@ -19,6 +19,7 @@ usage:
   ./setup-linux.sh [--verbose] [--no-color]
 
 Step-by-step Linux setup with visible checks and status output.
+Builds Linux distributables as part of setup.
 
 options:
   --verbose   show full command output while running steps
@@ -76,6 +77,26 @@ step "Validate Linux sidecar readiness"
 run_cmd "executing ./bash/check-linux-sidecars" ./bash/check-linux-sidecars
 pass "Linux sidecar check passed"
 
+step "Build Linux distributables"
+run_cmd "running npm run tauri:build:linux" npm run tauri:build:linux
+
+linux_bundle_dir="$repo_root/src-tauri/target/release/bundle"
+if find "$linux_bundle_dir" -type f \( -name "*.AppImage" -o -name "*.deb" \) | grep -q .; then
+  pass "Linux build artifacts generated in $linux_bundle_dir"
+else
+  fail_msg "No Linux build artifacts found in $linux_bundle_dir"
+  exit 1
+fi
+
+step "Ensure AppImage executables are marked executable"
+appimage_count=0
+while IFS= read -r appimage; do
+  chmod +x "$appimage"
+  appimage_count=$((appimage_count + 1))
+done < <(find "$linux_bundle_dir" -type f -name "*.AppImage")
+pass "Validated executable bit for $appimage_count AppImage file(s)"
+
 step "Next actions"
-info "Run: npm run tauri:dev"
-pass "You're ready to develop on Linux"
+info "Artifacts available at: $linux_bundle_dir"
+info "Run: npm run tauri:dev (development mode)"
+pass "You're ready on Linux"

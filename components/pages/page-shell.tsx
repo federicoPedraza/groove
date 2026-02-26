@@ -27,6 +27,42 @@ import {
 
 const RECENT_DIRECTORIES_STORAGE_KEY = "groove:recent-directories";
 const MAX_RECENT_DIRECTORIES = 5;
+const APP_TITLE_BASE = "Groove";
+
+function getDirectoryNameFromPath(path: string): string | null {
+  const normalizedPath = path.trim();
+  if (normalizedPath.length === 0) {
+    return null;
+  }
+
+  const pathSegments = normalizedPath.split(/[\\/]+/).filter((segment) => segment.length > 0);
+  return pathSegments[pathSegments.length - 1] ?? null;
+}
+
+function getActiveWorkspaceDirectoryName(result: Awaited<ReturnType<typeof workspaceGetActive>>): string | null {
+  if (!result.ok) {
+    return null;
+  }
+
+  const rootName = result.workspaceMeta?.rootName?.trim();
+  if (rootName && rootName.length > 0) {
+    return rootName;
+  }
+
+  if (result.workspaceRoot) {
+    return getDirectoryNameFromPath(result.workspaceRoot);
+  }
+
+  return null;
+}
+
+function buildAppTitle(activeWorkspaceDirectoryName: string | null): string {
+  return activeWorkspaceDirectoryName ? `${APP_TITLE_BASE} - ${activeWorkspaceDirectoryName}` : APP_TITLE_BASE;
+}
+
+function isTauriRuntimeAvailable(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
 
 type PageShellProps = {
   children: ReactNode;
@@ -140,6 +176,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
   const [diagnosticsOverviewError, setDiagnosticsOverviewError] = useState<string | null>(null);
   const [isDiagnosticsOverviewLoading, setIsDiagnosticsOverviewLoading] = useState(false);
   const [hasDiagnosticsSanityWarning, setHasDiagnosticsSanityWarning] = useState(false);
+  const [activeWorkspaceDirectoryName, setActiveWorkspaceDirectoryName] = useState<string | null>(null);
   const shouldShowFps = useSyncExternalStore(
     subscribeToGlobalSettings,
     getIsShowFpsEnabledSnapshot,
@@ -357,6 +394,94 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
       setHasDiagnosticsSanityWarning(false);
     }
   }, [hasOpenWorkspace]);
+
+  const refreshActiveWorkspaceDirectoryName = useCallback(async (): Promise<void> => {
+    if (!hasOpenWorkspace) {
+      setActiveWorkspaceDirectoryName(null);
+      return;
+    }
+
+    try {
+      const workspaceResult = await workspaceGetActive();
+      setActiveWorkspaceDirectoryName(getActiveWorkspaceDirectoryName(workspaceResult));
+    } catch {
+      setActiveWorkspaceDirectoryName(null);
+    }
+  }, [hasOpenWorkspace]);
+
+  useEffect(() => {
+    let isClosed = false;
+    const unlistenHandlers: Array<() => void> = [];
+
+    const cleanupListeners = (): void => {
+      for (const unlisten of unlistenHandlers.splice(0)) {
+        try {
+          unlisten();
+        } catch {
+          // Ignore listener cleanup errors during unmount.
+        }
+      }
+    };
+
+    const refreshIfOpen = (): void => {
+      if (isClosed) {
+        return;
+      }
+      void refreshActiveWorkspaceDirectoryName();
+    };
+
+    refreshIfOpen();
+
+    void (async () => {
+      try {
+        const [unlistenReady, unlistenChange] = await Promise.all([
+          listenWorkspaceReady(refreshIfOpen),
+          listenWorkspaceChange(refreshIfOpen),
+        ]);
+
+        if (isClosed) {
+          unlistenReady();
+          unlistenChange();
+          return;
+        }
+
+        unlistenHandlers.push(unlistenReady, unlistenChange);
+      } catch {
+        cleanupListeners();
+      }
+    })();
+
+    return () => {
+      isClosed = true;
+      cleanupListeners();
+    };
+  }, [refreshActiveWorkspaceDirectoryName]);
+
+  useEffect(() => {
+    const nextTitle = buildAppTitle(activeWorkspaceDirectoryName);
+    document.title = nextTitle;
+
+    if (!isTauriRuntimeAvailable()) {
+      return;
+    }
+
+    let isCancelled = false;
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        if (isCancelled) {
+          return;
+        }
+        await getCurrentWindow().setTitle(nextTitle);
+      } catch {
+        // Ignore title updates when Tauri runtime/window API is unavailable.
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeWorkspaceDirectoryName]);
 
   useEffect(() => {
     if (!hasOpenWorkspace) {

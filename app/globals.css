@@ -131,6 +131,16 @@ code {
   @apply rounded bg-muted px-1 py-0.5;
 }
 
+.port-number-input {
+  -moz-appearance: textfield;
+}
+
+.port-number-input::-webkit-inner-spin-button,
+.port-number-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .groove-loading-sprite {
   display: block;
   flex: 0 0 auto;
@@ -150,8 +160,8 @@ code {
 
 .groove-loading-sprite-running {
   background-image: url("/running.png");
-  background-size: 2736px 96px;
-  animation: groove-running-sprite 10s steps(19) infinite;
+  background-size: 2880px 96px;
+  animation: groove-running-sprite 1.2s steps(1, end) infinite;
 }
 
 .groove-loading-sprite-falling {
@@ -290,7 +300,121 @@ code {
 }
 
 @keyframes groove-running-sprite {
-  to {
+  0% {
+    background-position: 0 0;
+    -webkit-mask-position: 0 0;
+    mask-position: 0 0;
+  }
+
+  5% {
+    background-position: -144px 0;
+    -webkit-mask-position: -144px 0;
+    mask-position: -144px 0;
+  }
+
+  10% {
+    background-position: -288px 0;
+    -webkit-mask-position: -288px 0;
+    mask-position: -288px 0;
+  }
+
+  15% {
+    background-position: -432px 0;
+    -webkit-mask-position: -432px 0;
+    mask-position: -432px 0;
+  }
+
+  20% {
+    background-position: -576px 0;
+    -webkit-mask-position: -576px 0;
+    mask-position: -576px 0;
+  }
+
+  25% {
+    background-position: -720px 0;
+    -webkit-mask-position: -720px 0;
+    mask-position: -720px 0;
+  }
+
+  30% {
+    background-position: -864px 0;
+    -webkit-mask-position: -864px 0;
+    mask-position: -864px 0;
+  }
+
+  35% {
+    background-position: -1008px 0;
+    -webkit-mask-position: -1008px 0;
+    mask-position: -1008px 0;
+  }
+
+  40% {
+    background-position: -1152px 0;
+    -webkit-mask-position: -1152px 0;
+    mask-position: -1152px 0;
+  }
+
+  45% {
+    background-position: -1296px 0;
+    -webkit-mask-position: -1296px 0;
+    mask-position: -1296px 0;
+  }
+
+  50% {
+    background-position: -1440px 0;
+    -webkit-mask-position: -1440px 0;
+    mask-position: -1440px 0;
+  }
+
+  55% {
+    background-position: -1584px 0;
+    -webkit-mask-position: -1584px 0;
+    mask-position: -1584px 0;
+  }
+
+  60% {
+    background-position: -1728px 0;
+    -webkit-mask-position: -1728px 0;
+    mask-position: -1728px 0;
+  }
+
+  65% {
+    background-position: -1872px 0;
+    -webkit-mask-position: -1872px 0;
+    mask-position: -1872px 0;
+  }
+
+  70% {
+    background-position: -2016px 0;
+    -webkit-mask-position: -2016px 0;
+    mask-position: -2016px 0;
+  }
+
+  75% {
+    background-position: -2160px 0;
+    -webkit-mask-position: -2160px 0;
+    mask-position: -2160px 0;
+  }
+
+  80% {
+    background-position: -2304px 0;
+    -webkit-mask-position: -2304px 0;
+    mask-position: -2304px 0;
+  }
+
+  85% {
+    background-position: -2448px 0;
+    -webkit-mask-position: -2448px 0;
+    mask-position: -2448px 0;
+  }
+
+  90% {
+    background-position: -2592px 0;
+    -webkit-mask-position: -2592px 0;
+    mask-position: -2592px 0;
+  }
+
+  95% {
     background-position: -2736px 0;
     -webkit-mask-position: -2736px 0;
     mask-position: -2736px 0;
@@ -510,9 +634,9 @@ code {
 
   .groove-loading-sprite-running {
     -webkit-mask-image: url("/running.png");
-    -webkit-mask-size: 2736px 96px;
+    -webkit-mask-size: 2880px 96px;
     mask-image: url("/running.png");
-    mask-size: 2736px 96px;
+    mask-size: 2880px 96px;
   }
 
   .groove-loading-sprite-falling {
@@ -523,4 +647,14 @@ code {
     mask-size: 2592px 60px;
     mask-position: 0 18px;
   }
+}
+
+.groove-worktree-terminal .xterm .xterm-viewport {
+  overflow-y: hidden !important;
+  scrollbar-width: none;
+}
+
+.groove-worktree-terminal .xterm .xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }

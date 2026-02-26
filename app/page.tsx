@@ -1,14 +1,14 @@
 "use client";
 
-import { FolderOpen, X } from "lucide-react";
+import { FolderClock, FolderOpen, Terminal, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DashboardHeader } from "@/components/pages/dashboard/dashboard-header";
 import { DashboardModals } from "@/components/pages/dashboard/dashboard-modals";
-import { TestingEnvironmentPanel } from "@/components/pages/dashboard/testing-environment-panel";
 import { WorktreesTable } from "@/components/pages/dashboard/worktrees-table";
 import { useDashboardState } from "@/components/pages/dashboard/hooks/use-dashboard-state";
 import { PageShell } from "@/components/pages/page-shell";
@@ -21,6 +21,7 @@ export default function Home() {
     statusMessage,
     errorMessage,
     isBusy,
+    isWorkspaceHydrating,
     pendingRestoreActions,
     pendingCutGrooveActions,
     pendingStopActions,
@@ -31,17 +32,12 @@ export default function Home() {
     cutConfirmRow,
     forceCutConfirmRow,
     runtimeStateByWorktree,
-    testingEnvironments,
-    unsetTestingEnvironmentConfirm,
-    testingEnvironmentColorByWorktree,
     testingTargetWorktrees,
     testingRunningWorktrees,
-    isTestingInstancePending,
     isCreateModalOpen,
     createBranch,
     createBase,
     isCreatePending,
-    workspaceMeta,
     workspaceRoot,
     recentDirectories,
     forceCutConfirmLoading,
@@ -52,7 +48,6 @@ export default function Home() {
     setIsCreateModalOpen,
     setCreateBranch,
     setCreateBase,
-    setUnsetTestingEnvironmentConfirm,
     pickDirectory,
     openRecentDirectory,
     refreshWorktrees,
@@ -63,21 +58,17 @@ export default function Home() {
     runStopAction,
     runPlayGrooveAction,
     onSelectTestingTarget,
-    runStartTestingInstanceAction,
-    runStartTestingInstanceSeparateTerminalAction,
-    runOpenTestingTerminalAction,
-    runStopTestingInstanceAction,
-    runUnsetTestingTargetAction,
+    runOpenWorkspaceTerminalAction,
     closeCurrentWorkspace,
   } = useDashboardState();
 
-  const workspaceDisplayName = workspaceMeta?.rootName ?? "No directory selected";
   const hasDirectory = Boolean(activeWorkspace);
+  const workspaceDisplayName = activeWorkspace?.workspaceMeta.rootName ?? "No directory selected";
 
   return (
     <PageShell
       noDirectoryOpenState={{
-        isVisible: !activeWorkspace,
+        isVisible: !isWorkspaceHydrating && !activeWorkspace,
         isBusy,
         statusMessage,
         errorMessage,
@@ -94,76 +85,99 @@ export default function Home() {
             )}
           </SidebarHeader>
           <SidebarContent className="space-y-3">
-            {!collapsed && (
-              <div className="space-y-1 rounded-md border bg-muted/30 px-3 py-2">
-                <p className="text-xs text-muted-foreground">Current directory</p>
-                <p className="truncate text-sm font-medium" title={workspaceDisplayName}>
-                  {workspaceDisplayName}
-                </p>
-                <p className="truncate text-xs text-muted-foreground" title={workspaceRoot ?? undefined}>
-                  {workspaceRoot ?? "No path selected"}
-                </p>
-              </div>
-            )}
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                void pickDirectory();
-              }}
-              disabled={isBusy}
-              className={collapsed ? "w-full px-0" : "w-full"}
-              aria-label="Change directory"
-            >
-              <FolderOpen aria-hidden="true" className="size-4" />
-              {!collapsed && <span>Change directory</span>}
-            </Button>
-            {!collapsed && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={isBusy || recentDirectories.length === 0}
-                    className="w-full justify-between"
-                    aria-label="Recent directories"
-                  >
-                    <span>Recent directories</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-2rem)]">
-                  {recentDirectories.map((directoryPath) => (
-                    <DropdownMenuItem
-                      key={directoryPath}
-                      title={directoryPath}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void openRecentDirectory(directoryPath);
+            <TooltipProvider>
+              <div className={collapsed ? "flex flex-col items-center gap-1" : "flex items-center gap-1"}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        void pickDirectory();
                       }}
-                      className="truncate"
+                      disabled={isBusy}
+                      className={collapsed ? "h-8 w-8 px-0" : "h-8 min-w-0 flex-1 justify-start"}
+                      aria-label="Change directory"
                     >
-                      {directoryPath}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setIsCloseWorkspaceConfirmOpen(true);
-              }}
-              disabled={isBusy || !hasDirectory}
-              className={collapsed ? "w-full px-0" : "w-full"}
-              aria-label="Close directory"
-            >
-              <X aria-hidden="true" className="size-4" />
-              {!collapsed && <span>Close directory</span>}
-            </Button>
+                      <FolderOpen aria-hidden="true" className="size-4" />
+                      {!collapsed && <span className="truncate">{workspaceDisplayName}</span>}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Change directory</TooltipContent>
+                </Tooltip>
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isBusy || recentDirectories.length === 0}
+                          className="h-8 w-8 px-0"
+                          aria-label="Recent directories"
+                        >
+                          <FolderClock aria-hidden="true" className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Recent directories</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-2rem)]">
+                    {recentDirectories.map((directoryPath) => (
+                      <DropdownMenuItem
+                        key={directoryPath}
+                        title={directoryPath}
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void openRecentDirectory(directoryPath);
+                        }}
+                        className="truncate"
+                      >
+                        {directoryPath}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setIsCloseWorkspaceConfirmOpen(true);
+                      }}
+                      disabled={isBusy || !hasDirectory}
+                      className="h-8 w-8 px-0"
+                      aria-label="Close directory"
+                    >
+                      <X aria-hidden="true" className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Close directory</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        void runOpenWorkspaceTerminalAction();
+                      }}
+                      disabled={isBusy || !hasDirectory}
+                      className="h-8 w-8 px-0"
+                      aria-label="Open terminal at active directory"
+                    >
+                      <Terminal aria-hidden="true" className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Open terminal</TooltipContent>
+                </Tooltip>
+              </div>
+            </TooltipProvider>
           </SidebarContent>
         </Sidebar>
       )}
@@ -185,32 +199,6 @@ export default function Home() {
 
           <Card>
             <CardContent className="space-y-3">
-              <TestingEnvironmentPanel
-                environments={testingEnvironments}
-                testingEnvironmentColorByWorktree={testingEnvironmentColorByWorktree}
-                isTestingInstancePending={isTestingInstancePending}
-                onStop={(worktree) => {
-                  void runStopTestingInstanceAction(worktree);
-                }}
-                onRunLocal={(worktree) => {
-                  void runStartTestingInstanceAction(worktree);
-                }}
-                onRunLocalSeparateTerminal={(worktree) => {
-                  void runStartTestingInstanceSeparateTerminalAction(worktree);
-                }}
-                onOpenTerminal={(worktree) => {
-                  void runOpenTestingTerminalAction(worktree);
-                }}
-                onRequestUnset={(environment) => {
-                  if (environment.status === "running") {
-                    setUnsetTestingEnvironmentConfirm(environment);
-                    return;
-                  }
-
-                  void runUnsetTestingTargetAction(environment, true);
-                }}
-              />
-
               {!hasWorktreesDirectory ? (
                 <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
                   No <code>.worktrees</code> directory found under this workspace root yet.
@@ -231,7 +219,6 @@ export default function Home() {
                   runtimeStateByWorktree={runtimeStateByWorktree}
                   testingTargetWorktrees={testingTargetWorktrees}
                   testingRunningWorktrees={testingRunningWorktrees}
-                  testingEnvironmentColorByWorktree={testingEnvironmentColorByWorktree}
                   hasConnectedRepository={Boolean(activeWorkspace?.workspaceRoot)}
                   repositoryRemoteUrl={activeWorkspace?.repositoryRemoteUrl}
                   onCopyBranchName={(row) => {
@@ -249,7 +236,9 @@ export default function Home() {
                   onPlayAction={(row) => {
                     void runPlayGrooveAction(row);
                   }}
-                  onSelectTestingTarget={onSelectTestingTarget}
+                  onSetTestingTargetAction={(row) => {
+                    onSelectTestingTarget(row);
+                  }}
                 />
               )}
 
@@ -279,11 +268,8 @@ export default function Home() {
         createBranch={createBranch}
         createBase={createBase}
         isCreatePending={isCreatePending}
-        unsetTestingEnvironmentConfirm={unsetTestingEnvironmentConfirm}
-        isTestingInstancePending={isTestingInstancePending}
         setCreateBranch={setCreateBranch}
         setCreateBase={setCreateBase}
-        setUnsetTestingEnvironmentConfirm={setUnsetTestingEnvironmentConfirm}
         onRunCutGrooveAction={(row, force) => {
           void runCutGrooveAction(row, force);
         }}
@@ -292,9 +278,6 @@ export default function Home() {
         }}
         onRunCreateWorktreeAction={(options) => {
           void runCreateWorktreeAction(options);
-        }}
-        onRunUnsetTestingTargetAction={(environment, stopRunningProcessesWhenUnset) => {
-          void runUnsetTestingTargetAction(environment, stopRunningProcessesWhenUnset);
         }}
       />
     </PageShell>

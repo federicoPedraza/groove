@@ -24,6 +24,8 @@
     "components",
     "lib",
     "app/page.tsx",
+    "app/worktrees/page.tsx",
+    "app/worktrees/worktree-detail-page.tsx",
     "app/diagnostics/page.tsx",
     "app/settings/page.tsx",
     "app/help/page.tsx",

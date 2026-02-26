@@ -1,5 +1,5 @@
-import { Check, ChevronsUpDown, Loader2, Play, Plus, Terminal, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, ChevronsUpDown, Minus, Play, Plus, Terminal } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -9,8 +9,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { SaveState } from "@/components/pages/settings/types";
-import { DEFAULT_PLAY_GROOVE_COMMAND, DEFAULT_RUN_LOCAL_COMMAND } from "@/src/lib/ipc";
+import {
+  DEFAULT_PLAY_GROOVE_COMMAND,
+  DEFAULT_RUN_LOCAL_COMMAND,
+  GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
+  GROOVE_PLAY_COMMAND_SENTINEL,
+} from "@/src/lib/ipc";
 
 type CommandsSettingsPayload = {
   playGrooveCommand: string;
@@ -24,6 +30,7 @@ type CommandsSettingsFormProps = {
   testingPorts: number[];
   openTerminalAtWorktreeCommand: string;
   runLocalCommand: string;
+  section?: "all" | "commands" | "testingPorts";
   disabled?: boolean;
   disabledMessage?: string;
   onSave: (payload: CommandsSettingsPayload) => Promise<{ ok: boolean; error?: string; payload?: CommandsSettingsPayload }>;
@@ -32,6 +39,7 @@ type CommandsSettingsFormProps = {
 const CUSTOM_TEMPLATE_VALUE = "__custom__";
 
 const PLAY_GROOVE_TEMPLATE_COMMANDS = {
+  groove: GROOVE_PLAY_COMMAND_SENTINEL,
   ghostty: DEFAULT_PLAY_GROOVE_COMMAND,
   warp: "warp --working-directory {worktree} --command opencode",
   kitty: "kitty --directory {worktree} opencode",
@@ -40,6 +48,7 @@ const PLAY_GROOVE_TEMPLATE_COMMANDS = {
 } as const;
 
 const PLAY_GROOVE_COMMAND_TEMPLATES: Array<{ value: keyof typeof PLAY_GROOVE_TEMPLATE_COMMANDS; label: string }> = [
+  { value: "groove", label: "Groove" },
   { value: "ghostty", label: "Ghostty" },
   { value: "warp", label: "Warp" },
   { value: "kitty", label: "Kitty" },
@@ -48,6 +57,7 @@ const PLAY_GROOVE_COMMAND_TEMPLATES: Array<{ value: keyof typeof PLAY_GROOVE_TEM
 ];
 
 const OPEN_TERMINAL_TEMPLATE_COMMANDS = {
+  groove: GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
   ghostty: "ghostty --working-directory={worktree}",
   warp: "warp --working-directory {worktree}",
   kitty: "kitty --directory {worktree}",
@@ -55,6 +65,7 @@ const OPEN_TERMINAL_TEMPLATE_COMMANDS = {
 } as const;
 
 const OPEN_TERMINAL_COMMAND_TEMPLATES: Array<{ value: keyof typeof OPEN_TERMINAL_TEMPLATE_COMMANDS; label: string }> = [
+  { value: "groove", label: "Groove" },
   { value: "ghostty", label: "Ghostty" },
   { value: "warp", label: "Warp" },
   { value: "kitty", label: "Kitty" },
@@ -123,11 +134,16 @@ function toPortString(value: number): string {
   return Number.isInteger(value) && value > 0 ? String(value) : "";
 }
 
+function toCommandsSignature(payload: CommandsSettingsPayload): string {
+  return JSON.stringify(payload);
+}
+
 export function CommandsSettingsForm({
   playGrooveCommand,
   testingPorts,
   openTerminalAtWorktreeCommand,
   runLocalCommand,
+  section = "all",
   disabled = false,
   disabledMessage,
   onSave,
@@ -147,36 +163,78 @@ export function CommandsSettingsForm({
   const [selectedRunLocalTemplate, setSelectedRunLocalTemplate] = useState<RunLocalTemplateValue>(
     resolveRunLocalTemplateFromCommand(runLocalCommand),
   );
+  const workspaceScopeVersionRef = useRef(0);
+  const saveRequestVersionRef = useRef(0);
+  const lastSavedSignatureRef = useRef(
+    toCommandsSignature({
+      playGrooveCommand: playGrooveCommand.trim(),
+      testingPorts,
+      openTerminalAtWorktreeCommand: openTerminalAtWorktreeCommand.trim() || null,
+      runLocalCommand: runLocalCommand.trim() || null,
+    }),
+  );
 
   useEffect(() => {
+    workspaceScopeVersionRef.current += 1;
+    saveRequestVersionRef.current = 0;
     setPlayCommandValue(playGrooveCommand);
-    setSelectedPlayTemplate(resolvePlayGrooveTemplateFromCommand(playGrooveCommand));
-  }, [playGrooveCommand]);
-
-  useEffect(() => {
     setPortValues(testingPorts.length > 0 ? testingPorts.map(toPortString) : [""]);
-  }, [testingPorts]);
-
-  useEffect(() => {
     setOpenTerminalAtWorktreeCommandValue(openTerminalAtWorktreeCommand);
-    setSelectedOpenTerminalTemplate(resolveOpenTerminalTemplateFromCommand(openTerminalAtWorktreeCommand));
-  }, [openTerminalAtWorktreeCommand]);
-
-  useEffect(() => {
     setRunLocalCommandValue(runLocalCommand);
+    setSelectedPlayTemplate(resolvePlayGrooveTemplateFromCommand(playGrooveCommand));
+    setSelectedOpenTerminalTemplate(resolveOpenTerminalTemplateFromCommand(openTerminalAtWorktreeCommand));
     setSelectedRunLocalTemplate(resolveRunLocalTemplateFromCommand(runLocalCommand));
-  }, [runLocalCommand]);
+    lastSavedSignatureRef.current = toCommandsSignature({
+      playGrooveCommand: playGrooveCommand.trim(),
+      testingPorts,
+      openTerminalAtWorktreeCommand: openTerminalAtWorktreeCommand.trim() || null,
+      runLocalCommand: runLocalCommand.trim() || null,
+    });
+    setSaveState("idle");
+    setSaveMessage(null);
+  }, [openTerminalAtWorktreeCommand, playGrooveCommand, runLocalCommand, testingPorts]);
 
-  const onSubmit = async (): Promise<void> => {
-    if (disabled) {
-      return;
-    }
+  const duplicatePortIndexes = useMemo(() => {
+    const portToIndexes = new Map<number, number[]>();
 
+    portValues.forEach((rawValue, index) => {
+      const trimmed = rawValue.trim();
+      if (!trimmed) {
+        return;
+      }
+
+      const parsed = Number(trimmed);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+        return;
+      }
+
+      const existingIndexes = portToIndexes.get(parsed);
+      if (existingIndexes) {
+        existingIndexes.push(index);
+        return;
+      }
+
+      portToIndexes.set(parsed, [index]);
+    });
+
+    const duplicateIndexes = new Set<number>();
+    portToIndexes.forEach((indexes) => {
+      if (indexes.length > 1) {
+        indexes.forEach((index) => duplicateIndexes.add(index));
+      }
+    });
+
+    return duplicateIndexes;
+  }, [portValues]);
+
+  const buildPayload = useCallback(
+    (): { payload: CommandsSettingsPayload | null; error: string | null; suppressErrorMessage?: boolean } => {
     const trimmedPlayCommand = playCommandValue.trim();
     if (!trimmedPlayCommand) {
-      setSaveState("error");
-      setSaveMessage("Play Groove command is required.");
-      return;
+      return {
+        payload: null,
+        error: "Play Groove command is required.",
+      };
     }
 
     const parsedPorts: number[] = [];
@@ -184,36 +242,80 @@ export function CommandsSettingsForm({
     for (let index = 0; index < portValues.length; index += 1) {
       const rawValue = portValues[index]?.trim() ?? "";
       if (!rawValue) {
-        setSaveState("error");
-        setSaveMessage(`Port ${index + 1} is required.`);
-        return;
+        return {
+          payload: null,
+          error: `Port ${index + 1} is required.`,
+        };
       }
 
       const parsed = Number(rawValue);
       if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-        setSaveState("error");
-        setSaveMessage(`Port ${index + 1} must be an integer from 1 to 65535.`);
-        return;
+        return {
+          payload: null,
+          error: `Port ${index + 1} must be an integer from 1 to 65535.`,
+        };
       }
       if (seenPorts.has(parsed)) {
-        setSaveState("error");
-        setSaveMessage(`Port ${parsed} is duplicated.`);
-        return;
+        return {
+          payload: null,
+          error: null,
+          suppressErrorMessage: true,
+        };
       }
 
       seenPorts.add(parsed);
       parsedPorts.push(parsed);
     }
 
+    return {
+      payload: {
+        playGrooveCommand: trimmedPlayCommand,
+        testingPorts: parsedPorts,
+        openTerminalAtWorktreeCommand: openTerminalAtWorktreeCommandValue.trim() || null,
+        runLocalCommand: runLocalCommandValue.trim() || null,
+      },
+      error: null,
+    };
+    },
+    [openTerminalAtWorktreeCommandValue, playCommandValue, portValues, runLocalCommandValue],
+  );
+
+  const onAutoSave = useCallback(async (): Promise<void> => {
+    if (disabled) {
+      return;
+    }
+
+    const { payload, error, suppressErrorMessage } = buildPayload();
+    if (!payload || error) {
+      setSaveState("error");
+      if (suppressErrorMessage) {
+        setSaveMessage(null);
+      } else {
+        setSaveMessage(error ?? "Failed to save command settings.");
+      }
+      return;
+    }
+
+    const nextSignature = toCommandsSignature(payload);
+    if (nextSignature === lastSavedSignatureRef.current) {
+      return;
+    }
+
+    const requestVersion = ++saveRequestVersionRef.current;
+    const workspaceScopeVersion = workspaceScopeVersionRef.current;
+
     setSaveState("saving");
     setSaveMessage(null);
 
-    const result = await onSave({
-      playGrooveCommand: trimmedPlayCommand,
-      testingPorts: parsedPorts,
-      openTerminalAtWorktreeCommand: openTerminalAtWorktreeCommandValue.trim() || null,
-      runLocalCommand: runLocalCommandValue.trim() || null,
-    });
+    const result = await onSave(payload);
+
+    if (workspaceScopeVersion !== workspaceScopeVersionRef.current) {
+      return;
+    }
+
+    if (requestVersion !== saveRequestVersionRef.current) {
+      return;
+    }
 
     if (!result.ok) {
       setSaveState("error");
@@ -221,8 +323,8 @@ export function CommandsSettingsForm({
       return;
     }
 
-    const savedPlayCommand = result.payload?.playGrooveCommand ?? trimmedPlayCommand;
-    const savedPorts = result.payload?.testingPorts ?? parsedPorts;
+    const savedPlayCommand = result.payload?.playGrooveCommand ?? payload.playGrooveCommand;
+    const savedPorts = result.payload?.testingPorts ?? payload.testingPorts;
     const savedOpenTerminalAtWorktreeCommand = result.payload?.openTerminalAtWorktreeCommand ?? "";
     const savedRunLocalCommand = result.payload?.runLocalCommand ?? "";
     setPlayCommandValue(savedPlayCommand);
@@ -232,9 +334,29 @@ export function CommandsSettingsForm({
     setSelectedOpenTerminalTemplate(resolveOpenTerminalTemplateFromCommand(savedOpenTerminalAtWorktreeCommand));
     setRunLocalCommandValue(savedRunLocalCommand);
     setSelectedRunLocalTemplate(resolveRunLocalTemplateFromCommand(savedRunLocalCommand));
+    lastSavedSignatureRef.current = toCommandsSignature({
+      playGrooveCommand: savedPlayCommand.trim(),
+      testingPorts: savedPorts,
+      openTerminalAtWorktreeCommand: savedOpenTerminalAtWorktreeCommand.trim() || null,
+      runLocalCommand: savedRunLocalCommand.trim() || null,
+    });
     setSaveState("success");
-    setSaveMessage("Commands settings saved.");
-  };
+    setSaveMessage(null);
+  }, [buildPayload, disabled, onSave]);
+
+  useEffect(() => {
+    if (disabled) {
+      return;
+    }
+
+    const debounceHandle = window.setTimeout(() => {
+      void onAutoSave();
+    }, 450);
+
+    return () => {
+      window.clearTimeout(debounceHandle);
+    };
+  }, [disabled, onAutoSave, openTerminalAtWorktreeCommandValue, playCommandValue, portValues, runLocalCommandValue]);
 
   const selectedPlayTemplateLabel =
     selectedPlayTemplate === CUSTOM_TEMPLATE_VALUE
@@ -249,294 +371,331 @@ export function CommandsSettingsForm({
     selectedRunLocalTemplate === CUSTOM_TEMPLATE_VALUE
       ? "Custom command"
       : RUN_LOCAL_COMMAND_TEMPLATES.find((template) => template.value === selectedRunLocalTemplate)?.label ?? "Custom command";
+  const showCommandsSection = section === "all" || section === "commands";
+  const showTestingPortsSection = section === "all" || section === "testingPorts";
 
   return (
-    <div className="space-y-3 rounded-md border border-dashed px-3 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-medium text-foreground">Commands</h2>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 w-9 shrink-0 border-green-700/55 bg-green-500/25 px-0 text-green-800 disabled:opacity-100 dark:border-green-200/75 dark:text-green-100"
-            disabled
-            aria-label="Play Groove"
-          >
-            <Play className="size-4" />
-          </Button>
-          <label htmlFor="play-groove-command" className="sr-only">
-            Command
-          </label>
-          <Input
-            id="play-groove-command"
-            value={playCommandValue}
-            onChange={(event) => {
-              setPlayCommandValue(event.target.value);
-              setSelectedPlayTemplate(resolvePlayGrooveTemplateFromCommand(event.target.value));
-              setSaveState("idle");
-              setSaveMessage(null);
-            }}
-            placeholder={DEFAULT_PLAY_GROOVE_COMMAND}
-            disabled={saveState === "saving" || disabled}
-            className="sm:flex-1"
-          />
-          <label htmlFor="play-groove-command-template" className="sr-only">
-            Terminal template
-          </label>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                id="play-groove-command-template"
-                type="button"
-                variant="outline"
-                className="w-full justify-between bg-transparent px-3 font-normal sm:w-56 dark:border-border/80 dark:bg-muted/35 dark:hover:bg-muted/45"
-                aria-label="Select play groove terminal template"
-                disabled={saveState === "saving" || disabled}
-              >
-                <span>{selectedPlayTemplateLabel}</span>
-                <ChevronsUpDown className="size-4 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)]">
-              {PLAY_GROOVE_COMMAND_TEMPLATES.map((template) => {
-                const isSelected = template.value === selectedPlayTemplate;
-
-                return (
-                  <DropdownMenuItem
-                    key={template.value}
-                    onSelect={() => {
-                      setPlayCommandValue(PLAY_GROOVE_TEMPLATE_COMMANDS[template.value]);
-                      setSelectedPlayTemplate(template.value);
-                      setSaveState("idle");
-                      setSaveMessage(null);
-                    }}
-                    className="justify-between"
-                  >
-                    <span>{template.label}</span>
-                    {isSelected && <Check className="size-4" />}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
+    <div className={section === "all" ? "space-y-3 rounded-md border px-3 py-3" : "space-y-3"}>
+      {section === "all" && (
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-medium text-foreground">Commands</h2>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Supports <code>{"{worktree}"}</code> and <code>GROOVE_WORKTREE</code>. If omitted, worktree path is appended as the last argument.
-        </p>
-      </div>
+      )}
 
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">Open terminal</p>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 w-9 shrink-0 border-green-700/55 bg-green-500/25 px-0 text-green-800 disabled:opacity-100 dark:border-green-200/75 dark:text-green-100"
-            disabled
-            aria-label="Open terminal at worktree"
-          >
-            <Terminal className="size-4" />
-          </Button>
-          <label htmlFor="open-terminal-at-worktree-command" className="sr-only">
-            Open terminal command
-          </label>
-          <Input
-            id="open-terminal-at-worktree-command"
-            value={openTerminalAtWorktreeCommandValue}
-            onChange={(event) => {
-              setOpenTerminalAtWorktreeCommandValue(event.target.value);
-              setSelectedOpenTerminalTemplate(resolveOpenTerminalTemplateFromCommand(event.target.value));
-              setSaveState("idle");
-              setSaveMessage(null);
-            }}
-            placeholder="Leave empty to use automatic terminal detection"
-            disabled={saveState === "saving" || disabled}
-            className="sm:flex-1"
-          />
-          <label htmlFor="open-terminal-at-worktree-command-template" className="sr-only">
-            Open terminal template
-          </label>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                id="open-terminal-at-worktree-command-template"
-                type="button"
-                variant="outline"
-                className="w-full justify-between bg-transparent px-3 font-normal sm:w-56 dark:border-border/80 dark:bg-muted/35 dark:hover:bg-muted/45"
-                aria-label="Select open terminal template"
-                disabled={saveState === "saving" || disabled}
-              >
-                <span>{selectedOpenTerminalTemplateLabel}</span>
-                <ChevronsUpDown className="size-4 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)]">
-              {OPEN_TERMINAL_COMMAND_TEMPLATES.map((template) => {
-                const isSelected = template.value === selectedOpenTerminalTemplate;
+      <TooltipProvider>
+        {showCommandsSection && (
+          <>
+            <div className="space-y-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 w-9 shrink-0 border-green-700/55 bg-green-500/25 px-0 text-green-800 disabled:opacity-100 dark:border-green-200/75 dark:text-green-100"
+                        disabled
+                        aria-label="Play Groove"
+                      >
+                        <Play className="size-4" />
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Play Groove</TooltipContent>
+                </Tooltip>
+                <label htmlFor="play-groove-command" className="sr-only">
+                  Command
+                </label>
+                <Input
+                  id="play-groove-command"
+                  value={playCommandValue}
+                  onChange={(event) => {
+                    setPlayCommandValue(event.target.value);
+                    setSelectedPlayTemplate(resolvePlayGrooveTemplateFromCommand(event.target.value));
+                    setSaveState("idle");
+                    setSaveMessage(null);
+                  }}
+                  placeholder={DEFAULT_PLAY_GROOVE_COMMAND}
+                  disabled={saveState === "saving" || disabled}
+                  className="sm:flex-1"
+                />
+                <label htmlFor="play-groove-command-template" className="sr-only">
+                  Terminal template
+                </label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      id="play-groove-command-template"
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-between bg-transparent px-3 font-normal sm:w-56 dark:border-border/80 dark:bg-muted/35 dark:hover:bg-muted/45"
+                      aria-label="Select play groove terminal template"
+                      disabled={saveState === "saving" || disabled}
+                    >
+                      <span>{selectedPlayTemplateLabel}</span>
+                      <ChevronsUpDown className="size-4 opacity-60" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                    {PLAY_GROOVE_COMMAND_TEMPLATES.map((template) => {
+                      const isSelected = template.value === selectedPlayTemplate;
 
-                return (
-                  <DropdownMenuItem
-                    key={template.value}
-                    onSelect={() => {
-                      setOpenTerminalAtWorktreeCommandValue(OPEN_TERMINAL_TEMPLATE_COMMANDS[template.value]);
-                      setSelectedOpenTerminalTemplate(template.value);
-                      setSaveState("idle");
-                      setSaveMessage(null);
-                    }}
-                    className="justify-between"
-                  >
-                    <span>{template.label}</span>
-                    {isSelected && <Check className="size-4" />}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Optional override command. Supports <code>{"{worktree}"}</code> and <code>GROOVE_WORKTREE</code>. If empty, uses workspace terminal settings.
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">Run local commands</p>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 w-9 shrink-0 border-green-700/55 bg-green-500/25 px-0 text-green-800 disabled:opacity-100 dark:border-green-200/75 dark:text-green-100"
-            disabled
-            aria-label="Run local commands"
-          >
-            <Terminal className="size-4" />
-          </Button>
-          <label htmlFor="run-local-command" className="sr-only">
-            Run local command
-          </label>
-          <Input
-            id="run-local-command"
-            value={runLocalCommandValue}
-            onChange={(event) => {
-              setRunLocalCommandValue(event.target.value);
-              setSelectedRunLocalTemplate(resolveRunLocalTemplateFromCommand(event.target.value));
-              setSaveState("idle");
-              setSaveMessage(null);
-            }}
-            placeholder={`Leave empty to use ${DEFAULT_RUN_LOCAL_COMMAND}`}
-            disabled={saveState === "saving" || disabled}
-            className="sm:flex-1"
-          />
-          <label htmlFor="run-local-command-template" className="sr-only">
-            Run local template
-          </label>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                id="run-local-command-template"
-                type="button"
-                variant="outline"
-                className="w-full justify-between bg-transparent px-3 font-normal sm:w-56 dark:border-border/80 dark:bg-muted/35 dark:hover:bg-muted/45"
-                aria-label="Select run local template"
-                disabled={saveState === "saving" || disabled}
-              >
-                <span>{selectedRunLocalTemplateLabel}</span>
-                <ChevronsUpDown className="size-4 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)]">
-              {RUN_LOCAL_COMMAND_TEMPLATES.map((template) => {
-                const isSelected = template.value === selectedRunLocalTemplate;
-
-                return (
-                  <DropdownMenuItem
-                    key={template.value}
-                    onSelect={() => {
-                      setRunLocalCommandValue(RUN_LOCAL_TEMPLATE_COMMANDS[template.value]);
-                      setSelectedRunLocalTemplate(template.value);
-                      setSaveState("idle");
-                      setSaveMessage(null);
-                    }}
-                    className="justify-between"
-                  >
-                    <span>{template.label}</span>
-                    {isSelected && <Check className="size-4" />}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Optional override command. Supports <code>{"{worktree}"}</code> and <code>GROOVE_WORKTREE</code>. Default command:
-          <code> {DEFAULT_RUN_LOCAL_COMMAND}</code>.
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">Testing ports</p>
-        <div className="space-y-2">
-          {portValues.map((value, index) => (
-            <div key={`testing-port-${index}`} className="flex items-center gap-2">
-              <Input
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={65535}
-                value={value}
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  setPortValues((previous) => previous.map((entry, entryIndex) => (entryIndex === index ? nextValue : entry)));
-                  setSaveState("idle");
-                  setSaveMessage(null);
-                }}
-                placeholder={`Port ${index + 1}`}
-                disabled={saveState === "saving" || disabled}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="px-2"
-                disabled={saveState === "saving" || disabled || portValues.length <= 1}
-                onClick={() => {
-                  setPortValues((previous) => previous.filter((_, entryIndex) => entryIndex !== index));
-                  setSaveState("idle");
-                  setSaveMessage(null);
-                }}
-                aria-label={`Remove port ${index + 1}`}
-              >
-                <Trash2 className="size-4" />
-              </Button>
+                      return (
+                        <DropdownMenuItem
+                          key={template.value}
+                          onSelect={() => {
+                            setPlayCommandValue(PLAY_GROOVE_TEMPLATE_COMMANDS[template.value]);
+                            setSelectedPlayTemplate(template.value);
+                            setSaveState("idle");
+                            setSaveMessage(null);
+                          }}
+                          className="justify-between"
+                        >
+                          <span>{template.label}</span>
+                          {isSelected && <Check className="size-4" />}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
-          ))}
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            setPortValues((previous) => [...previous, String(DEFAULT_NEW_PORT)]);
-            setSaveState("idle");
-            setSaveMessage(null);
-          }}
-          disabled={saveState === "saving" || disabled}
-        >
-          <Plus className="size-4" />
-          Add port
-        </Button>
-      </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={() => void onSubmit()} disabled={saveState === "saving" || disabled}>
-          {saveState === "saving" && <Loader2 className="size-4 animate-spin" />}
-          Save commands
-        </Button>
-        {disabled && disabledMessage && <span className="text-sm text-muted-foreground">{disabledMessage}</span>}
-        {saveState === "success" && saveMessage && <span className="text-sm text-green-800">{saveMessage}</span>}
-        {saveState === "error" && saveMessage && <span className="text-sm text-destructive">{saveMessage}</span>}
-      </div>
+            <div className="space-y-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 w-9 shrink-0 border-green-700/55 bg-green-500/25 px-0 text-green-800 disabled:opacity-100 dark:border-green-200/75 dark:text-green-100"
+                        disabled
+                        aria-label="Open terminal at worktree"
+                      >
+                        <Terminal className="size-4" />
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Launch worktree terminal</TooltipContent>
+                </Tooltip>
+                <label htmlFor="open-terminal-at-worktree-command" className="sr-only">
+                  Open terminal command
+                </label>
+                <Input
+                  id="open-terminal-at-worktree-command"
+                  value={openTerminalAtWorktreeCommandValue}
+                  onChange={(event) => {
+                    setOpenTerminalAtWorktreeCommandValue(event.target.value);
+                    setSelectedOpenTerminalTemplate(resolveOpenTerminalTemplateFromCommand(event.target.value));
+                    setSaveState("idle");
+                    setSaveMessage(null);
+                  }}
+                  placeholder="Leave empty to use automatic terminal detection"
+                  disabled={saveState === "saving" || disabled}
+                  className="sm:flex-1"
+                />
+                <label htmlFor="open-terminal-at-worktree-command-template" className="sr-only">
+                  Open terminal template
+                </label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      id="open-terminal-at-worktree-command-template"
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-between bg-transparent px-3 font-normal sm:w-56 dark:border-border/80 dark:bg-muted/35 dark:hover:bg-muted/45"
+                      aria-label="Select open terminal template"
+                      disabled={saveState === "saving" || disabled}
+                    >
+                      <span>{selectedOpenTerminalTemplateLabel}</span>
+                      <ChevronsUpDown className="size-4 opacity-60" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                    {OPEN_TERMINAL_COMMAND_TEMPLATES.map((template) => {
+                      const isSelected = template.value === selectedOpenTerminalTemplate;
+
+                      return (
+                        <DropdownMenuItem
+                          key={template.value}
+                          onSelect={() => {
+                            setOpenTerminalAtWorktreeCommandValue(OPEN_TERMINAL_TEMPLATE_COMMANDS[template.value]);
+                            setSelectedOpenTerminalTemplate(template.value);
+                            setSaveState("idle");
+                            setSaveMessage(null);
+                          }}
+                          className="justify-between"
+                        >
+                          <span>{template.label}</span>
+                          {isSelected && <Check className="size-4" />}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 w-9 shrink-0 border-green-700/55 bg-green-500/25 px-0 text-green-800 disabled:opacity-100 dark:border-green-200/75 dark:text-green-100"
+                        disabled
+                        aria-label="Run local commands"
+                      >
+                        <Terminal className="size-4" />
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>Run local dev command</TooltipContent>
+                </Tooltip>
+                <label htmlFor="run-local-command" className="sr-only">
+                  Run local command
+                </label>
+                <Input
+                  id="run-local-command"
+                  value={runLocalCommandValue}
+                  onChange={(event) => {
+                    setRunLocalCommandValue(event.target.value);
+                    setSelectedRunLocalTemplate(resolveRunLocalTemplateFromCommand(event.target.value));
+                    setSaveState("idle");
+                    setSaveMessage(null);
+                  }}
+                  placeholder={`Leave empty to use ${DEFAULT_RUN_LOCAL_COMMAND}`}
+                  disabled={saveState === "saving" || disabled}
+                  className="sm:flex-1"
+                />
+                <label htmlFor="run-local-command-template" className="sr-only">
+                  Run local template
+                </label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      id="run-local-command-template"
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-between bg-transparent px-3 font-normal sm:w-56 dark:border-border/80 dark:bg-muted/35 dark:hover:bg-muted/45"
+                      aria-label="Select run local template"
+                      disabled={saveState === "saving" || disabled}
+                    >
+                      <span>{selectedRunLocalTemplateLabel}</span>
+                      <ChevronsUpDown className="size-4 opacity-60" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                    {RUN_LOCAL_COMMAND_TEMPLATES.map((template) => {
+                      const isSelected = template.value === selectedRunLocalTemplate;
+
+                      return (
+                        <DropdownMenuItem
+                          key={template.value}
+                          onSelect={() => {
+                            setRunLocalCommandValue(RUN_LOCAL_TEMPLATE_COMMANDS[template.value]);
+                            setSelectedRunLocalTemplate(template.value);
+                            setSaveState("idle");
+                            setSaveMessage(null);
+                          }}
+                          className="justify-between"
+                        >
+                          <span>{template.label}</span>
+                          {isSelected && <Check className="size-4" />}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </>
+        )}
+
+        {showTestingPortsSection && (
+          <div className="space-y-2">
+            {section === "all" && <p className="text-sm font-medium text-foreground">Testing ports</p>}
+            <div>
+              <div className="space-y-0">
+                {portValues.map((value, index) => {
+                  const isFirst = index === 0;
+                  const isLast = index === portValues.length - 1;
+                  const isDuplicate = duplicatePortIndexes.has(index);
+
+                  return (
+                    <div key={`testing-port-${index}`} className="flex items-center">
+                      <div className="flex flex-1 items-center">
+                        <span
+                          className={`inline-flex h-9 shrink-0 items-center rounded-none border border-r-0 px-2 text-xs font-medium ${isDuplicate ? "border-destructive/60 bg-destructive/10 text-destructive" : "border-input bg-muted text-foreground"} ${isFirst ? "rounded-tl-md" : "border-t-0"} ${isLast ? "rounded-bl-md" : ""}`}
+                        >
+                          [ Worktree {index + 1} ] http://localhost:
+                        </span>
+                        <Input
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          max={65535}
+                          value={value}
+                          onChange={(event) => {
+                            const nextValue = event.target.value;
+                            setPortValues((previous) => previous.map((entry, entryIndex) => (entryIndex === index ? nextValue : entry)));
+                            setSaveState("idle");
+                            setSaveMessage(null);
+                          }}
+                          placeholder={`Port ${index + 1}`}
+                          disabled={saveState === "saving" || disabled}
+                          className={`port-number-input rounded-none ${isDuplicate ? "border-destructive/60 focus-visible:ring-destructive/30" : ""} ${isFirst ? "" : "border-t-0"}`}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={`h-9 rounded-none border-l-0 px-2 ${isDuplicate ? "border-destructive/60 text-destructive hover:bg-destructive/10 hover:text-destructive" : ""} ${isFirst ? "rounded-tr-md" : "border-t-0"} ${isLast ? "rounded-br-none" : ""}`}
+                          disabled={saveState === "saving" || disabled || portValues.length <= 1}
+                          onClick={() => {
+                            setPortValues((previous) => previous.filter((_, entryIndex) => entryIndex !== index));
+                            setSaveState("idle");
+                            setSaveMessage(null);
+                          }}
+                          aria-label={`Remove port ${index + 1}`}
+                        >
+                          <Minus className="size-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-5 rounded-t-none border-t-0 px-2"
+                  onClick={() => {
+                    setPortValues((previous) => [...previous, String(DEFAULT_NEW_PORT)]);
+                    setSaveState("idle");
+                    setSaveMessage(null);
+                  }}
+                  disabled={saveState === "saving" || disabled}
+                  aria-label="Add testing port"
+                >
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <>
+          {saveState === "saving" && <span className="mr-2 inline-flex items-center text-sm text-muted-foreground">Saving command settings...</span>}
+          {disabled && disabledMessage && <span className="mr-2 inline-flex items-center text-sm text-muted-foreground">{disabledMessage}</span>}
+          {saveState === "error" && saveMessage && <span className="mr-2 inline-flex items-center text-sm text-destructive">{saveMessage}</span>}
+        </>
+      </TooltipProvider>
     </div>
   );
 }

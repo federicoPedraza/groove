@@ -1,8 +1,8 @@
+use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-#[cfg(target_os = "linux")]
-use std::os::unix::process::CommandExt;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -37,6 +37,15 @@ const SUPPORTED_DEFAULT_TERMINALS: [&str; 8] = [
 const SUPPORTED_THEME_MODES: [&str; 4] = ["light", "groove", "dark-groove", "dark"];
 const GITIGNORE_GROOVE_COMMENT: &str = "# Groove";
 const GITIGNORE_REQUIRED_ENTRIES: [&str; 2] = [".groove/", ".workspace/"];
+const GROOVE_PLAY_COMMAND_SENTINEL: &str = "__groove_terminal__";
+const GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL: &str = "__groove_terminal_open__";
+const GROOVE_TERMINAL_OUTPUT_EVENT: &str = "groove-terminal-output";
+const GROOVE_TERMINAL_LIFECYCLE_EVENT: &str = "groove-terminal-lifecycle";
+const DEFAULT_GROOVE_TERMINAL_COLS: u16 = 120;
+const DEFAULT_GROOVE_TERMINAL_ROWS: u16 = 34;
+const MIN_GROOVE_TERMINAL_DIMENSION: u16 = 10;
+const MAX_GROOVE_TERMINAL_DIMENSION: u16 = 500;
+const MAX_GROOVE_TERMINAL_SNAPSHOT_BYTES: usize = 256 * 1024;
 
 #[derive(Default)]
 struct WorkspaceEventState {
@@ -63,6 +72,43 @@ struct GrooveListCacheState {
 #[derive(Default)]
 struct GrooveBinStatusState {
     status: Mutex<Option<GrooveBinCheckStatus>>,
+}
+
+#[derive(Default)]
+struct GrooveTerminalState {
+    inner: Mutex<GrooveTerminalSessionsState>,
+}
+
+#[derive(Default)]
+struct GrooveTerminalSessionsState {
+    sessions_by_id: HashMap<String, GrooveTerminalSessionState>,
+    session_ids_by_worktree: HashMap<String, Vec<String>>,
+}
+
+struct GrooveTerminalSessionState {
+    session_id: String,
+    worktree_key: String,
+    workspace_root: String,
+    worktree: String,
+    worktree_path: String,
+    command: String,
+    started_at: String,
+    cols: u16,
+    rows: u16,
+    child: Box<dyn PtyChild + Send>,
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+    snapshot: Arc<Mutex<Vec<u8>>>,
+}
+
+impl Drop for GrooveTerminalState {
+    fn drop(&mut self) {
+        let sessions_to_close = match self.inner.lock() {
+            Ok(mut sessions_state) => drain_groove_terminal_sessions(&mut sessions_state, None),
+            Err(_) => Vec::new(),
+        };
+        close_groove_terminal_sessions_best_effort(sessions_to_close);
+    }
 }
 
 #[derive(Default)]
@@ -539,6 +585,69 @@ struct TestingEnvironmentStopPayload {
     worktree: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalOpenPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: String,
+    target: Option<String>,
+    open_mode: Option<String>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+    force_restart: Option<bool>,
+    open_new: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalWritePayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: String,
+    session_id: Option<String>,
+    input: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalResizePayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: String,
+    session_id: Option<String>,
+    cols: u16,
+    rows: u16,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalClosePayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: String,
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalSessionPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: String,
+    session_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeStateRow {
@@ -627,6 +736,62 @@ struct WorkspaceEventsResponse {
     workspace_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalSession {
+    session_id: String,
+    workspace_root: String,
+    worktree: String,
+    worktree_path: String,
+    command: String,
+    started_at: String,
+    cols: u16,
+    rows: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    snapshot: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session: Option<GrooveTerminalSession>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalSessionsResponse {
+    request_id: String,
+    ok: bool,
+    sessions: Vec<GrooveTerminalSession>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalOutputEvent {
+    session_id: String,
+    workspace_root: String,
+    worktree: String,
+    chunk: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalLifecycleEvent {
+    session_id: String,
+    workspace_root: String,
+    worktree: String,
+    kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1228,6 +1393,718 @@ fn default_play_groove_command() -> String {
     DEFAULT_PLAY_GROOVE_COMMAND_TEMPLATE.to_string()
 }
 
+fn normalize_terminal_dimension(value: Option<u16>, default: u16) -> u16 {
+    value
+        .map(|candidate| {
+            candidate
+                .max(MIN_GROOVE_TERMINAL_DIMENSION)
+                .min(MAX_GROOVE_TERMINAL_DIMENSION)
+        })
+        .unwrap_or(default)
+}
+
+fn is_groove_terminal_play_command(command: &str) -> bool {
+    command.trim() == GROOVE_PLAY_COMMAND_SENTINEL
+}
+
+fn is_groove_terminal_open_command(command: &str) -> bool {
+    command.trim() == GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL
+}
+
+fn groove_terminal_session_key(workspace_root: &Path, worktree: &str) -> String {
+    format!("{}::{worktree}", workspace_root_storage_key(workspace_root))
+}
+
+fn latest_session_id_for_worktree(
+    sessions_state: &GrooveTerminalSessionsState,
+    worktree_key: &str,
+) -> Option<String> {
+    sessions_state
+        .session_ids_by_worktree
+        .get(worktree_key)
+        .and_then(|session_ids| session_ids.last())
+        .cloned()
+}
+
+fn sessions_for_worktree(
+    sessions_state: &GrooveTerminalSessionsState,
+    worktree_key: &str,
+) -> Vec<GrooveTerminalSession> {
+    let Some(session_ids) = sessions_state.session_ids_by_worktree.get(worktree_key) else {
+        return Vec::new();
+    };
+
+    session_ids
+        .iter()
+        .filter_map(|session_id| sessions_state.sessions_by_id.get(session_id))
+        .map(groove_terminal_session_from_state)
+        .collect()
+}
+
+fn remove_session_by_id(
+    sessions_state: &mut GrooveTerminalSessionsState,
+    session_id: &str,
+) -> Option<GrooveTerminalSessionState> {
+    let session = sessions_state.sessions_by_id.remove(session_id)?;
+
+    if let Some(session_ids) = sessions_state
+        .session_ids_by_worktree
+        .get_mut(&session.worktree_key)
+    {
+        session_ids.retain(|candidate| candidate != session_id);
+        if session_ids.is_empty() {
+            sessions_state
+                .session_ids_by_worktree
+                .remove(&session.worktree_key);
+        }
+    }
+
+    Some(session)
+}
+
+fn drain_groove_terminal_sessions(
+    sessions_state: &mut GrooveTerminalSessionsState,
+    workspace_root_key: Option<&str>,
+) -> Vec<GrooveTerminalSessionState> {
+    let session_ids_to_remove = sessions_state
+        .sessions_by_id
+        .iter()
+        .filter_map(|(session_id, session)| {
+            let should_remove = workspace_root_key
+                .map(|key| workspace_root_storage_key(Path::new(&session.workspace_root)) == key)
+                .unwrap_or(true);
+
+            if should_remove {
+                Some(session_id.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let mut drained = Vec::with_capacity(session_ids_to_remove.len());
+    for session_id in session_ids_to_remove {
+        if let Some(session) = remove_session_by_id(sessions_state, &session_id) {
+            drained.push(session);
+        }
+    }
+
+    drained
+}
+
+fn close_groove_terminal_sessions_best_effort(sessions: Vec<GrooveTerminalSessionState>) {
+    for mut session in sessions {
+        let _ = session.child.kill();
+        let _ = collect_groove_terminal_exit_status(session.child.as_mut());
+    }
+}
+
+fn groove_terminal_session_from_state(
+    session: &GrooveTerminalSessionState,
+) -> GrooveTerminalSession {
+    GrooveTerminalSession {
+        session_id: session.session_id.clone(),
+        workspace_root: session.workspace_root.clone(),
+        worktree: session.worktree.clone(),
+        worktree_path: session.worktree_path.clone(),
+        command: session.command.clone(),
+        started_at: session.started_at.clone(),
+        cols: session.cols,
+        rows: session.rows,
+        snapshot: None,
+    }
+}
+
+fn groove_terminal_session_with_snapshot_from_state(
+    session: &GrooveTerminalSessionState,
+) -> GrooveTerminalSession {
+    let snapshot = match session.snapshot.lock() {
+        Ok(buffer) => String::from_utf8_lossy(buffer.as_slice()).to_string(),
+        Err(_) => String::new(),
+    };
+
+    GrooveTerminalSession {
+        session_id: session.session_id.clone(),
+        workspace_root: session.workspace_root.clone(),
+        worktree: session.worktree.clone(),
+        worktree_path: session.worktree_path.clone(),
+        command: session.command.clone(),
+        started_at: session.started_at.clone(),
+        cols: session.cols,
+        rows: session.rows,
+        snapshot: Some(snapshot),
+    }
+}
+
+fn append_terminal_snapshot(snapshot: &Arc<Mutex<Vec<u8>>>, chunk: &[u8]) {
+    let Ok(mut buffer) = snapshot.lock() else {
+        return;
+    };
+
+    if chunk.len() >= MAX_GROOVE_TERMINAL_SNAPSHOT_BYTES {
+        buffer.clear();
+        let start = chunk.len() - MAX_GROOVE_TERMINAL_SNAPSHOT_BYTES;
+        buffer.extend_from_slice(&chunk[start..]);
+        return;
+    }
+
+    let total_after_append = buffer.len() + chunk.len();
+    if total_after_append > MAX_GROOVE_TERMINAL_SNAPSHOT_BYTES {
+        let overflow = total_after_append - MAX_GROOVE_TERMINAL_SNAPSHOT_BYTES;
+        buffer.drain(..overflow);
+    }
+
+    buffer.extend_from_slice(chunk);
+}
+
+fn emit_groove_terminal_lifecycle_event(
+    app: &AppHandle,
+    session_id: &str,
+    workspace_root: &str,
+    worktree: &str,
+    kind: &str,
+    message: Option<String>,
+) {
+    let _ = app.emit(
+        GROOVE_TERMINAL_LIFECYCLE_EVENT,
+        GrooveTerminalLifecycleEvent {
+            session_id: session_id.to_string(),
+            workspace_root: workspace_root.to_string(),
+            worktree: worktree.to_string(),
+            kind: kind.to_string(),
+            message,
+        },
+    );
+}
+
+fn collect_groove_terminal_exit_status(child: &mut (dyn PtyChild + Send)) -> String {
+    match child.try_wait() {
+        Ok(Some(status)) => format!("exit_status={status:?}"),
+        Ok(None) => match child.wait() {
+            Ok(status) => format!("exit_status={status:?}"),
+            Err(error) => format!("wait_error={error}"),
+        },
+        Err(error) => format!("try_wait_error={error}"),
+    }
+}
+
+fn validate_groove_terminal_target(value: Option<&str>) -> Result<Option<String>, String> {
+    let Some(target) = value.map(str::trim).filter(|candidate| !candidate.is_empty()) else {
+        return Ok(None);
+    };
+    if !is_safe_path_token(target) {
+        return Err("target contains unsafe characters or path segments.".to_string());
+    }
+    Ok(Some(target.to_string()))
+}
+
+#[derive(Debug, Clone, Copy)]
+enum GrooveTerminalOpenMode {
+    Opencode,
+    RunLocal,
+}
+
+fn validate_groove_terminal_open_mode(value: Option<&str>) -> Result<GrooveTerminalOpenMode, String> {
+    let Some(mode) = value.map(str::trim).filter(|candidate| !candidate.is_empty()) else {
+        return Ok(GrooveTerminalOpenMode::Opencode);
+    };
+
+    match mode {
+        "opencode" => Ok(GrooveTerminalOpenMode::Opencode),
+        "runLocal" => Ok(GrooveTerminalOpenMode::RunLocal),
+        _ => Err("openMode must be either \"opencode\" or \"runLocal\".".to_string()),
+    }
+}
+
+fn resolve_terminal_worktree_context(
+    app: &AppHandle,
+    root_name: &Option<String>,
+    known_worktrees: &[String],
+    workspace_meta: &Option<WorkspaceMetaContext>,
+    worktree: &str,
+) -> Result<(PathBuf, PathBuf), String> {
+    if !is_safe_path_token(worktree) {
+        return Err("worktree contains unsafe characters or path segments.".to_string());
+    }
+
+    let known_worktrees = validate_known_worktrees(known_worktrees)?;
+    let workspace_root = resolve_workspace_root(
+        app,
+        root_name,
+        Some(worktree),
+        &known_worktrees,
+        workspace_meta,
+    )?;
+    let worktree_path = ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees")?;
+
+    Ok((workspace_root, worktree_path))
+}
+
+fn resolve_terminal_session_id(
+    sessions_state: &GrooveTerminalSessionsState,
+    worktree_key: &str,
+    requested_session_id: Option<&str>,
+) -> Result<String, String> {
+    if let Some(session_id) = requested_session_id
+        .map(str::trim)
+        .filter(|candidate| !candidate.is_empty())
+    {
+        let belongs_to_worktree = sessions_state
+            .sessions_by_id
+            .get(session_id)
+            .map(|session| session.worktree_key == worktree_key)
+            .unwrap_or(false);
+        if belongs_to_worktree {
+            return Ok(session_id.to_string());
+        }
+        return Err(format!(
+            "No active Groove terminal session found for sessionId={session_id}."
+        ));
+    }
+
+    latest_session_id_for_worktree(sessions_state, worktree_key).ok_or_else(|| {
+        "No active Groove terminal session found for this worktree.".to_string()
+    })
+}
+
+fn open_groove_terminal_session(
+    app: &AppHandle,
+    state: &State<GrooveTerminalState>,
+    workspace_root: &Path,
+    worktree: &str,
+    worktree_path: &Path,
+    open_mode: GrooveTerminalOpenMode,
+    target: Option<&str>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+    force_restart: bool,
+    open_new: bool,
+) -> Result<GrooveTerminalSession, String> {
+    let telemetry_enabled = telemetry_enabled_for_app(app);
+    let worktree_key = groove_terminal_session_key(workspace_root, worktree);
+    let workspace_root_rendered = workspace_root.display().to_string();
+    let cols = normalize_terminal_dimension(cols, DEFAULT_GROOVE_TERMINAL_COLS);
+    let rows = normalize_terminal_dimension(rows, DEFAULT_GROOVE_TERMINAL_ROWS);
+    let target_rendered = target
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("<none>");
+
+    let (program, args) = match open_mode {
+        GrooveTerminalOpenMode::Opencode => ("opencode".to_string(), Vec::new()),
+        GrooveTerminalOpenMode::RunLocal => {
+            let run_local_command = run_local_command_for_workspace(workspace_root);
+            let command_template = run_local_command
+                .as_deref()
+                .unwrap_or(DEFAULT_RUN_LOCAL_COMMAND);
+            resolve_run_local_command(command_template, worktree_path)?
+        }
+    };
+    let command_rendered = std::iter::once(program.as_str())
+        .chain(args.iter().map(|value| value.as_str()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let worktree_cwd_rendered = worktree_path.display().to_string();
+
+    log_play_telemetry(
+        telemetry_enabled,
+        "terminal.open.start",
+        format!(
+            "workspace_root={} worktree={} target={} command={} cwd={} cols={} rows={} force_restart={} open_new={}",
+            workspace_root_rendered,
+            worktree,
+            target_rendered,
+            command_rendered,
+            worktree_cwd_rendered,
+            cols,
+            rows,
+            force_restart,
+            open_new
+        )
+        .as_str(),
+    );
+
+    let mut sessions_to_close = Vec::new();
+    {
+        let mut sessions_state = state
+            .inner
+            .lock()
+            .map_err(|error| {
+                log_play_telemetry(
+                    telemetry_enabled,
+                    "terminal.open.lock_error",
+                    format!("worktree={} error={error}", worktree).as_str(),
+                );
+                format!("Failed to acquire Groove terminal state lock: {error}")
+            })?;
+
+        if force_restart {
+            let existing_ids = sessions_state
+                .session_ids_by_worktree
+                .get(&worktree_key)
+                .cloned()
+                .unwrap_or_default();
+            for existing_id in existing_ids {
+                if let Some(previous_session) = remove_session_by_id(&mut sessions_state, &existing_id) {
+                    sessions_to_close.push(previous_session);
+                }
+            }
+
+            if !sessions_to_close.is_empty() {
+                log_play_telemetry(
+                    telemetry_enabled,
+                    "terminal.open.force_restart",
+                    format!(
+                        "workspace_root={} worktree={} previous_session_count={}",
+                        workspace_root_rendered,
+                        worktree,
+                        sessions_to_close.len()
+                    )
+                    .as_str(),
+                );
+            }
+        } else if !open_new {
+            if let Some(existing_id) = latest_session_id_for_worktree(&sessions_state, &worktree_key) {
+                if let Some(existing) = sessions_state.sessions_by_id.get(&existing_id) {
+                    log_play_telemetry(
+                        telemetry_enabled,
+                        "terminal.open.reused",
+                        format!(
+                            "workspace_root={} worktree={} session_id={}",
+                            workspace_root_rendered, worktree, existing.session_id
+                        )
+                        .as_str(),
+                    );
+                    return Ok(groove_terminal_session_from_state(existing));
+                }
+            }
+        }
+    }
+
+    for mut previous_session in sessions_to_close {
+        let previous_session_id = previous_session.session_id.clone();
+        let kill_detail = match previous_session.child.kill() {
+            Ok(()) => "kill=ok".to_string(),
+            Err(error) => format!("kill_error={error}"),
+        };
+        let exit_detail = collect_groove_terminal_exit_status(previous_session.child.as_mut());
+        let close_detail = format!("reason=restart {kill_detail} {exit_detail}");
+        drop(previous_session);
+
+        log_play_telemetry(
+            telemetry_enabled,
+            "terminal.session.closed",
+            format!(
+                "workspace_root={} worktree={} session_id={} {}",
+                workspace_root_rendered, worktree, previous_session_id, close_detail
+            )
+            .as_str(),
+        );
+        emit_groove_terminal_lifecycle_event(
+            app,
+            &previous_session_id,
+            &workspace_root_rendered,
+            worktree,
+            "closed",
+            Some("Session restarted.".to_string()),
+        );
+    }
+
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|error| {
+            log_play_telemetry(
+                telemetry_enabled,
+                "terminal.open.pty_error",
+                format!("workspace_root={} worktree={} error={error}", workspace_root_rendered, worktree)
+                    .as_str(),
+            );
+            format!("Failed to create PTY for Groove terminal: {error}")
+        })?;
+
+    // Keep sentinel mode aligned with external Play defaults by targeting via cwd,
+    // not by passing the branch target as an opencode positional argument.
+    let mut spawn_command = CommandBuilder::new(&program);
+    for arg in args {
+        spawn_command.arg(arg);
+    }
+    spawn_command.cwd(worktree_path);
+    spawn_command.env("GROOVE_WORKTREE", worktree_path.display().to_string());
+
+    let child = pair
+        .slave
+        .spawn_command(spawn_command)
+        .map_err(|error| {
+            log_play_telemetry(
+                telemetry_enabled,
+                "terminal.open.spawn_error",
+                format!("workspace_root={} worktree={} error={error}", workspace_root_rendered, worktree)
+                    .as_str(),
+            );
+            format!("Failed to spawn in-app terminal command in Groove terminal: {error}")
+        })?;
+    drop(pair.slave);
+
+    let mut reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|error| {
+            log_play_telemetry(
+                telemetry_enabled,
+                "terminal.open.reader_attach_error",
+                format!("workspace_root={} worktree={} error={error}", workspace_root_rendered, worktree)
+                    .as_str(),
+            );
+            format!("Failed to attach Groove terminal reader: {error}")
+        })?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|error| {
+            log_play_telemetry(
+                telemetry_enabled,
+                "terminal.open.writer_attach_error",
+                format!("workspace_root={} worktree={} error={error}", workspace_root_rendered, worktree)
+                    .as_str(),
+            );
+            format!("Failed to attach Groove terminal writer: {error}")
+        })?;
+
+    let session_id = Uuid::new_v4().to_string();
+    let snapshot = Arc::new(Mutex::new(Vec::new()));
+    let session = GrooveTerminalSessionState {
+        session_id: session_id.clone(),
+        worktree_key: worktree_key.clone(),
+        workspace_root: workspace_root_rendered.clone(),
+        worktree: worktree.to_string(),
+        worktree_path: worktree_cwd_rendered.clone(),
+        command: command_rendered.clone(),
+        started_at: now_iso(),
+        cols,
+        rows,
+        child,
+        master: pair.master,
+        writer,
+        snapshot: snapshot.clone(),
+    };
+
+    {
+        let mut sessions_state = state
+            .inner
+            .lock()
+            .map_err(|error| {
+                log_play_telemetry(
+                    telemetry_enabled,
+                    "terminal.open.store_lock_error",
+                    format!("worktree={} error={error}", worktree).as_str(),
+                );
+                format!("Failed to acquire Groove terminal state lock: {error}")
+            })?;
+        sessions_state
+            .session_ids_by_worktree
+            .entry(worktree_key.clone())
+            .or_default()
+            .push(session_id.clone());
+        sessions_state.sessions_by_id.insert(session_id.clone(), session);
+    }
+
+    log_play_telemetry(
+        telemetry_enabled,
+        "terminal.open.created",
+        format!(
+            "workspace_root={} worktree={} session_id={} target={} command={} cwd={}",
+            workspace_root_rendered,
+            worktree,
+            session_id,
+            target_rendered,
+            command_rendered,
+            worktree_cwd_rendered
+        )
+        .as_str(),
+    );
+
+    let app_handle = app.clone();
+    let session_id_clone = session_id.clone();
+    let workspace_root_clone = workspace_root_rendered.clone();
+    let worktree_clone = worktree.to_string();
+    let telemetry_enabled_clone = telemetry_enabled;
+    let snapshot_clone = snapshot.clone();
+    thread::spawn(move || {
+        let mut buffer = [0u8; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => {
+                    let state = app_handle.state::<GrooveTerminalState>();
+                    let mut close_detail = "reason=eof".to_string();
+                    let mut closed_command: Option<String> = None;
+                    let mut closed_cwd: Option<String> = None;
+                    if let Ok(mut sessions_state) = state.inner.lock() {
+                        if let Some(mut closed_session) =
+                            remove_session_by_id(&mut sessions_state, &session_id_clone)
+                        {
+                            closed_command = Some(closed_session.command.clone());
+                            closed_cwd = Some(closed_session.worktree_path.clone());
+                            close_detail = format!(
+                                "reason=eof {}",
+                                collect_groove_terminal_exit_status(closed_session.child.as_mut())
+                            );
+                        } else {
+                            close_detail = "reason=eof already_closed=true".to_string();
+                        }
+                    }
+                    if let Some(command) = closed_command {
+                        let cwd = closed_cwd.unwrap_or_else(|| workspace_root_clone.clone());
+                        let _ = app_handle.emit(
+                            GROOVE_TERMINAL_OUTPUT_EVENT,
+                            GrooveTerminalOutputEvent {
+                                session_id: session_id_clone.clone(),
+                                workspace_root: workspace_root_clone.clone(),
+                                worktree: worktree_clone.clone(),
+                                chunk: format!(
+                                    "\r\n[groove] session ended: command=\"{}\" cwd=\"{}\" {}\r\n",
+                                    command, cwd, close_detail
+                                ),
+                            },
+                        );
+                    }
+                    log_play_telemetry(
+                        telemetry_enabled_clone,
+                        "terminal.session.closed",
+                        format!(
+                            "workspace_root={} worktree={} session_id={} {}",
+                            workspace_root_clone, worktree_clone, session_id_clone, close_detail
+                        )
+                        .as_str(),
+                    );
+                    emit_groove_terminal_lifecycle_event(
+                        &app_handle,
+                        &session_id_clone,
+                        &workspace_root_clone,
+                        &worktree_clone,
+                        "closed",
+                        Some(format!("Terminal session ended ({close_detail}).")),
+                    );
+                    break;
+                }
+                Ok(count) => {
+                    append_terminal_snapshot(&snapshot_clone, &buffer[..count]);
+                    let chunk = String::from_utf8_lossy(&buffer[..count]).to_string();
+                    let _ = app_handle.emit(
+                        GROOVE_TERMINAL_OUTPUT_EVENT,
+                        GrooveTerminalOutputEvent {
+                            session_id: session_id_clone.clone(),
+                            workspace_root: workspace_root_clone.clone(),
+                            worktree: worktree_clone.clone(),
+                            chunk,
+                        },
+                    );
+                }
+                Err(error) => {
+                    let state = app_handle.state::<GrooveTerminalState>();
+                    let mut close_detail = format!("reason=read_error read_error={error}");
+                    let mut closed_command: Option<String> = None;
+                    let mut closed_cwd: Option<String> = None;
+                    if let Ok(mut sessions_state) = state.inner.lock() {
+                        if let Some(mut closed_session) =
+                            remove_session_by_id(&mut sessions_state, &session_id_clone)
+                        {
+                            closed_command = Some(closed_session.command.clone());
+                            closed_cwd = Some(closed_session.worktree_path.clone());
+                            close_detail = format!(
+                                "reason=read_error read_error={} {}",
+                                error,
+                                collect_groove_terminal_exit_status(closed_session.child.as_mut())
+                            );
+                        } else {
+                            close_detail =
+                                format!("reason=read_error read_error={} already_closed=true", error);
+                        }
+                    }
+                    if let Some(command) = closed_command {
+                        let cwd = closed_cwd.unwrap_or_else(|| workspace_root_clone.clone());
+                        let _ = app_handle.emit(
+                            GROOVE_TERMINAL_OUTPUT_EVENT,
+                            GrooveTerminalOutputEvent {
+                                session_id: session_id_clone.clone(),
+                                workspace_root: workspace_root_clone.clone(),
+                                worktree: worktree_clone.clone(),
+                                chunk: format!(
+                                    "\r\n[groove] session error: command=\"{}\" cwd=\"{}\" {}\r\n",
+                                    command, cwd, close_detail
+                                ),
+                            },
+                        );
+                    }
+                    log_play_telemetry(
+                        telemetry_enabled_clone,
+                        "terminal.session.read_error",
+                        format!(
+                            "workspace_root={} worktree={} session_id={} {}",
+                            workspace_root_clone, worktree_clone, session_id_clone, close_detail
+                        )
+                        .as_str(),
+                    );
+                    emit_groove_terminal_lifecycle_event(
+                        &app_handle,
+                        &session_id_clone,
+                        &workspace_root_clone,
+                        &worktree_clone,
+                        "error",
+                        Some(format!("Terminal read failed ({close_detail}).")),
+                    );
+                    break;
+                }
+            }
+        }
+    });
+
+    emit_groove_terminal_lifecycle_event(
+        app,
+        &session_id,
+        &workspace_root_rendered,
+        worktree,
+        "started",
+        Some("Terminal session started.".to_string()),
+    );
+
+    log_play_telemetry(
+        telemetry_enabled,
+        "terminal.session.started",
+        format!(
+            "workspace_root={} worktree={} session_id={}",
+            workspace_root_rendered, worktree, session_id
+        )
+        .as_str(),
+    );
+
+    let sessions_state = state
+        .inner
+        .lock()
+        .map_err(|error| {
+            log_play_telemetry(
+                telemetry_enabled,
+                "terminal.open.final_lock_error",
+                format!("worktree={} error={error}", worktree).as_str(),
+            );
+            format!("Failed to acquire Groove terminal state lock: {error}")
+        })?;
+    let Some(stored) = sessions_state.sessions_by_id.get(&session_id) else {
+        log_play_telemetry(
+            telemetry_enabled,
+            "terminal.open.missing_after_create",
+            format!("workspace_root={} worktree={}", workspace_root_rendered, worktree).as_str(),
+        );
+        return Err("Groove terminal session failed to initialize.".to_string());
+    };
+    Ok(groove_terminal_session_from_state(stored))
+}
+
 fn default_testing_ports() -> Vec<u16> {
     DEFAULT_TESTING_ENVIRONMENT_PORTS.to_vec()
 }
@@ -1388,6 +2265,9 @@ fn normalize_play_groove_command(value: &str) -> Result<String, String> {
     if trimmed.is_empty() {
         return Err("playGrooveCommand must be a non-empty string.".to_string());
     }
+    if is_groove_terminal_play_command(trimmed) {
+        return Ok(trimmed.to_string());
+    }
     parse_play_groove_command_tokens(trimmed)?;
     Ok(trimmed.to_string())
 }
@@ -1398,6 +2278,10 @@ fn normalize_open_terminal_at_worktree_command(
     let Some(trimmed) = value.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
+
+    if is_groove_terminal_open_command(trimmed) {
+        return Ok(Some(trimmed.to_string()));
+    }
 
     parse_terminal_command_tokens(trimmed).map_err(|error| {
         error.replace(
@@ -1841,6 +2725,14 @@ fn launch_open_terminal_at_worktree_command(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
+        if is_groove_terminal_open_command(command_override) {
+            return launch_plain_terminal(
+                worktree_path,
+                &workspace_meta.default_terminal,
+                workspace_meta.terminal_custom_command.as_deref(),
+            );
+        }
+
         let (program, args) = parse_custom_terminal_command(command_override, worktree_path)?;
         spawn_terminal_process(&program, &args, worktree_path, worktree_path).map_err(|error| {
             format!("Failed to launch terminal command {program}: {error}")
@@ -4573,6 +5465,14 @@ struct NativeGrooveListCollection {
     warning: Option<String>,
 }
 
+#[derive(Debug, Default)]
+struct GrooveListTerminalIntegration {
+    session_count: usize,
+    workspace_session_count: usize,
+    injected_worktrees: Vec<String>,
+    integration_error: Option<String>,
+}
+
 #[derive(Debug)]
 struct NativeLogSignals {
     log_state: String,
@@ -4631,17 +5531,64 @@ fn resolve_groove_list_worktrees(
     Ok(rows)
 }
 
-fn command_mentions_worktree_path(command: &str, worktree_path: &Path) -> bool {
-    let normalized_command = command.to_lowercase();
-    let rendered = worktree_path.display().to_string().to_lowercase();
-    if normalized_command.contains(&rendered) {
-        return true;
+fn is_path_prefix_boundary_char(value: Option<char>) -> bool {
+    match value {
+        None => true,
+        Some(character) => {
+            character.is_whitespace()
+                || matches!(character, '"' | '\'' | '`' | '=' | ':' | '(' | '[' | '{' | ',')
+        }
+    }
+}
+
+fn is_path_suffix_boundary_char(value: Option<char>) -> bool {
+    match value {
+        None => true,
+        Some(character) => {
+            character.is_whitespace()
+                || matches!(character, '/' | '\\' | '"' | '\'' | '`' | ',' | ';' | ')' | ']' | '}')
+        }
+    }
+}
+
+fn command_contains_path_with_boundaries(command: &str, candidate: &str) -> bool {
+    if candidate.is_empty() {
+        return false;
     }
 
-    let rendered_with_slashes = rendered.replace('\\', "/");
-    let rendered_with_backslashes = rendered.replace('/', "\\");
-    normalized_command.contains(&rendered_with_slashes)
-        || normalized_command.contains(&rendered_with_backslashes)
+    for (start, _) in command.match_indices(candidate) {
+        let before = command[..start].chars().next_back();
+        let after = command[start + candidate.len()..].chars().next();
+        if is_path_prefix_boundary_char(before) && is_path_suffix_boundary_char(after) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn command_contains_path_with_suffix_boundary(command: &str, candidate: &str) -> bool {
+    if candidate.is_empty() {
+        return false;
+    }
+
+    for (start, _) in command.match_indices(candidate) {
+        let after = command[start + candidate.len()..].chars().next();
+        if is_path_suffix_boundary_char(after) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn command_mentions_worktree_path(command: &str, worktree_path: &Path) -> bool {
+    let normalized_command = command.replace('\\', "/").to_lowercase();
+    let rendered = worktree_path.display().to_string().replace('\\', "/");
+    let normalized_path = rendered.to_lowercase();
+    let candidate = normalized_path.trim_end_matches('/');
+
+    command_contains_path_with_boundaries(&normalized_command, candidate)
 }
 
 fn command_mentions_worktree_name(command: &str, worktree_path: &Path) -> bool {
@@ -4655,8 +5602,10 @@ fn command_mentions_worktree_name(command: &str, worktree_path: &Path) -> bool {
     let normalized_command = command.replace('\\', "/").to_lowercase();
     let normalized_worktree_name = worktree_name.to_lowercase();
 
-    normalized_command.contains(&format!("/.worktree/{normalized_worktree_name}"))
-        || normalized_command.contains(&format!("/.worktrees/{normalized_worktree_name}"))
+    ["/.worktree/", "/.worktrees/"]
+        .into_iter()
+        .map(|prefix| format!("{prefix}{normalized_worktree_name}"))
+        .any(|candidate| command_contains_path_with_suffix_boundary(&normalized_command, &candidate))
 }
 
 fn resolve_opencode_pid_for_worktree(
@@ -4940,6 +5889,75 @@ fn collect_groove_list_rows_native(
     })
 }
 
+fn inject_groove_terminal_sessions_into_runtime_rows(
+    app: &AppHandle,
+    workspace_root: &Path,
+    rows: &mut HashMap<String, RuntimeStateRow>,
+) -> GrooveListTerminalIntegration {
+    let Some(terminal_state) = app.try_state::<GrooveTerminalState>() else {
+        return GrooveListTerminalIntegration::default();
+    };
+
+    let sessions_state = match terminal_state.inner.lock() {
+        Ok(state) => state,
+        Err(error) => {
+            return GrooveListTerminalIntegration {
+                integration_error: Some(format!(
+                    "Failed to acquire Groove terminal session lock: {error}"
+                )),
+                ..GrooveListTerminalIntegration::default()
+            };
+        }
+    };
+
+    let mut integration = GrooveListTerminalIntegration {
+        session_count: sessions_state.sessions_by_id.len(),
+        workspace_session_count: 0,
+        injected_worktrees: Vec::new(),
+        integration_error: None,
+    };
+    let workspace_root_key = workspace_root_storage_key(workspace_root);
+    let mut injected_worktrees = HashSet::new();
+
+    for session in sessions_state.sessions_by_id.values() {
+        let session_workspace_root_key = workspace_root_storage_key(Path::new(&session.workspace_root));
+        if session_workspace_root_key != workspace_root_key {
+            continue;
+        }
+
+        integration.workspace_session_count += 1;
+
+        let worktree = session.worktree.trim();
+        if worktree.is_empty() {
+            continue;
+        }
+
+        let row = rows
+            .entry(worktree.to_string())
+            .or_insert_with(|| RuntimeStateRow {
+                branch: branch_guess_from_worktree_name(worktree),
+                worktree: worktree.to_string(),
+                opencode_state: "running".to_string(),
+                opencode_instance_id: None,
+                log_state: "unknown".to_string(),
+                log_target: None,
+                opencode_activity_state: "unknown".to_string(),
+                opencode_activity_detail: None,
+            });
+
+        if row.opencode_state != "running" {
+            row.opencode_state = "running".to_string();
+            row.opencode_instance_id = None;
+            injected_worktrees.insert(worktree.to_string());
+        }
+    }
+
+    let mut injected = injected_worktrees.into_iter().collect::<Vec<_>>();
+    injected.sort();
+    integration.injected_worktrees = injected;
+    integration
+}
+
 fn collect_groove_list_via_shell(
     app: &AppHandle,
     workspace_root: &Path,
@@ -5079,6 +6097,41 @@ fn wait_for_process_exit(pid: i32, timeout_ms: u64) -> bool {
     !is_process_running(pid)
 }
 
+fn collect_descendant_pids(snapshot_rows: &[ProcessSnapshotRow], root_pid: i32) -> Vec<i32> {
+    if root_pid <= 0 {
+        return Vec::new();
+    }
+
+    let mut children_by_parent: HashMap<i32, Vec<i32>> = HashMap::new();
+    for row in snapshot_rows {
+        let Some(ppid) = row.ppid else {
+            continue;
+        };
+        children_by_parent.entry(ppid).or_default().push(row.pid);
+    }
+
+    let mut stack = vec![root_pid];
+    let mut descendants = Vec::new();
+    let mut seen = HashSet::new();
+
+    while let Some(parent_pid) = stack.pop() {
+        let Some(children) = children_by_parent.get(&parent_pid) else {
+            continue;
+        };
+
+        for child_pid in children {
+            if *child_pid <= 0 || !seen.insert(*child_pid) {
+                continue;
+            }
+
+            descendants.push(*child_pid);
+            stack.push(*child_pid);
+        }
+    }
+
+    descendants
+}
+
 fn stop_process_by_pid(pid: i32) -> Result<(bool, i32), String> {
     if pid <= 0 {
         return Err("PID must be a positive integer.".to_string());
@@ -5137,12 +6190,7 @@ fn stop_process_by_pid(pid: i32) -> Result<(bool, i32), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        let send_signal = |signal: &str, target_group: bool| -> Result<(), String> {
-            let target = if target_group {
-                format!("-{pid}")
-            } else {
-                pid.to_string()
-            };
+        let send_signal = |signal: &str, target: &str| -> Result<(), String> {
             let output = Command::new("kill")
                 .args([signal, "--", &target])
                 .output()
@@ -5159,15 +6207,30 @@ fn stop_process_by_pid(pid: i32) -> Result<(bool, i32), String> {
             Err(format!("kill {signal} {target} failed: {stderr}"))
         };
 
-        let _ = send_signal("-TERM", true);
-        let _ = send_signal("-TERM", false);
+        let signal_descendants = |signal: &str| {
+            let Ok((snapshot_rows, _warning)) = list_process_snapshot_rows() else {
+                return;
+            };
+
+            for descendant_pid in collect_descendant_pids(&snapshot_rows, pid) {
+                let _ = send_signal(signal, &descendant_pid.to_string());
+            }
+        };
+
+        let process_group_target = format!("-{pid}");
+        let pid_target = pid.to_string();
+
+        let _ = send_signal("-TERM", &process_group_target);
+        let _ = send_signal("-TERM", &pid_target);
+        signal_descendants("-TERM");
 
         if wait_for_process_exit(pid, 1500) {
             return Ok((false, pid));
         }
 
-        let _ = send_signal("-KILL", true);
-        let _ = send_signal("-KILL", false);
+        let _ = send_signal("-KILL", &process_group_target);
+        let _ = send_signal("-KILL", &pid_target);
+        signal_descendants("-KILL");
 
         if wait_for_process_exit(pid, 1500) {
             return Ok((false, pid));
@@ -5518,6 +6581,26 @@ fn list_worktree_node_app_rows() -> Result<(Vec<DiagnosticsNodeAppRow>, Option<S
 
     rows.sort_by(|left, right| left.pid.cmp(&right.pid));
     Ok((rows, warning))
+}
+
+fn resolve_node_app_pids_for_worktree(worktree_path: &Path) -> Vec<i32> {
+    let Ok((snapshot_rows, _warning)) = list_process_snapshot_rows() else {
+        return Vec::new();
+    };
+
+    let mut pids = snapshot_rows
+        .into_iter()
+        .filter(|row| {
+            is_worktree_node_process(row.process_name.as_deref(), &row.command)
+                && (command_mentions_worktree_path(&row.command, worktree_path)
+                    || command_mentions_worktree_name(&row.command, worktree_path))
+        })
+        .map(|row| row.pid)
+        .collect::<Vec<_>>();
+
+    pids.sort_unstable();
+    pids.dedup();
+    pids
 }
 
 #[cfg(target_os = "windows")]
@@ -6076,6 +7159,11 @@ fn stop_running_testing_instance_for_worktree(
         pids_to_stop.push(instance.pid);
     }
 
+    if pids_to_stop.is_empty() {
+        let fallback_pids = resolve_node_app_pids_for_worktree(Path::new(&instance.worktree_path));
+        pids_to_stop.extend(fallback_pids);
+    }
+
     for pid in pids_to_stop {
         if let Err(error) = stop_process_by_pid(pid) {
             errors.push(format!("PID {pid}: {error}"));
@@ -6196,8 +7284,10 @@ fn start_testing_instance_for_target(
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     {
+        use std::os::unix::process::CommandExt;
+
         command.process_group(0);
     }
 
@@ -6286,6 +7376,13 @@ fn log_backend_timing(telemetry_enabled: bool, event: &str, elapsed: Duration, d
         "[startup-telemetry] event={event} elapsed_ms={} {details}",
         elapsed.as_millis()
     );
+}
+
+fn log_play_telemetry(telemetry_enabled: bool, event: &str, details: &str) {
+    if !telemetry_enabled {
+        return;
+    }
+    eprintln!("[play-telemetry] event={event} {details}");
 }
 
 fn log_build_workspace_context_timing(
@@ -6671,12 +7768,22 @@ fn workspace_get_active(app: AppHandle) -> WorkspaceContextResponse {
 fn workspace_clear_active(
     app: AppHandle,
     testing_state: State<TestingEnvironmentState>,
+    terminal_state: State<GrooveTerminalState>,
 ) -> WorkspaceContextResponse {
     let request_id = request_id();
-    let had_active_workspace = read_persisted_active_workspace_root(&app)
-        .ok()
-        .flatten()
-        .is_some();
+    let persisted_workspace_root = read_persisted_active_workspace_root(&app).ok().flatten();
+    let had_active_workspace = persisted_workspace_root.is_some();
+
+    if let Some(workspace_root) = persisted_workspace_root.as_deref() {
+        let workspace_root_key = workspace_root_storage_key(Path::new(workspace_root));
+        let sessions_to_close = match terminal_state.inner.lock() {
+            Ok(mut sessions_state) => {
+                drain_groove_terminal_sessions(&mut sessions_state, Some(workspace_root_key.as_str()))
+            }
+            Err(_) => Vec::new(),
+        };
+        close_groove_terminal_sessions_best_effort(sessions_to_close);
+    }
 
     if let Ok(mut runtime) = testing_state.runtime.lock() {
         if ensure_testing_runtime_loaded(&app, &mut runtime).is_ok() {
@@ -7492,7 +8599,11 @@ fn workspace_list_symlink_entries(
 }
 
 #[tauri::command]
-fn workspace_open_terminal(app: AppHandle, payload: TestingEnvironmentStartPayload) -> GrooveCommandResponse {
+fn workspace_open_terminal(
+    app: AppHandle,
+    terminal_state: State<GrooveTerminalState>,
+    payload: TestingEnvironmentStartPayload,
+) -> GrooveCommandResponse {
     let request_id = request_id();
 
     let Some(worktree) = payload
@@ -7584,19 +8695,55 @@ fn workspace_open_terminal(app: AppHandle, payload: TestingEnvironmentStartPaylo
         }
     };
 
-    let launched_command = match launch_open_terminal_at_worktree_command(
-        Path::new(&worktree_path),
-        &workspace_meta,
-    ) {
-        Ok(command) => command,
-        Err(error) => {
-            return GrooveCommandResponse {
-                request_id,
-                ok: false,
-                exit_code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                error: Some(error),
+    let launched_command = if workspace_meta
+        .open_terminal_at_worktree_command
+        .as_deref()
+        .map(str::trim)
+        .map(is_groove_terminal_open_command)
+        .unwrap_or(false)
+    {
+        let session = match open_groove_terminal_session(
+            &app,
+            &terminal_state,
+            &workspace_root,
+            worktree,
+            Path::new(&worktree_path),
+            GrooveTerminalOpenMode::Opencode,
+            None,
+            None,
+            None,
+            false,
+            true,
+        ) {
+            Ok(session) => session,
+            Err(error) => {
+                return GrooveCommandResponse {
+                    request_id,
+                    ok: false,
+                    exit_code: None,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    error: Some(error),
+                }
+            }
+        };
+
+        format!(
+            "Started Groove terminal session {} using: {}",
+            session.session_id, session.command
+        )
+    } else {
+        match launch_open_terminal_at_worktree_command(Path::new(&worktree_path), &workspace_meta) {
+            Ok(command) => command,
+            Err(error) => {
+                return GrooveCommandResponse {
+                    request_id,
+                    ok: false,
+                    exit_code: None,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    error: Some(error),
+                }
             }
         }
     };
@@ -7616,8 +8763,615 @@ fn workspace_open_terminal(app: AppHandle, payload: TestingEnvironmentStartPaylo
         request_id,
         ok: true,
         exit_code: Some(0),
+        stdout: if launched_command.starts_with("Started Groove terminal session") {
+            launched_command
+        } else {
+            format!("Opened terminal using: {launched_command}")
+        },
+        stderr: String::new(),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn workspace_open_workspace_terminal(
+    app: AppHandle,
+    payload: TestingEnvironmentStatusPayload,
+) -> GrooveCommandResponse {
+    let request_id = request_id();
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(known_worktrees) => known_worktrees,
+        Err(error) => {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_meta = match ensure_workspace_meta(&workspace_root) {
+        Ok((meta, _)) => meta,
+        Err(error) => {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let launched_command = match launch_open_terminal_at_worktree_command(&workspace_root, &workspace_meta) {
+        Ok(command) => command,
+        Err(error) => {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    GrooveCommandResponse {
+        request_id,
+        ok: true,
+        exit_code: Some(0),
         stdout: format!("Opened terminal using: {launched_command}"),
         stderr: String::new(),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn groove_terminal_open(
+    app: AppHandle,
+    state: State<GrooveTerminalState>,
+    payload: GrooveTerminalOpenPayload,
+) -> GrooveTerminalResponse {
+    let request_id = request_id();
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return GrooveTerminalResponse {
+            request_id,
+            ok: false,
+            session: None,
+            error: Some("worktree is required and must be a non-empty string.".to_string()),
+        };
+    }
+
+    let target = match validate_groove_terminal_target(payload.target.as_deref()) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let open_mode = match validate_groove_terminal_open_mode(payload.open_mode.as_deref()) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let (workspace_root, worktree_path) = match resolve_terminal_worktree_context(
+        &app,
+        &payload.root_name,
+        &payload.known_worktrees,
+        &payload.workspace_meta,
+        worktree,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    match open_groove_terminal_session(
+        &app,
+        &state,
+        &workspace_root,
+        worktree,
+        &worktree_path,
+        open_mode,
+        target.as_deref(),
+        payload.cols,
+        payload.rows,
+        payload.force_restart.unwrap_or(false),
+        payload.open_new.unwrap_or(false),
+    ) {
+        Ok(session) => GrooveTerminalResponse {
+            request_id,
+            ok: true,
+            session: Some(session),
+            error: None,
+        },
+        Err(error) => GrooveTerminalResponse {
+            request_id,
+            ok: false,
+            session: None,
+            error: Some(error),
+        },
+    }
+}
+
+#[tauri::command]
+fn groove_terminal_write(
+    app: AppHandle,
+    state: State<GrooveTerminalState>,
+    payload: GrooveTerminalWritePayload,
+) -> GrooveTerminalResponse {
+    let request_id = request_id();
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return GrooveTerminalResponse {
+            request_id,
+            ok: false,
+            session: None,
+            error: Some("worktree is required and must be a non-empty string.".to_string()),
+        };
+    }
+
+    let (workspace_root, _) = match resolve_terminal_worktree_context(
+        &app,
+        &payload.root_name,
+        &payload.known_worktrees,
+        &payload.workspace_meta,
+        worktree,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let worktree_key = groove_terminal_session_key(&workspace_root, worktree);
+    let mut sessions_state = match state.inner.lock() {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(format!("Failed to acquire Groove terminal state lock: {error}")),
+            }
+        }
+    };
+
+    let session_id = match resolve_terminal_session_id(
+        &sessions_state,
+        &worktree_key,
+        payload.session_id.as_deref(),
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let Some(session) = sessions_state.sessions_by_id.get_mut(&session_id) else {
+        return GrooveTerminalResponse {
+            request_id,
+            ok: false,
+            session: None,
+            error: Some("No active Groove terminal session found for this worktree.".to_string()),
+        };
+    };
+
+    if let Err(error) = session.writer.write_all(payload.input.as_bytes()) {
+        return GrooveTerminalResponse {
+            request_id,
+            ok: false,
+            session: None,
+            error: Some(format!("Failed to write to Groove terminal session: {error}")),
+        };
+    }
+
+    GrooveTerminalResponse {
+        request_id,
+        ok: true,
+        session: Some(groove_terminal_session_from_state(session)),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn groove_terminal_resize(
+    app: AppHandle,
+    state: State<GrooveTerminalState>,
+    payload: GrooveTerminalResizePayload,
+) -> GrooveTerminalResponse {
+    let request_id = request_id();
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return GrooveTerminalResponse {
+            request_id,
+            ok: false,
+            session: None,
+            error: Some("worktree is required and must be a non-empty string.".to_string()),
+        };
+    }
+
+    let (workspace_root, _) = match resolve_terminal_worktree_context(
+        &app,
+        &payload.root_name,
+        &payload.known_worktrees,
+        &payload.workspace_meta,
+        worktree,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let worktree_key = groove_terminal_session_key(&workspace_root, worktree);
+    let mut sessions_state = match state.inner.lock() {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(format!("Failed to acquire Groove terminal state lock: {error}")),
+            }
+        }
+    };
+
+    let session_id = match resolve_terminal_session_id(
+        &sessions_state,
+        &worktree_key,
+        payload.session_id.as_deref(),
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let Some(session) = sessions_state.sessions_by_id.get_mut(&session_id) else {
+        return GrooveTerminalResponse {
+            request_id,
+            ok: false,
+            session: None,
+            error: Some("No active Groove terminal session found for this worktree.".to_string()),
+        };
+    };
+
+    let cols = normalize_terminal_dimension(Some(payload.cols), DEFAULT_GROOVE_TERMINAL_COLS);
+    let rows = normalize_terminal_dimension(Some(payload.rows), DEFAULT_GROOVE_TERMINAL_ROWS);
+    if let Err(error) = session.master.resize(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    }) {
+        return GrooveTerminalResponse {
+            request_id,
+            ok: false,
+            session: None,
+            error: Some(format!("Failed to resize Groove terminal session: {error}")),
+        };
+    }
+
+    session.cols = cols;
+    session.rows = rows;
+
+    GrooveTerminalResponse {
+        request_id,
+        ok: true,
+        session: Some(groove_terminal_session_from_state(session)),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn groove_terminal_close(
+    app: AppHandle,
+    state: State<GrooveTerminalState>,
+    payload: GrooveTerminalClosePayload,
+) -> GrooveTerminalResponse {
+    let request_id = request_id();
+    let telemetry_enabled = telemetry_enabled_for_app(&app);
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return GrooveTerminalResponse {
+            request_id,
+            ok: false,
+            session: None,
+            error: Some("worktree is required and must be a non-empty string.".to_string()),
+        };
+    }
+
+    let (workspace_root, _) = match resolve_terminal_worktree_context(
+        &app,
+        &payload.root_name,
+        &payload.known_worktrees,
+        &payload.workspace_meta,
+        worktree,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let worktree_key = groove_terminal_session_key(&workspace_root, worktree);
+    let mut sessions_state = match state.inner.lock() {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(format!("Failed to acquire Groove terminal state lock: {error}")),
+            }
+        }
+    };
+
+    let session_id = match resolve_terminal_session_id(
+        &sessions_state,
+        &worktree_key,
+        payload.session_id.as_deref(),
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            if payload
+                .session_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|candidate| !candidate.is_empty())
+                .is_some()
+            {
+                return GrooveTerminalResponse {
+                    request_id,
+                    ok: false,
+                    session: None,
+                    error: Some(error),
+                };
+            }
+            return GrooveTerminalResponse {
+                request_id,
+                ok: true,
+                session: None,
+                error: None,
+            };
+        }
+    };
+
+    let Some(mut session) = remove_session_by_id(&mut sessions_state, &session_id) else {
+        return GrooveTerminalResponse {
+            request_id,
+            ok: true,
+            session: None,
+            error: None,
+        };
+    };
+    drop(sessions_state);
+
+    let closed_session_id = session.session_id.clone();
+    let workspace_root_rendered = workspace_root.display().to_string();
+    let kill_detail = match session.child.kill() {
+        Ok(()) => "kill=ok".to_string(),
+        Err(error) => format!("kill_error={error}"),
+    };
+    let exit_detail = collect_groove_terminal_exit_status(session.child.as_mut());
+    let close_detail = format!("reason=requested {kill_detail} {exit_detail}");
+    drop(session);
+    log_play_telemetry(
+        telemetry_enabled,
+        "terminal.session.closed",
+        format!(
+            "workspace_root={} worktree={} session_id={} {}",
+            workspace_root_rendered, worktree, closed_session_id, close_detail
+        )
+        .as_str(),
+    );
+    emit_groove_terminal_lifecycle_event(
+        &app,
+        &closed_session_id,
+        &workspace_root_rendered,
+        worktree,
+        "closed",
+        Some(format!("Terminal session closed by request ({close_detail}).")),
+    );
+
+    GrooveTerminalResponse {
+        request_id,
+        ok: true,
+        session: None,
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn groove_terminal_get_session(
+    app: AppHandle,
+    state: State<GrooveTerminalState>,
+    payload: GrooveTerminalSessionPayload,
+) -> GrooveTerminalResponse {
+    let request_id = request_id();
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return GrooveTerminalResponse {
+            request_id,
+            ok: false,
+            session: None,
+            error: Some("worktree is required and must be a non-empty string.".to_string()),
+        };
+    }
+
+    let (workspace_root, _) = match resolve_terminal_worktree_context(
+        &app,
+        &payload.root_name,
+        &payload.known_worktrees,
+        &payload.workspace_meta,
+        worktree,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let worktree_key = groove_terminal_session_key(&workspace_root, worktree);
+    let sessions_state = match state.inner.lock() {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalResponse {
+                request_id,
+                ok: false,
+                session: None,
+                error: Some(format!("Failed to acquire Groove terminal state lock: {error}")),
+            }
+        }
+    };
+
+    GrooveTerminalResponse {
+        request_id,
+        ok: true,
+        session: {
+            let session_id = resolve_terminal_session_id(
+                &sessions_state,
+                &worktree_key,
+                payload.session_id.as_deref(),
+            )
+            .ok();
+            session_id
+                .as_deref()
+                .and_then(|value| sessions_state.sessions_by_id.get(value))
+                .map(groove_terminal_session_with_snapshot_from_state)
+        },
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn groove_terminal_list_sessions(
+    app: AppHandle,
+    state: State<GrooveTerminalState>,
+    payload: GrooveTerminalSessionPayload,
+) -> GrooveTerminalSessionsResponse {
+    let request_id = request_id();
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return GrooveTerminalSessionsResponse {
+            request_id,
+            ok: false,
+            sessions: Vec::new(),
+            error: Some("worktree is required and must be a non-empty string.".to_string()),
+        };
+    }
+
+    let (workspace_root, _) = match resolve_terminal_worktree_context(
+        &app,
+        &payload.root_name,
+        &payload.known_worktrees,
+        &payload.workspace_meta,
+        worktree,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalSessionsResponse {
+                request_id,
+                ok: false,
+                sessions: Vec::new(),
+                error: Some(error),
+            };
+        }
+    };
+
+    let worktree_key = groove_terminal_session_key(&workspace_root, worktree);
+    let sessions_state = match state.inner.lock() {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalSessionsResponse {
+                request_id,
+                ok: false,
+                sessions: Vec::new(),
+                error: Some(format!("Failed to acquire Groove terminal state lock: {error}")),
+            }
+        }
+    };
+
+    GrooveTerminalSessionsResponse {
+        request_id,
+        ok: true,
+        sessions: sessions_for_worktree(&sessions_state, &worktree_key),
         error: None,
     }
 }
@@ -9661,7 +11415,7 @@ fn groove_list_blocking(
     let mut native_recomputed_worktrees = 0usize;
     let mut cache_native: Option<GrooveListNativeCache> = None;
 
-    let response = if groove_list_native_enabled() {
+    let mut response = if groove_list_native_enabled() {
         let native_started_at = Instant::now();
         match collect_groove_list_rows_native(
             &workspace_root,
@@ -9751,6 +11505,17 @@ fn groove_list_blocking(
         }
     };
 
+    let terminal_integration = if response.ok {
+        inject_groove_terminal_sessions_into_runtime_rows(&app, &workspace_root, &mut response.rows)
+    } else {
+        GrooveListTerminalIntegration::default()
+    };
+    let injected_worktrees = if terminal_integration.injected_worktrees.is_empty() {
+        "<none>".to_string()
+    } else {
+        terminal_integration.injected_worktrees.join(",")
+    };
+
     if response.ok && cache_native.is_none() {
         cache_native = previous_native_cache;
     }
@@ -9770,7 +11535,7 @@ fn groove_list_blocking(
 
         if telemetry_enabled {
             eprintln!(
-                "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=exec-error collector={} fallback_used={} native_error={} native_reused_worktrees={} native_recomputed_worktrees={}",
+                "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=exec-error collector={} fallback_used={} native_error={} native_reused_worktrees={} native_recomputed_worktrees={} terminal_sessions={} terminal_workspace_sessions={} terminal_injected_worktrees={} terminal_integration_error={}",
                 resolve_elapsed.as_millis(),
                 exec_elapsed.as_millis(),
                 parse_elapsed.as_millis(),
@@ -9780,6 +11545,10 @@ fn groove_list_blocking(
                 native_error.is_some(),
                 native_reused_worktrees,
                 native_recomputed_worktrees,
+                terminal_integration.session_count,
+                terminal_integration.workspace_session_count,
+                injected_worktrees,
+                terminal_integration.integration_error.is_some(),
             );
         }
 
@@ -9810,7 +11579,7 @@ fn groove_list_blocking(
 
     if telemetry_enabled {
         eprintln!(
-            "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=ok collector={} fallback_used={} native_error={} native_reused_worktrees={} native_recomputed_worktrees={}",
+            "[startup-telemetry] event=groove_list resolve_ms={} exec_ms={} parse_ms={} total_ms={} outcome=ok collector={} fallback_used={} native_error={} native_reused_worktrees={} native_recomputed_worktrees={} terminal_sessions={} terminal_workspace_sessions={} terminal_injected_worktrees={} terminal_integration_error={}",
             resolve_elapsed.as_millis(),
             exec_elapsed.as_millis(),
             parse_elapsed.as_millis(),
@@ -9820,6 +11589,10 @@ fn groove_list_blocking(
             native_error.is_some(),
             native_reused_worktrees,
             native_recomputed_worktrees,
+            terminal_integration.session_count,
+            terminal_integration.workspace_session_count,
+            injected_worktrees,
+            terminal_integration.integration_error.is_some(),
         );
     }
 
@@ -9827,8 +11600,13 @@ fn groove_list_blocking(
 }
 
 #[tauri::command]
-fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveCommandResponse {
+fn groove_restore(
+    app: AppHandle,
+    terminal_state: State<GrooveTerminalState>,
+    payload: GrooveRestorePayload,
+) -> GrooveCommandResponse {
     let request_id = request_id();
+    let telemetry_enabled = telemetry_enabled_for_app(&app);
 
     if payload.worktree.trim().is_empty() {
         return GrooveCommandResponse {
@@ -9907,6 +11685,21 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
         None
     };
 
+    log_play_telemetry(
+        telemetry_enabled,
+        "groove_restore.start",
+        format!(
+            "request_id={} action={} worktree={} target={} root_name_present={} known_worktrees={}",
+            request_id,
+            action,
+            worktree,
+            target.as_deref().unwrap_or("<none>"),
+            payload.root_name.is_some(),
+            payload.known_worktrees.len()
+        )
+        .as_str(),
+    );
+
     let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
         Ok(known_worktrees) => known_worktrees,
         Err(error) => {
@@ -9950,15 +11743,21 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
             }
         };
 
-    let workspace_root = match resolve_workspace_root(
+    let (workspace_root, root_fallback_used) = match resolve_workspace_root(
         &app,
         &payload.root_name,
         Some(&worktree),
         &known_worktrees,
         &payload.workspace_meta,
     ) {
-        Ok(root) => root,
+        Ok(root) => (root, false),
         Err(primary_error) => {
+            log_play_telemetry(
+                telemetry_enabled,
+                "groove_restore.resolve_root_primary_failed",
+                format!("request_id={} worktree={} error={primary_error}", request_id, worktree)
+                    .as_str(),
+            );
             match resolve_workspace_root(
                 &app,
                 &payload.root_name,
@@ -9966,8 +11765,14 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
                 &known_worktrees,
                 &payload.workspace_meta,
             ) {
-                Ok(root) => root,
+                Ok(root) => (root, true),
                 Err(_) => {
+                    log_play_telemetry(
+                        telemetry_enabled,
+                        "groove_restore.resolve_root_failed",
+                        format!("request_id={} worktree={} error={primary_error}", request_id, worktree)
+                            .as_str(),
+                    );
                     return GrooveCommandResponse {
                         request_id,
                         ok: false,
@@ -9975,11 +11780,21 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
                         stdout: String::new(),
                         stderr: String::new(),
                         error: Some(primary_error),
-                    }
+                    };
                 }
             }
         }
     };
+    let workspace_root_rendered = workspace_root.display().to_string();
+    log_play_telemetry(
+        telemetry_enabled,
+        "groove_restore.resolve_root_ok",
+        format!(
+            "request_id={} workspace_root={} fallback_used={}",
+            request_id, workspace_root_rendered, root_fallback_used
+        )
+        .as_str(),
+    );
 
     let tombstone = match read_worktree_tombstone(&app, &workspace_root, &worktree) {
         Ok(value) => value,
@@ -10024,6 +11839,18 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
     } else {
         workspace_root.join(&worktree_dir).join(&worktree)
     };
+    log_play_telemetry(
+        telemetry_enabled,
+        "groove_restore.resolve_worktree",
+        format!(
+            "request_id={} workspace_root={} worktree_dir={} expected_worktree_path={}",
+            request_id,
+            workspace_root_rendered,
+            worktree_dir,
+            expected_worktree_path.display()
+        )
+        .as_str(),
+    );
     if !path_is_directory(&expected_worktree_path) {
         let recreate_branch = tombstone
             .as_ref()
@@ -10033,6 +11860,16 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
             .map(|value| value.to_string())
             .unwrap_or_else(|| branch_guess_from_worktree_name(&worktree));
 
+        log_play_telemetry(
+            telemetry_enabled,
+            "groove_restore.recreate_missing_worktree",
+            format!(
+                "request_id={} worktree={} recreate_branch={} worktree_dir={}",
+                request_id, worktree, recreate_branch, worktree_dir
+            )
+            .as_str(),
+        );
+
         let mut create_args = vec!["create".to_string(), recreate_branch];
         if worktree_dir != ".worktrees" {
             create_args.push("--dir".to_string());
@@ -10041,6 +11878,21 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
 
         let recreate_result = run_command(&groove_binary_path(&app), &create_args, &workspace_root);
         if recreate_result.exit_code != Some(0) || recreate_result.error.is_some() {
+            log_play_telemetry(
+                telemetry_enabled,
+                "groove_restore.recreate_failed",
+                format!(
+                    "request_id={} worktree={} exit_code={:?} error={}",
+                    request_id,
+                    worktree,
+                    recreate_result.exit_code,
+                    recreate_result
+                        .error
+                        .as_deref()
+                        .unwrap_or("Failed to recreate missing worktree before restore.")
+                )
+                .as_str(),
+            );
             return GrooveCommandResponse {
                 request_id,
                 ok: false,
@@ -10083,47 +11935,144 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
         let play_groove_command = play_groove_command_for_workspace(&workspace_root);
         let command_template = play_groove_command.trim();
         let play_target = target.clone().unwrap_or_default();
-        let (program, command_args) = match resolve_play_groove_command(
-            command_template,
-            &play_target,
-            &expected_worktree_path,
-        ) {
-            Ok(value) => value,
-            Err(error) => {
-                return GrooveCommandResponse {
-                    request_id,
-                    ok: false,
-                    exit_code: None,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                    error: Some(error),
-                };
+        log_play_telemetry(
+            telemetry_enabled,
+            "groove_restore.go_mode",
+            format!(
+                "request_id={} workspace_root={} worktree={} target={} mode={}",
+                request_id,
+                workspace_root_rendered,
+                worktree,
+                play_target,
+                if is_groove_terminal_play_command(command_template) {
+                    "sentinel"
+                } else {
+                    "custom"
+                }
+            )
+            .as_str(),
+        );
+        if is_groove_terminal_play_command(command_template) {
+            match open_groove_terminal_session(
+                &app,
+                &terminal_state,
+                &workspace_root,
+                &worktree,
+                &expected_worktree_path,
+                GrooveTerminalOpenMode::Opencode,
+                Some(play_target.as_str()),
+                None,
+                None,
+                false,
+                true,
+            ) {
+                Ok(session) => {
+                    log_play_telemetry(
+                        telemetry_enabled,
+                        "groove_restore.go_terminal_session_ok",
+                        format!(
+                            "request_id={} worktree={} session_id={} command={} cwd={}",
+                            request_id,
+                            worktree,
+                            session.session_id,
+                            session.command,
+                            session.worktree_path
+                        )
+                        .as_str(),
+                    );
+                    CommandResult {
+                        exit_code: Some(0),
+                        stdout: format!(
+                            "Started Groove terminal session {} using: {}",
+                            session.session_id, session.command
+                        ),
+                        stderr: String::new(),
+                        error: None,
+                    }
+                }
+                Err(error) => {
+                    log_play_telemetry(
+                        telemetry_enabled,
+                        "groove_restore.go_terminal_session_failed",
+                        format!("request_id={} worktree={} error={error}", request_id, worktree)
+                            .as_str(),
+                    );
+                    CommandResult {
+                        exit_code: None,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(error),
+                    }
+                }
             }
-        };
+        } else {
+            let (program, command_args) = match resolve_play_groove_command(
+                command_template,
+                &play_target,
+                &expected_worktree_path,
+            ) {
+                Ok(value) => value,
+                Err(error) => {
+                    log_play_telemetry(
+                        telemetry_enabled,
+                        "groove_restore.go_command_resolve_failed",
+                        format!("request_id={} worktree={} error={error}", request_id, worktree)
+                            .as_str(),
+                    );
+                    return GrooveCommandResponse {
+                        request_id,
+                        ok: false,
+                        exit_code: None,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(error),
+                    };
+                }
+            };
 
-        match spawn_terminal_process(
-            &program,
-            &command_args,
-            &expected_worktree_path,
-            &expected_worktree_path,
-        ) {
-            Ok(()) => CommandResult {
-                exit_code: Some(0),
-                stdout: std::iter::once(program.as_str())
-                    .chain(command_args.iter().map(|value| value.as_str()))
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                stderr: String::new(),
-                error: None,
-            },
-            Err(error) => CommandResult {
-                exit_code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                error: Some(format!(
-                    "Failed to launch Play Groove command {program}: {error}"
-                )),
-            },
+            match spawn_terminal_process(
+                &program,
+                &command_args,
+                &expected_worktree_path,
+                &expected_worktree_path,
+            ) {
+                Ok(()) => {
+                    log_play_telemetry(
+                        telemetry_enabled,
+                        "groove_restore.go_custom_command_ok",
+                        format!("request_id={} worktree={} program={}", request_id, worktree, program)
+                            .as_str(),
+                    );
+                    CommandResult {
+                        exit_code: Some(0),
+                        stdout: std::iter::once(program.as_str())
+                            .chain(command_args.iter().map(|value| value.as_str()))
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                        stderr: String::new(),
+                        error: None,
+                    }
+                }
+                Err(error) => {
+                    log_play_telemetry(
+                        telemetry_enabled,
+                        "groove_restore.go_custom_command_failed",
+                        format!(
+                            "request_id={} worktree={} program={} error={error}",
+                            request_id, worktree, program
+                        )
+                        .as_str(),
+                    );
+                    CommandResult {
+                        exit_code: None,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(format!(
+                            "Failed to launch Play Groove command {program}: {error}"
+                        )),
+                    }
+                }
+            }
         }
     } else {
         let mut args = vec!["restore".to_string(), worktree.clone()];
@@ -10143,6 +12092,11 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
         if let Err(error) =
             record_worktree_last_executed_at(&app, &workspace_root, stamped_worktree)
         {
+            log_play_telemetry(
+                telemetry_enabled,
+                "groove_restore.record_last_executed_failed",
+                format!("request_id={} worktree={} error={error}", request_id, worktree).as_str(),
+            );
             return GrooveCommandResponse {
                 request_id,
                 ok: false,
@@ -10154,6 +12108,11 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
         }
 
         if let Err(error) = clear_worktree_tombstone(&app, &workspace_root, &worktree) {
+            log_play_telemetry(
+                telemetry_enabled,
+                "groove_restore.clear_tombstone_failed",
+                format!("request_id={} worktree={} error={error}", request_id, worktree).as_str(),
+            );
             return GrooveCommandResponse {
                 request_id,
                 ok: false,
@@ -10181,6 +12140,21 @@ fn groove_restore(app: AppHandle, payload: GrooveRestorePayload) -> GrooveComman
         invalidate_workspace_context_cache(&app, &workspace_root);
         invalidate_groove_list_cache_for_workspace(&app, &workspace_root);
     }
+
+    log_play_telemetry(
+        telemetry_enabled,
+        "groove_restore.result",
+        format!(
+            "request_id={} action={} worktree={} ok={} exit_code={:?} error={}",
+            request_id,
+            action,
+            worktree,
+            ok,
+            result.exit_code,
+            result.error.as_deref().unwrap_or("<none>")
+        )
+        .as_str(),
+    );
 
     GrooveCommandResponse {
         request_id,
@@ -12536,6 +14510,7 @@ pub fn run() {
         .manage(WorkspaceContextCacheState::default())
         .manage(GrooveListCacheState::default())
         .manage(GrooveBinStatusState::default())
+        .manage(GrooveTerminalState::default())
         .setup(|app| {
             let status = evaluate_groove_bin_check_status(&app.handle());
             if status.has_issue {
@@ -12568,6 +14543,13 @@ pub fn run() {
             workspace_update_worktree_symlink_paths,
             workspace_list_symlink_entries,
             workspace_open_terminal,
+            workspace_open_workspace_terminal,
+            groove_terminal_open,
+            groove_terminal_write,
+            groove_terminal_resize,
+            groove_terminal_close,
+            groove_terminal_get_session,
+            groove_terminal_list_sessions,
             git_auth_status,
             git_status,
             git_current_branch,

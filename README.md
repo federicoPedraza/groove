@@ -101,7 +101,12 @@ What they do:
 - show detected tool versions
 - run the existing fast setup scripts (`bash/setup-*-fast`)
 - run sidecar checks (`bash/check-*-sidecars`)
-- print a clear summary and next step (`npm run tauri:dev`)
+- build distributables (`tauri:build:linux` on Linux, `tauri:build:macos` on macOS)
+- ensure Linux AppImage outputs are executable
+- on Linux, install/update a runnable local app at `~/Applications/Groove.AppImage`
+- on Linux, create/update a desktop launcher at `~/.local/share/applications/groove.desktop`
+- on macOS, install/update a runnable local app at `~/Applications/Groove.app` from the built DMG
+- print a clear summary and artifact location
 
 Troubleshooting tips:
 - If preflight fails, install the missing tool and re-run.
@@ -162,6 +167,20 @@ For frontend-only iteration:
 ```bash
 npm run dev
 ```
+
+## CI builds (Linux + macOS)
+
+A GitHub Actions workflow is included at:
+
+- `.github/workflows/build-desktop.yml`
+
+It builds desktop artifacts on:
+- `ubuntu-latest` → Linux bundles (`AppImage`, `deb`)
+- `macos-latest` → macOS bundle (`dmg`)
+
+It runs the guided setup scripts in CI (`--no-color`) before building, then uploads artifacts from `src-tauri/target/release/bundle/**`.
+
+You can run it manually from GitHub Actions via **workflow_dispatch**, or it runs on push/PR.
 
 ## Build
 

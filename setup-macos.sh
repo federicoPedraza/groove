@@ -19,6 +19,7 @@ usage:
   ./setup-macos.sh [--verbose] [--no-color]
 
 Step-by-step macOS setup with visible checks and status output.
+Builds macOS distributables as part of setup.
 
 options:
   --verbose   show full command output while running steps
@@ -76,6 +77,47 @@ step "Validate macOS sidecar readiness"
 run_cmd "executing ./bash/check-macos-sidecars" ./bash/check-macos-sidecars
 pass "macOS sidecar check passed"
 
+step "Build macOS distributables"
+run_cmd "running npm run tauri:build:macos" npm run tauri:build:macos
+
+macos_bundle_dir="$repo_root/src-tauri/target/release/bundle"
+if find "$macos_bundle_dir" -type f -name "*.dmg" | grep -q .; then
+  pass "macOS build artifacts generated in $macos_bundle_dir"
+else
+  fail_msg "No macOS dmg artifact found in $macos_bundle_dir"
+  exit 1
+fi
+
+step "Install/update local runnable Groove application"
+latest_dmg="$(find "$macos_bundle_dir" -type f -name "*.dmg" | sort | tail -n 1)"
+if [[ -z "$latest_dmg" ]]; then
+  fail_msg "Could not locate a built dmg to install"
+  exit 1
+fi
+
+mountpoint="$(mktemp -d /tmp/groove-dmg.XXXXXX)"
+cleanup_mount() {
+  hdiutil detach "$mountpoint" >/dev/null 2>&1 || true
+  rmdir "$mountpoint" >/dev/null 2>&1 || true
+}
+
+hdiutil attach "$latest_dmg" -mountpoint "$mountpoint" -nobrowse -quiet
+app_in_dmg="$(find "$mountpoint" -maxdepth 1 -type d -name "*.app" | head -n 1)"
+if [[ -z "$app_in_dmg" ]]; then
+  cleanup_mount
+  fail_msg "No .app bundle found inside dmg"
+  exit 1
+fi
+
+app_dir="$HOME/Applications"
+mkdir -p "$app_dir"
+rsync -a --delete "$app_in_dmg/" "$app_dir/Groove.app/"
+cleanup_mount
+
+pass "Installed/updated: $app_dir/Groove.app"
+
 step "Next actions"
-info "Run: npm run tauri:dev"
-pass "You're ready to develop on macOS"
+info "Artifacts available at: $macos_bundle_dir"
+info "Launch Groove from Spotlight/Launchpad or: open \"$app_dir/Groove.app\""
+info "Run: npm run tauri:dev (development mode)"
+pass "You're ready on macOS"

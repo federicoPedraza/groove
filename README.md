@@ -103,6 +103,8 @@ What they do:
 - run sidecar checks (`bash/check-*-sidecars`)
 - build distributables (`tauri:build:linux` on Linux, `tauri:build:macos` on macOS)
 - ensure Linux AppImage outputs are executable
+- on Linux, install/update a runnable local app at `~/Applications/Groove.AppImage`
+- on Linux, create/update a desktop launcher at `~/.local/share/applications/groove.desktop`
 - print a clear summary and artifact location
 
 Troubleshooting tips:

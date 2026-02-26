@@ -96,7 +96,44 @@ while IFS= read -r appimage; do
 done < <(find "$linux_bundle_dir" -type f -name "*.AppImage")
 pass "Validated executable bit for $appimage_count AppImage file(s)"
 
+step "Install/update local runnable Groove application"
+latest_appimage="$(find "$linux_bundle_dir" -type f -name "*.AppImage" | sort | tail -n 1)"
+if [[ -z "$latest_appimage" ]]; then
+  fail_msg "Could not locate a built AppImage to install"
+  exit 1
+fi
+
+app_dir="$HOME/Applications"
+appimage_target="$app_dir/Groove.AppImage"
+desktop_dir="$HOME/.local/share/applications"
+desktop_file="$desktop_dir/groove.desktop"
+
+mkdir -p "$app_dir" "$desktop_dir"
+cp -f "$latest_appimage" "$appimage_target"
+chmod +x "$appimage_target"
+
+cat > "$desktop_file" <<EOF
+[Desktop Entry]
+Name=Groove
+Comment=Worktree control center
+Exec=$appimage_target %u
+Terminal=false
+Type=Application
+Categories=Development;Utility;
+StartupWMClass=groove
+MimeType=x-scheme-handler/groove;
+Icon=applications-development
+EOF
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database "$desktop_dir" >/dev/null 2>&1 || true
+fi
+
+pass "Installed/updated: $appimage_target"
+pass "Desktop entry: $desktop_file"
+
 step "Next actions"
 info "Artifacts available at: $linux_bundle_dir"
+info "Launch Groove from your app menu by searching: Groove"
 info "Run: npm run tauri:dev (development mode)"
 pass "You're ready on Linux"

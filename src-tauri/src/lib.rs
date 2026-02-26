@@ -1638,6 +1638,31 @@ fn resolve_plain_terminal_command() -> (String, Vec<String>) {
     (program, Vec::new())
 }
 
+fn augmented_child_path() -> Option<String> {
+    let mut paths = std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    if let Some(home) = std::env::var_os("HOME") {
+        let opencode_bin = PathBuf::from(home).join(".opencode").join("bin");
+        if opencode_bin.is_dir() && !paths.iter().any(|candidate| candidate == &opencode_bin) {
+            paths.push(opencode_bin);
+        }
+    }
+
+    std::env::join_paths(paths)
+        .ok()
+        .map(|value| value.to_string_lossy().to_string())
+}
+
+fn resolve_opencode_bin() -> String {
+    std::env::var("OPENCODE_BIN")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "opencode".to_string())
+}
+
 fn resolve_terminal_worktree_context(
     app: &AppHandle,
     root_name: &Option<String>,
@@ -1713,7 +1738,7 @@ fn open_groove_terminal_session(
         .unwrap_or("<none>");
 
     let (program, args) = match open_mode {
-        GrooveTerminalOpenMode::Opencode => ("opencode".to_string(), Vec::new()),
+        GrooveTerminalOpenMode::Opencode => (resolve_opencode_bin(), Vec::new()),
         GrooveTerminalOpenMode::RunLocal => {
             let run_local_command = run_local_command_for_workspace(workspace_root);
             let command_template = run_local_command
@@ -1859,6 +1884,9 @@ fn open_groove_terminal_session(
     }
     spawn_command.cwd(worktree_path);
     spawn_command.env("GROOVE_WORKTREE", worktree_path.display().to_string());
+    if let Some(path) = augmented_child_path() {
+        spawn_command.env("PATH", path);
+    }
 
     let child = pair
         .slave
@@ -2608,6 +2636,9 @@ fn spawn_terminal_process(
         .args(args)
         .current_dir(cwd)
         .env("GROOVE_WORKTREE", worktree_path.display().to_string());
+    if let Some(path) = augmented_child_path() {
+        command.env("PATH", path);
+    }
     command.spawn().map(|_| ())
 }
 

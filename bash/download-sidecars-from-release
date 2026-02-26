@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+usage:
+  ./bash/download-sidecars-from-release [linux|macos|all]
+
+downloads Groove sidecar binaries from a GitHub release into src-tauri/binaries.
+
+configuration via env vars:
+  GROOVE_SIDECAR_REPO   optional, default: $GITHUB_REPOSITORY (or federicoPedraza/groove)
+  GROOVE_SIDECAR_TAG    optional, default: latest non-draft release
+
+examples:
+  ./bash/download-sidecars-from-release macos
+  GROOVE_SIDECAR_REPO=federicoPedraza/groove-sidecars GROOVE_SIDECAR_TAG=v0.2.0 ./bash/download-sidecars-from-release all
+EOF
+}
+
+log() {
+  printf '[download-sidecars] %s\n' "$*"
+}
+
+warn() {
+  printf '[download-sidecars] warn: %s\n' "$*"
+}
+
+fail() {
+  printf '[download-sidecars] error: %s\n' "$*" >&2
+  exit 1
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+platform="${1:-all}"
+case "$platform" in
+  linux|macos|all) ;;
+  *)
+    usage
+    fail "unsupported platform '$platform'"
+    ;;
+esac
+
+if ! command -v gh >/dev/null 2>&1; then
+  fail "GitHub CLI (gh) is required to download sidecars"
+fi
+
+repo="${GROOVE_SIDECAR_REPO:-${GITHUB_REPOSITORY:-federicoPedraza/groove}}"
+requested_tag="${GROOVE_SIDECAR_TAG:-latest}"
+
+if [[ -z "$repo" ]]; then
+  fail "could not determine release repo; set GROOVE_SIDECAR_REPO"
+fi
+
+if [[ -z "${GH_TOKEN:-}" && -z "${GITHUB_TOKEN:-}" ]]; then
+  warn "GH_TOKEN/GITHUB_TOKEN is not set; unauthenticated GitHub API calls may be rate-limited"
+fi
+
+if [[ "$requested_tag" == "latest" ]]; then
+  log "resolving latest release tag from $repo"
+  resolved_tag="$(gh api "repos/$repo/releases" --jq 'map(select(.draft | not)) | .[0].tag_name' 2>/dev/null || true)"
+  if [[ -z "$resolved_tag" || "$resolved_tag" == "null" ]]; then
+    fail "could not resolve latest release tag from $repo"
+  fi
+else
+  resolved_tag="$requested_tag"
+fi
+
+log "using release: $repo@$resolved_tag"
+
+declare -a assets=()
+case "$platform" in
+  linux)
+    assets=(
+      "groove-x86_64-unknown-linux-gnu"
+      "groove-aarch64-unknown-linux-gnu"
+    )
+    ;;
+  macos)
+    assets=(
+      "groove-aarch64-apple-darwin"
+      "groove-x86_64-apple-darwin"
+    )
+    ;;
+  all)
+    assets=(
+      "groove-x86_64-unknown-linux-gnu"
+      "groove-aarch64-unknown-linux-gnu"
+      "groove-aarch64-apple-darwin"
+      "groove-x86_64-apple-darwin"
+      "groove-x86_64-pc-windows-msvc.exe"
+      "groove-aarch64-pc-windows-msvc.exe"
+    )
+    ;;
+esac
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+bin_dir="$repo_root/src-tauri/binaries"
+mkdir -p "$bin_dir"
+
+missing=()
+for asset in "${assets[@]}"; do
+  log "downloading asset: $asset"
+  if gh release download "$resolved_tag" --repo "$repo" --pattern "$asset" --dir "$bin_dir" --clobber >/dev/null 2>&1; then
+    if [[ "$asset" != *.exe ]]; then
+      chmod +x "$bin_dir/$asset" || true
+    fi
+    log "downloaded: $asset"
+  else
+    missing+=("$asset")
+  fi
+done
+
+if [[ ${#missing[@]} -gt 0 ]]; then
+  printf '[download-sidecars] missing assets in %s@%s:\n' "$repo" "$resolved_tag" >&2
+  for m in "${missing[@]}"; do
+    printf '  - %s\n' "$m" >&2
+  done
+  fail "required sidecar assets are missing; publish them in that release or set GROOVE_SIDECAR_REPO/GROOVE_SIDECAR_TAG"
+fi
+
+log "sidecar download complete"

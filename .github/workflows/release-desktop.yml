@@ -30,6 +30,22 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Download Linux sidecars
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GROOVE_SIDECAR_REPO: ${{ vars.GROOVE_SIDECAR_REPO }}
+          GROOVE_SIDECAR_TAG: ${{ vars.GROOVE_SIDECAR_TAG }}
+        run: ./bash/download-sidecars-from-release linux
+
+      - name: Download macOS sidecars
+        if: runner.os == 'macOS'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GROOVE_SIDECAR_REPO: ${{ vars.GROOVE_SIDECAR_REPO }}
+          GROOVE_SIDECAR_TAG: ${{ vars.GROOVE_SIDECAR_TAG }}
+        run: ./bash/download-sidecars-from-release macos
+
       - name: Linux setup
         if: runner.os == 'Linux'
         run: ./bash/setup-linux-fast

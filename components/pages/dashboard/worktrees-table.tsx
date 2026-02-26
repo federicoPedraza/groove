@@ -56,7 +56,6 @@ export function WorktreesTable({
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead>Worktree</TableHead>
             <TableHead className="w-[34%] md:w-[26%]">Branch</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -69,7 +68,7 @@ export function WorktreesTable({
 
               return (
                 <TableRow key={item.key} className="bg-muted/25 hover:bg-muted/25">
-                  <TableCell colSpan={4} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <TableCell colSpan={3} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">
                       <span>{item.label}</span>
                       {isDeletedWorktreesSection ? (
@@ -114,9 +113,6 @@ export function WorktreesTable({
 
             return (
               <TableRow key={item.key}>
-                <TableCell>
-                  <span>{row.worktree}</span>
-                </TableCell>
                 <TableCell className="w-[34%] md:w-[26%]">
                   <div className="flex items-center gap-2 px-2 py-1">
                     <span className="min-w-0 flex-1 truncate select-text">{row.branchGuess}</span>
@@ -140,7 +136,7 @@ export function WorktreesTable({
                     {status}
                   </Badge>
                 </TableCell>
-                <TableCell>
+                <TableCell className="text-right">
                   <TooltipProvider>
                     <WorktreeRowActions
                       row={row}
@@ -160,6 +156,7 @@ export function WorktreesTable({
                       onPlay={onPlayAction}
                       onStop={onStopAction}
                       onSetTestingTarget={onSetTestingTargetAction}
+                      showTestingTargetButton={false}
                       onCutConfirm={onCutConfirm}
                     />
                   </TooltipProvider>

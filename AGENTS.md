@@ -9,8 +9,7 @@ Follow these rules for planning, editing, validating, and reporting changes.
 - Desktop shell/backend: Tauri + Rust.
 - TypeScript is configured in strict mode.
 - Path alias: `@/* -> ./*`.
-- No test framework is currently configured.
-- No test files are currently detected.
+- Frontend tests use Vitest.
 
 ## Source of Truth
 When there is a conflict, use this order:
@@ -26,6 +25,9 @@ npm run dev
 npm run build
 npm run preview
 npm run lint
+npm run typecheck
+npm run test
+npm run test:watch
 npm run tauri:dev
 npm run tauri:build
 npm run tauri:build:linux
@@ -40,24 +42,22 @@ npm run check:rust
 - Frontend production build: `npm run build`
 - Frontend preview build: `npm run preview`
 - Frontend lint: `npm run lint`
+- Frontend typecheck: `npm run typecheck`
+- Frontend tests: `npm run test`
 - Rust checks: `npm run check:rust`
 - Tauri full dev (frontend + Rust): `npm run tauri:dev`
 - Tauri full build: `npm run tauri:build`
 
 ### Tests (current status)
-- JavaScript/TypeScript tests: currently unavailable.
+- JavaScript/TypeScript tests: `npm run test` (Vitest).
+- JavaScript/TypeScript watch mode: `npm run test:watch`.
 - Rust tests via workspace npm script: currently unavailable.
-- Repository currently has no test files detected.
 
-### Running a single test (currently unavailable)
-There is no supported single-test command today because no test framework is installed/configured.
-Do not invent or claim test execution that cannot run.
+### Running a single test (Vitest)
+- Single file: `npx vitest run src/path/to/file.test.ts`
+- Single test name: `npx vitest run -t "test name"`
 
 ### Future patterns (if adopted later)
-- Future (Vitest):
-  - All tests: `npx vitest run`
-  - Single file: `npx vitest run src/path/to/file.test.ts`
-  - Single test name: `npx vitest run -t "test name"`
 - Future (Jest):
   - All tests: `npx jest`
   - Single file: `npx jest src/path/to/file.test.ts`
@@ -119,6 +119,8 @@ Do not invent or claim test execution that cannot run.
 Run:
 ```bash
 npm run lint
+npm run typecheck
+npm run test
 npm run build
 ```
 

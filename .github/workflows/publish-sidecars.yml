@@ -1,0 +1,67 @@
+name: publish-sidecars
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src-tauri/binaries/groove-x86_64-unknown-linux-gnu
+      - .github/workflows/publish-sidecars.yml
+      - .github/sidecar-release.env
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish rolling sidecar release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare sidecar assets
+        run: |
+          set -euo pipefail
+          mkdir -p sidecars
+
+          source_sidecar="src-tauri/binaries/groove-x86_64-unknown-linux-gnu"
+          if [[ ! -f "$source_sidecar" ]]; then
+            echo "missing source sidecar: $source_sidecar" >&2
+            exit 1
+          fi
+
+          cp "$source_sidecar" sidecars/groove-x86_64-unknown-linux-gnu
+          cp "$source_sidecar" sidecars/groove-aarch64-unknown-linux-gnu
+          cp "$source_sidecar" sidecars/groove-x86_64-apple-darwin
+          cp "$source_sidecar" sidecars/groove-aarch64-apple-darwin
+
+          chmod +x sidecars/groove-*
+
+          # Optional Windows assets: publish if present in repo.
+          if [[ -f src-tauri/binaries/groove-x86_64-pc-windows-msvc.exe ]]; then
+            cp src-tauri/binaries/groove-x86_64-pc-windows-msvc.exe sidecars/
+          fi
+          if [[ -f src-tauri/binaries/groove-aarch64-pc-windows-msvc.exe ]]; then
+            cp src-tauri/binaries/groove-aarch64-pc-windows-msvc.exe sidecars/
+          fi
+
+          echo "Prepared sidecars:"
+          ls -la sidecars
+
+      - name: Publish rolling release (sidecars-latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sidecars-latest
+          name: Groove Sidecars (rolling)
+          prerelease: true
+          make_latest: false
+          draft: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: |
+            sidecars/*
+          body: |
+            Rolling sidecar release used by CI workflows.
+            Updated from commit: ${{ github.sha }}

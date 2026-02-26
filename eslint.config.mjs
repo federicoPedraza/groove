@@ -5,7 +5,22 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "src-tauri/target", ".next", "out", "build", "node_modules"] },
+  {
+    ignores: [
+      "node_modules/**",
+      "dist/**",
+      "build/**",
+      "coverage/**",
+      ".next/**",
+      "out/**",
+      ".worktrees/**",
+      "**/.worktrees/**",
+      "src-tauri/target/**",
+      "src-tauri/gen/**",
+      ".groove/**",
+      ".workspace/**",
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

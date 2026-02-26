@@ -7,8 +7,103 @@ on:
   workflow_dispatch:
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run frontend typecheck
+        run: npm run typecheck
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test
+
+  rust-check:
+    name: Rust Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux system deps for Tauri checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            wget
+
+      - name: Run Rust check
+        run: npm run check:rust
+
   build:
     name: Build (${{ matrix.os }})
+    needs: [lint, typecheck, test, rust-check]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -28,13 +123,29 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Download Linux sidecars
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GROOVE_SIDECAR_REPO: ${{ vars.GROOVE_SIDECAR_REPO }}
+          GROOVE_SIDECAR_TAG: ${{ vars.GROOVE_SIDECAR_TAG }}
+        run: ./bash/download-sidecars-from-release linux
+
+      - name: Download macOS sidecars
+        if: runner.os == 'macOS'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GROOVE_SIDECAR_REPO: ${{ vars.GROOVE_SIDECAR_REPO }}
+          GROOVE_SIDECAR_TAG: ${{ vars.GROOVE_SIDECAR_TAG }}
+        run: ./bash/download-sidecars-from-release macos
+
       - name: Linux setup
         if: runner.os == 'Linux'
-        run: ./setup-linux.sh --no-color
+        run: ./bash/setup-linux-fast
 
       - name: macOS setup
         if: runner.os == 'macOS'
-        run: ./setup-macos.sh --no-color
+        run: ./bash/setup-macos-fast
 
       - name: Build Linux bundles
         if: runner.os == 'Linux'

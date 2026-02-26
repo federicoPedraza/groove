@@ -49,6 +49,24 @@ if ! command -v gh >/dev/null 2>&1; then
   fail "GitHub CLI (gh) is required to download sidecars"
 fi
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+config_file="$repo_root/.github/sidecar-release.env"
+
+env_repo="${GROOVE_SIDECAR_REPO:-}"
+env_tag="${GROOVE_SIDECAR_TAG:-}"
+
+if [[ -f "$config_file" ]]; then
+  # shellcheck disable=SC1090
+  source "$config_file"
+fi
+
+if [[ -n "$env_repo" ]]; then
+  GROOVE_SIDECAR_REPO="$env_repo"
+fi
+if [[ -n "$env_tag" ]]; then
+  GROOVE_SIDECAR_TAG="$env_tag"
+fi
+
 repo="${GROOVE_SIDECAR_REPO:-${GITHUB_REPOSITORY:-federicoPedraza/groove}}"
 requested_tag="${GROOVE_SIDECAR_TAG:-latest}"
 
@@ -98,7 +116,6 @@ case "$platform" in
     ;;
 esac
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bin_dir="$repo_root/src-tauri/binaries"
 mkdir -p "$bin_dir"
 

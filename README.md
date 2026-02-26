@@ -105,6 +105,7 @@ What they do:
 - ensure Linux AppImage outputs are executable
 - on Linux, install/update a runnable local app at `~/Applications/Groove.AppImage`
 - on Linux, create/update a desktop launcher at `~/.local/share/applications/groove.desktop`
+- on macOS, install/update a runnable local app at `~/Applications/Groove.app` from the built DMG
 - print a clear summary and artifact location
 
 Troubleshooting tips:

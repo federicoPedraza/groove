@@ -36,14 +36,19 @@ import {
   workspaceGitignoreSanityApply,
   workspaceGitignoreSanityCheck,
   workspaceOpen,
+  workspaceOpenWorkspaceTerminal,
   workspaceOpenTerminal,
   workspacePickAndOpen,
+  GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
+  GROOVE_PLAY_COMMAND_SENTINEL,
+  isTelemetryEnabled,
   type WorkspaceContextResponse,
   type WorkspaceGitignoreSanityResponse,
   type TestingEnvironmentEntry,
 } from "@/src/lib/ipc";
 
 const DEBUG_CLIENT_LOGS = import.meta.env.VITE_GROOVE_DEBUG_LOGS === "true";
+const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 const EVENT_RESCAN_DEBOUNCE_MS = 700;
 const EVENT_RESCAN_MIN_INTERVAL_MS = 2200;
 const WORKSPACE_RESCAN_REQUEST_TTL_MS = 2500;
@@ -51,6 +56,14 @@ const RUNTIME_FETCH_DEBOUNCE_MS = 200;
 const RUNTIME_FETCH_REQUEST_TTL_MS = 2000;
 const RECENT_DIRECTORIES_STORAGE_KEY = "groove:recent-directories";
 const MAX_RECENT_DIRECTORIES = 5;
+
+type DashboardWorkspaceSnapshot = {
+  activeWorkspace: ActiveWorkspace | null;
+};
+
+const dashboardWorkspaceSnapshot: DashboardWorkspaceSnapshot = {
+  activeWorkspace: null,
+};
 
 function readStoredRecentDirectories(): string[] {
   if (typeof window === "undefined") {
@@ -115,7 +128,10 @@ function isSameWorkspaceMeta(left: WorkspaceMeta | null, right: WorkspaceMeta | 
     left.createdAt === right.createdAt &&
     left.updatedAt === right.updatedAt &&
     left.defaultTerminal === right.defaultTerminal &&
-    left.terminalCustomCommand === right.terminalCustomCommand
+    left.terminalCustomCommand === right.terminalCustomCommand &&
+    left.playGrooveCommand === right.playGrooveCommand &&
+    left.openTerminalAtWorktreeCommand === right.openTerminalAtWorktreeCommand &&
+    left.runLocalCommand === right.runLocalCommand
   );
 }
 
@@ -146,8 +162,16 @@ function clientDebugLog(event: string, details?: Record<string, unknown>): void 
   });
 }
 
+function logPlayTelemetry(event: string, payload: Record<string, unknown>): void {
+  if (!isTelemetryEnabled()) {
+    return;
+  }
+  console.info(`${UI_TELEMETRY_PREFIX} ${event}`, payload);
+}
+
 export function useDashboardState() {
-  const [activeWorkspace, setActiveWorkspace] = useState<ActiveWorkspace | null>(null);
+  const [activeWorkspace, setActiveWorkspace] = useState<ActiveWorkspace | null>(() => dashboardWorkspaceSnapshot.activeWorkspace);
+  const [isWorkspaceHydrating, setIsWorkspaceHydrating] = useState(true);
   const [worktreeRows, setWorktreeRows] = useState<WorktreeRow[]>([]);
   const [hasWorktreesDirectory, setHasWorktreesDirectory] = useState<boolean | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -275,6 +299,10 @@ export function useDashboardState() {
   }, []);
 
   useEffect(() => {
+    dashboardWorkspaceSnapshot.activeWorkspace = activeWorkspace;
+  }, [activeWorkspace]);
+
+  useEffect(() => {
     return () => {
       if (eventRescanTimeoutRef.current !== null) {
         window.clearTimeout(eventRescanTimeoutRef.current);
@@ -302,6 +330,7 @@ export function useDashboardState() {
 
   useEffect(() => {
     let cancelled = false;
+    setIsWorkspaceHydrating(true);
     void (async () => {
       try {
         const result = await workspaceGetActive();
@@ -313,6 +342,9 @@ export function useDashboardState() {
           return;
         }
         if (!result.workspaceRoot) {
+          setActiveWorkspace(null);
+          setHasWorktreesDirectory(null);
+          setWorktreeRows([]);
           return;
         }
         applyWorkspaceContext(result);
@@ -320,6 +352,10 @@ export function useDashboardState() {
       } catch {
         if (!cancelled) {
           setErrorMessage("Failed to restore active workspace.");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsWorkspaceHydrating(false);
         }
       }
     })();
@@ -901,6 +937,13 @@ export function useDashboardState() {
       if (!workspaceMeta) {
         return;
       }
+      const isGrooveInAppTemplate = workspaceMeta.playGrooveCommand?.trim() === GROOVE_PLAY_COMMAND_SENTINEL;
+      logPlayTelemetry("play_groove.start", {
+        workspaceRoot,
+        worktree: row.worktree,
+        targetBranch: row.branchGuess,
+        mode: isGrooveInAppTemplate ? "sentinel" : "custom",
+      });
       const actionKey = `${row.path}:play`;
       setPendingPlayActions((prev) => (prev.includes(actionKey) ? prev : [...prev, actionKey]));
 
@@ -913,22 +956,51 @@ export function useDashboardState() {
           action: "go",
           target: row.branchGuess,
         })) as RestoreApiResponse;
+        logPlayTelemetry("play_groove.invoke_result", {
+          workspaceRoot,
+          worktree: row.worktree,
+          targetBranch: row.branchGuess,
+          mode: isGrooveInAppTemplate ? "sentinel" : "custom",
+          ok: result.ok,
+          error: result.error ?? null,
+          exitCode: result.exitCode ?? null,
+        });
         if (result.ok) {
-          toast.success("Opened opencode in terminal.");
+          toast.success(isGrooveInAppTemplate ? "Started Groove in-app terminal." : "Opened opencode in terminal.");
+          logPlayTelemetry("play_groove.refresh_kickoff", {
+            workspaceRoot,
+            worktree: row.worktree,
+            targetBranch: row.branchGuess,
+            mode: isGrooveInAppTemplate ? "sentinel" : "custom",
+            steps: ["rescanWorktrees", "scheduleRuntimeStateFetch", "fetchTestingEnvironmentState"],
+          });
           await rescanWorktrees({ force: true });
           scheduleRuntimeStateFetch(0);
           await fetchTestingEnvironmentState();
           return;
         }
 
-        toast.error("Play groove failed.");
-      } catch {
-        toast.error("Play groove request failed.");
+        if (isGrooveInAppTemplate) {
+          toast.error(result.error ? `Failed to start Groove in-app terminal: ${result.error}` : "Failed to start Groove in-app terminal.");
+          return;
+        }
+
+        toast.error(result.error ? `Play groove failed: ${result.error}` : "Play groove failed.");
+      } catch (error) {
+        logPlayTelemetry("play_groove.invoke_result", {
+          workspaceRoot,
+          worktree: row.worktree,
+          targetBranch: row.branchGuess,
+          mode: isGrooveInAppTemplate ? "sentinel" : "custom",
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        toast.error(isGrooveInAppTemplate ? "Groove in-app terminal start request failed." : "Play groove request failed.");
       } finally {
         setPendingPlayActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
     },
-    [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
+    [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, workspaceRoot],
   );
 
   type TestingTargetActionTarget = Pick<WorktreeRow, "worktree" | "path">;
@@ -1086,12 +1158,38 @@ export function useDashboardState() {
       return;
     }
 
+    const isGrooveOpenTemplate =
+      workspaceMeta.openTerminalAtWorktreeCommand?.trim() === GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL;
+
     try {
       const result = (await workspaceOpenTerminal({
         rootName: workspaceMeta.rootName,
         knownWorktrees,
         workspaceMeta,
         worktree,
+      })) as RestoreApiResponse;
+      if (result.ok) {
+        toast.success(isGrooveOpenTemplate ? "Opened Groove in-app terminal split." : "Opened terminal.");
+        return;
+      }
+
+      toast.error(isGrooveOpenTemplate ? "Failed to open Groove in-app terminal split." : "Failed to open terminal.");
+    } catch {
+      toast.error(isGrooveOpenTemplate ? "Groove in-app terminal open request failed." : "Terminal open request failed.");
+    }
+  }, [knownWorktrees, workspaceMeta]);
+
+  const runOpenWorkspaceTerminalAction = useCallback(async (): Promise<void> => {
+    if (!workspaceMeta) {
+      toast.error("Select a directory before opening a terminal.");
+      return;
+    }
+
+    try {
+      const result = (await workspaceOpenWorkspaceTerminal({
+        rootName: workspaceMeta.rootName,
+        knownWorktrees,
+        workspaceMeta,
       })) as RestoreApiResponse;
       if (result.ok) {
         toast.success("Opened terminal.");
@@ -1172,6 +1270,7 @@ export function useDashboardState() {
     statusMessage,
     errorMessage,
     isBusy,
+    isWorkspaceHydrating,
     pendingRestoreActions,
     pendingCutGrooveActions,
     pendingStopActions,
@@ -1226,6 +1325,7 @@ export function useDashboardState() {
     runStartTestingInstanceAction,
     runStartTestingInstanceSeparateTerminalAction,
     runOpenTestingTerminalAction,
+    runOpenWorkspaceTerminalAction,
     runStopTestingInstanceAction,
     closeCurrentWorkspace,
   };

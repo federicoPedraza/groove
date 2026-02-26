@@ -1,7 +1,6 @@
 import { CreateWorktreeModal } from "@/components/create-worktree-modal";
 import type { WorktreeRow } from "@/components/pages/dashboard/types";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
-import type { TestingEnvironmentEntry } from "@/src/lib/ipc";
 
 type DashboardModalsProps = {
   workspaceRoot: string | null;
@@ -18,15 +17,11 @@ type DashboardModalsProps = {
   createBranch: string;
   createBase: string;
   isCreatePending: boolean;
-  unsetTestingEnvironmentConfirm: TestingEnvironmentEntry | null;
-  isTestingInstancePending: boolean;
   setCreateBranch: (value: string) => void;
   setCreateBase: (value: string) => void;
-  setUnsetTestingEnvironmentConfirm: (environment: TestingEnvironmentEntry | null) => void;
   onRunCutGrooveAction: (row: WorktreeRow, force?: boolean) => void;
   onCloseCurrentWorkspace: () => void;
   onRunCreateWorktreeAction: (options?: { branchOverride?: string; baseOverride?: string }) => void;
-  onRunUnsetTestingTargetAction: (environment: TestingEnvironmentEntry, stopRunningProcessesWhenUnset: boolean) => void;
 };
 
 export function DashboardModals({
@@ -44,17 +39,12 @@ export function DashboardModals({
   createBranch,
   createBase,
   isCreatePending,
-  unsetTestingEnvironmentConfirm,
-  isTestingInstancePending,
   setCreateBranch,
   setCreateBase,
-  setUnsetTestingEnvironmentConfirm,
   onRunCutGrooveAction,
   onCloseCurrentWorkspace,
   onRunCreateWorktreeAction,
-  onRunUnsetTestingTargetAction,
 }: DashboardModalsProps) {
-  const unsetTargetIsRunning = unsetTestingEnvironmentConfirm?.status === "running";
   const isForgetDeletedWorktree = cutConfirmRow?.status === "deleted";
 
   return (
@@ -117,46 +107,6 @@ export function DashboardModals({
         }}
         onCancel={() => {
           setForceCutConfirmRow(null);
-        }}
-      />
-
-      <ConfirmModal
-        open={unsetTestingEnvironmentConfirm !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setUnsetTestingEnvironmentConfirm(null);
-          }
-        }}
-        title="Unset this testing environment?"
-        description={
-          unsetTestingEnvironmentConfirm
-            ? unsetTargetIsRunning
-              ? `Testing target "${unsetTestingEnvironmentConfirm.worktree}" is running. Should running processes be stopped while unsetting?`
-              : `Testing target "${unsetTestingEnvironmentConfirm.worktree}" is not running. You can safely unset it now.`
-            : "Unset the selected testing target."
-        }
-        confirmLabel={unsetTargetIsRunning ? "Unset and stop" : "Unset target"}
-        secondaryActionLabel={unsetTargetIsRunning ? "Unset and keep running" : undefined}
-        cancelLabel="Cancel"
-        loading={isTestingInstancePending}
-        onConfirm={() => {
-          if (!unsetTestingEnvironmentConfirm) {
-            return;
-          }
-          const selectedEnvironment = unsetTestingEnvironmentConfirm;
-          setUnsetTestingEnvironmentConfirm(null);
-          onRunUnsetTestingTargetAction(selectedEnvironment, true);
-        }}
-        onSecondaryAction={() => {
-          if (!unsetTestingEnvironmentConfirm) {
-            return;
-          }
-          const selectedEnvironment = unsetTestingEnvironmentConfirm;
-          setUnsetTestingEnvironmentConfirm(null);
-          onRunUnsetTestingTargetAction(selectedEnvironment, false);
-        }}
-        onCancel={() => {
-          setUnsetTestingEnvironmentConfirm(null);
         }}
       />
 

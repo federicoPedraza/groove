@@ -1,13 +1,12 @@
-import { Check, CircleHelp, Copy, FlaskConical } from "lucide-react";
+import { Check, CircleHelp, Copy } from "lucide-react";
 
 import { WorktreeRowActions } from "@/components/pages/dashboard/worktree-row-actions";
 import { getWorktreeStatusBadgeClasses, getWorktreeStatusIcon, getWorktreeStatusTitle } from "@/components/pages/dashboard/worktree-status";
-import type { RuntimeStateRow, TestingEnvironmentColor, WorktreeRow } from "@/components/pages/dashboard/types";
+import type { RuntimeStateRow, WorktreeRow } from "@/components/pages/dashboard/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import { deriveWorktreeStatus } from "@/lib/utils/worktree/status";
 import type { GroupedWorktreeItem } from "@/lib/utils/time/grouping";
 
@@ -22,7 +21,6 @@ type WorktreesTableProps = {
   runtimeStateByWorktree: Record<string, RuntimeStateRow>;
   testingTargetWorktrees: string[];
   testingRunningWorktrees: string[];
-  testingEnvironmentColorByWorktree: Record<string, TestingEnvironmentColor>;
   hasConnectedRepository: boolean;
   repositoryRemoteUrl?: string;
   onCopyBranchName: (row: WorktreeRow) => void;
@@ -30,7 +28,7 @@ type WorktreesTableProps = {
   onCutConfirm: (row: WorktreeRow) => void;
   onStopAction: (row: WorktreeRow, runtimeRow: RuntimeStateRow | undefined) => void;
   onPlayAction: (row: WorktreeRow) => void;
-  onSelectTestingTarget: (row: WorktreeRow) => void;
+  onSetTestingTargetAction: (row: WorktreeRow) => void;
 };
 
 export function WorktreesTable({
@@ -44,7 +42,6 @@ export function WorktreesTable({
   runtimeStateByWorktree,
   testingTargetWorktrees,
   testingRunningWorktrees,
-  testingEnvironmentColorByWorktree,
   hasConnectedRepository,
   repositoryRemoteUrl,
   onCopyBranchName,
@@ -52,7 +49,7 @@ export function WorktreesTable({
   onCutConfirm,
   onStopAction,
   onPlayAction,
-  onSelectTestingTarget,
+  onSetTestingTargetAction,
 }: WorktreesTableProps) {
   return (
     <div role="region" aria-label="Groove worktrees table" className="rounded-lg border">
@@ -114,24 +111,11 @@ export function WorktreesTable({
             const status = deriveWorktreeStatus(row.status, runtimeRow);
             const isTestingTarget = testingTargetWorktrees.includes(row.worktree);
             const isTestingRunning = testingRunningWorktrees.includes(row.worktree);
-            const testingEnvironmentColor = testingEnvironmentColorByWorktree[row.worktree];
 
             return (
-              <TableRow key={item.key} className={isTestingTarget ? "bg-muted/25" : undefined}>
+              <TableRow key={item.key}>
                 <TableCell>
-                  <span className="inline-flex items-center gap-1.5">
-                    {isTestingTarget ? (
-                      <FlaskConical
-                        aria-hidden="true"
-                        className={cn(
-                          "size-3.5",
-                          testingEnvironmentColor?.iconClassName ?? "text-muted-foreground",
-                          !isTestingRunning && "opacity-70",
-                        )}
-                      />
-                    ) : null}
-                    <span>{row.worktree}</span>
-                  </span>
+                  <span>{row.worktree}</span>
                 </TableCell>
                 <TableCell className="w-[34%] md:w-[26%]">
                   <div className="flex items-center gap-2 px-2 py-1">
@@ -175,7 +159,7 @@ export function WorktreesTable({
                       onRepair={onRestoreAction}
                       onPlay={onPlayAction}
                       onStop={onStopAction}
-                      onSetTestingTarget={onSelectTestingTarget}
+                      onSetTestingTarget={onSetTestingTargetAction}
                       onCutConfirm={onCutConfirm}
                     />
                   </TooltipProvider>

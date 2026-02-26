@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { CircleHelp, Copy, Loader2 } from "lucide-react";
+import { ChevronDown, CircleHelp, Copy, Loader2 } from "lucide-react";
 
 import { PageShell } from "@/components/pages/page-shell";
 import { CommandsSettingsForm } from "@/components/pages/settings/commands-settings-form";
 import { WorktreeSymlinkPathsModal } from "@/components/pages/settings/worktree-symlink-paths-modal";
 import type { SaveState, WorkspaceMeta } from "@/components/pages/settings/types";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { THEME_MODE_OPTIONS, type ThemeMode } from "@/src/lib/theme-constants";
 import { applyThemeToDom } from "@/src/lib/theme";
@@ -552,82 +553,151 @@ export default function SettingsPage() {
 
   return (
     <PageShell>
-      <Card>
-        <CardHeader>
-          <CardTitle>Settings</CardTitle>
-          <CardDescription>
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <h1 className="text-xl font-semibold text-foreground">Settings</h1>
+          <p className="text-sm text-muted-foreground">
             Connect a Git repository folder to manage workspace operations and Groove-level settings.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {isLoading && <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">Loading active workspace...</p>}
+          </p>
+        </div>
 
-          <CommandsSettingsForm
-            playGrooveCommand={playGrooveCommand}
-            testingPorts={testingPorts}
-            openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
-            runLocalCommand={runLocalCommand}
-            disabled={!workspaceMeta}
-            disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace command settings." : undefined}
-            onSave={onSaveCommandSettings}
-          />
+        {isLoading && <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">Loading active workspace...</p>}
 
-            <div className="space-y-3 rounded-md border border-dashed px-3 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-medium text-foreground">Worktree symlinked paths</h2>
-                <Button
+        <Collapsible defaultOpen>
+          <Card className="my-4 gap-0">
+            <CardHeader className="py-3">
+              <CollapsibleTrigger asChild>
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!workspaceMeta || isWorktreeSymlinkSaving}
-                  onClick={() => {
-                    setWorktreeSymlinkMessage(null);
-                    setWorktreeSymlinkMessageType(null);
-                    setIsWorktreeSymlinkModalOpen(true);
-                  }}
+                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  aria-label="Toggle workspace settings"
                 >
-                  Edit
-                </Button>
-              </div>
+                  <CardTitle className="text-sm">Workspace settings</CardTitle>
+                  <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                </button>
+              </CollapsibleTrigger>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent className="space-y-3">
+                <Collapsible className="rounded-md border px-3 py-3">
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180"
+                      aria-label="Toggle workspace commands settings"
+                    >
+                      <h3 className="text-sm font-medium text-foreground">Commands</h3>
+                      <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pt-3">
+                    <CommandsSettingsForm
+                      playGrooveCommand={playGrooveCommand}
+                      testingPorts={testingPorts}
+                      openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
+                      runLocalCommand={runLocalCommand}
+                      section="commands"
+                      disabled={!workspaceMeta}
+                      disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace command settings." : undefined}
+                      onSave={onSaveCommandSettings}
+                    />
+                  </CollapsibleContent>
+                </Collapsible>
 
-            <p className="text-xs text-muted-foreground">Groove symlinks these paths into worktrees when they exist in the repository root.</p>
+                <Collapsible className="rounded-md border px-3 py-3">
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180"
+                      aria-label="Toggle workspace testing ports settings"
+                    >
+                      <h3 className="text-sm font-medium text-foreground">Testing ports</h3>
+                      <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pt-3">
+                    <CommandsSettingsForm
+                      playGrooveCommand={playGrooveCommand}
+                      testingPorts={testingPorts}
+                      openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
+                      runLocalCommand={runLocalCommand}
+                      section="testingPorts"
+                      disabled={!workspaceMeta}
+                      disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace testing ports settings." : undefined}
+                      onSave={onSaveCommandSettings}
+                    />
+                  </CollapsibleContent>
+                </Collapsible>
 
-            <ul className="space-y-1 text-sm text-foreground">
-              {worktreeSymlinkPaths.map((path) => (
-                <li key={path}>
-                  <code>{path}</code>
-                </li>
-              ))}
-              {worktreeSymlinkPaths.length === 0 && <li className="text-muted-foreground">No configured paths.</li>}
-            </ul>
+                <Collapsible className="rounded-md border px-3 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex min-w-0 items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
+                        aria-label="Toggle worktree symlinked paths settings"
+                      >
+                        <h3 className="text-sm font-medium text-foreground">Worktree symlinked paths</h3>
+                        <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                      </button>
+                    </CollapsibleTrigger>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!workspaceMeta || isWorktreeSymlinkSaving}
+                      onClick={() => {
+                        setWorktreeSymlinkMessage(null);
+                        setWorktreeSymlinkMessageType(null);
+                        setIsWorktreeSymlinkModalOpen(true);
+                      }}
+                    >
+                      Edit
+                    </Button>
+                  </div>
 
-            {!workspaceMeta && <p className="text-xs text-muted-foreground">Connect a repository to edit this list.</p>}
-            {worktreeSymlinkMessage && worktreeSymlinkMessageType === "success" && (
-              <p className="text-xs text-green-800">{worktreeSymlinkMessage}</p>
-            )}
-            {worktreeSymlinkMessage && worktreeSymlinkMessageType === "error" && (
-              <p className="text-xs text-destructive">{worktreeSymlinkMessage}</p>
-            )}
-          </div>
+                  <CollapsibleContent className="space-y-2">
+                    <p className="text-xs text-muted-foreground">Groove symlinks these paths into worktrees when they exist in the repository root.</p>
 
-          <WorktreeSymlinkPathsModal
-            open={isWorktreeSymlinkModalOpen}
-            workspaceRoot={workspaceRoot}
-            selectedPaths={worktreeSymlinkPaths}
-            savePending={isWorktreeSymlinkSaving}
-            onApply={onApplyWorktreeSymlinkPaths}
-            onOpenChange={(open) => {
-              if (!isWorktreeSymlinkSaving) {
-                setIsWorktreeSymlinkModalOpen(open);
-              }
-            }}
-          />
+                    <ul className="space-y-1 text-sm text-foreground">
+                      {worktreeSymlinkPaths.map((path) => (
+                        <li key={path}>
+                          <code>{path}</code>
+                        </li>
+                      ))}
+                      {worktreeSymlinkPaths.length === 0 && <li className="text-muted-foreground">No configured paths.</li>}
+                    </ul>
 
-          <div className="space-y-3 rounded-md border border-dashed px-3 py-3">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-medium text-foreground">GitHub CLI</h2>
-            </div>
+                    {!workspaceMeta && <p className="text-xs text-muted-foreground">Connect a repository to edit this list.</p>}
+                    {worktreeSymlinkMessage && worktreeSymlinkMessageType === "success" && (
+                      <p className="text-xs text-green-800">{worktreeSymlinkMessage}</p>
+                    )}
+                    {worktreeSymlinkMessage && worktreeSymlinkMessageType === "error" && (
+                      <p className="text-xs text-destructive">{worktreeSymlinkMessage}</p>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
 
+        <Collapsible defaultOpen>
+          <Card className="my-4 gap-0">
+            <CardHeader className="py-3">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  aria-label="Toggle Github CLI settings"
+                >
+                  <CardTitle className="text-sm">Github CLI</CardTitle>
+                  <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                </button>
+              </CollapsibleTrigger>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent className="space-y-3">
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -680,13 +750,27 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
-          </div>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
 
-          <div className="space-y-3 rounded-md border border-dashed px-3 py-3">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-medium text-foreground">Theme</h2>
-            </div>
-
+        <Collapsible defaultOpen>
+          <Card className="my-4 gap-0">
+            <CardHeader className="py-3">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  aria-label="Toggle appearance settings"
+                >
+                  <CardTitle className="text-sm">Appearance</CardTitle>
+                  <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                </button>
+              </CollapsibleTrigger>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent className="space-y-3">
             <p className="text-xs text-muted-foreground">Applies across pages and workspaces and is saved on this device.</p>
 
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -744,231 +828,261 @@ export default function SettingsPage() {
                 );
               })}
             </div>
-          </div>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
 
-          <div className="space-y-3 rounded-md border border-dashed px-3 py-3">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-medium text-foreground">About Groove</h2>
-            </div>
+        <Collapsible defaultOpen>
+          <Card className="my-4 gap-0">
+            <CardHeader className="py-3">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  aria-label="Toggle Groove settings"
+                >
+                  <CardTitle className="text-sm">Groove settings</CardTitle>
+                  <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                </button>
+              </CollapsibleTrigger>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent className="space-y-3">
 
-            <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={telemetryEnabled}
-                disabled={saveState === "saving"}
-                onChange={(event) => {
-                  const nextTelemetryEnabled = event.target.checked;
-                  const previousTelemetryEnabled = telemetryEnabled;
-                  setTelemetryEnabled(nextTelemetryEnabled);
-                  setErrorMessage(null);
+              <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={telemetryEnabled}
+                  disabled={saveState === "saving"}
+                  onChange={(event) => {
+                    const nextTelemetryEnabled = event.target.checked;
+                    const previousTelemetryEnabled = telemetryEnabled;
+                    setTelemetryEnabled(nextTelemetryEnabled);
+                    setErrorMessage(null);
 
-                  const requestVersion = ++telemetryEnabledRequestVersionRef.current;
+                    const requestVersion = ++telemetryEnabledRequestVersionRef.current;
 
-                  void (async () => {
-                    try {
-                      const result = await globalSettingsUpdate({ telemetryEnabled: nextTelemetryEnabled });
+                    void (async () => {
+                      try {
+                        const result = await globalSettingsUpdate({ telemetryEnabled: nextTelemetryEnabled });
 
-                      if (requestVersion !== telemetryEnabledRequestVersionRef.current) {
-                        return;
-                      }
+                        if (requestVersion !== telemetryEnabledRequestVersionRef.current) {
+                          return;
+                        }
 
-                      if (!result.ok || !result.globalSettings) {
+                        if (!result.ok || !result.globalSettings) {
+                          setTelemetryEnabled(previousTelemetryEnabled);
+                          setErrorMessage(result.error ?? "Failed to update telemetry settings.");
+                          return;
+                        }
+
+                        setTelemetryEnabled(result.globalSettings.telemetryEnabled);
+                      } catch {
+                        if (requestVersion !== telemetryEnabledRequestVersionRef.current) {
+                          return;
+                        }
                         setTelemetryEnabled(previousTelemetryEnabled);
-                        setErrorMessage(result.error ?? "Failed to update telemetry settings.");
-                        return;
+                        setErrorMessage("Failed to update telemetry settings.");
                       }
+                    })();
+                  }}
+                />
+                <span className="inline-flex items-center gap-1.5">
+                  <span>Enable telemetry</span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          aria-label="About telemetry"
+                          onClick={(event) => {
+                            event.preventDefault();
+                          }}
+                        >
+                          <CircleHelp aria-hidden="true" className="size-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Controls whether Groove records UI telemetry events.</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </span>
+              </label>
 
-                      setTelemetryEnabled(result.globalSettings.telemetryEnabled);
-                    } catch {
-                      if (requestVersion !== telemetryEnabledRequestVersionRef.current) {
-                        return;
-                      }
-                      setTelemetryEnabled(previousTelemetryEnabled);
-                      setErrorMessage("Failed to update telemetry settings.");
-                    }
-                  })();
-                }}
-              />
-              <span className="inline-flex items-center gap-1.5">
-                <span>Enable telemetry</span>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        aria-label="About telemetry"
-                        onClick={(event) => {
-                          event.preventDefault();
-                        }}
-                      >
-                        <CircleHelp aria-hidden="true" className="size-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Controls whether Groove records UI telemetry events.</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </span>
-            </label>
+              <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={disableGrooveLoadingSection}
+                  disabled={saveState === "saving"}
+                  onChange={(event) => {
+                    const nextDisableGrooveLoadingSection = event.target.checked;
+                    const previousDisableGrooveLoadingSection = disableGrooveLoadingSection;
+                    setDisableGrooveLoadingSection(nextDisableGrooveLoadingSection);
+                    setErrorMessage(null);
 
-            <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={disableGrooveLoadingSection}
-                disabled={saveState === "saving"}
-                onChange={(event) => {
-                  const nextDisableGrooveLoadingSection = event.target.checked;
-                  const previousDisableGrooveLoadingSection = disableGrooveLoadingSection;
-                  setDisableGrooveLoadingSection(nextDisableGrooveLoadingSection);
-                  setErrorMessage(null);
+                    const requestVersion = ++disableGrooveLoadingSectionRequestVersionRef.current;
 
-                  const requestVersion = ++disableGrooveLoadingSectionRequestVersionRef.current;
+                    void (async () => {
+                      try {
+                        const result = await globalSettingsUpdate({
+                          disableGrooveLoadingSection: nextDisableGrooveLoadingSection,
+                        });
 
-                  void (async () => {
-                    try {
-                      const result = await globalSettingsUpdate({
-                        disableGrooveLoadingSection: nextDisableGrooveLoadingSection,
-                      });
+                        if (requestVersion !== disableGrooveLoadingSectionRequestVersionRef.current) {
+                          return;
+                        }
 
-                      if (requestVersion !== disableGrooveLoadingSectionRequestVersionRef.current) {
-                        return;
-                      }
+                        if (!result.ok || !result.globalSettings) {
+                          setDisableGrooveLoadingSection(previousDisableGrooveLoadingSection);
+                          setErrorMessage(result.error ?? "Failed to update Groove loading section visibility.");
+                          return;
+                        }
 
-                      if (!result.ok || !result.globalSettings) {
+                        setDisableGrooveLoadingSection(result.globalSettings.disableGrooveLoadingSection);
+                      } catch {
+                        if (requestVersion !== disableGrooveLoadingSectionRequestVersionRef.current) {
+                          return;
+                        }
                         setDisableGrooveLoadingSection(previousDisableGrooveLoadingSection);
-                        setErrorMessage(result.error ?? "Failed to update Groove loading section visibility.");
-                        return;
+                        setErrorMessage("Failed to update Groove loading section visibility.");
                       }
+                    })();
+                  }}
+                />
+                <span className="inline-flex items-center gap-1.5">
+                  <span>Disable monkey</span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          aria-label="About Disable monkey"
+                          onClick={(event) => {
+                            event.preventDefault();
+                          }}
+                        >
+                          <CircleHelp aria-hidden="true" className="size-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Hides the sidebar monkey sprite frame on desktop.</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </span>
+              </label>
+              <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={showFps}
+                  disabled={saveState === "saving"}
+                  onChange={(event) => {
+                    const nextShowFps = event.target.checked;
+                    const previousShowFps = showFps;
+                    setShowFps(nextShowFps);
+                    setErrorMessage(null);
 
-                      setDisableGrooveLoadingSection(result.globalSettings.disableGrooveLoadingSection);
-                    } catch {
-                      if (requestVersion !== disableGrooveLoadingSectionRequestVersionRef.current) {
-                        return;
-                      }
-                      setDisableGrooveLoadingSection(previousDisableGrooveLoadingSection);
-                      setErrorMessage("Failed to update Groove loading section visibility.");
-                    }
-                  })();
-                }}
-              />
-              <span className="inline-flex items-center gap-1.5">
-                <span>Disable monkey</span>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        aria-label="About Disable monkey"
-                        onClick={(event) => {
-                          event.preventDefault();
-                        }}
-                      >
-                        <CircleHelp aria-hidden="true" className="size-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Hides the sidebar monkey sprite frame on desktop.</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </span>
-            </label>
-            <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={showFps}
-                disabled={saveState === "saving"}
-                onChange={(event) => {
-                  const nextShowFps = event.target.checked;
-                  const previousShowFps = showFps;
-                  setShowFps(nextShowFps);
-                  setErrorMessage(null);
+                    const requestVersion = ++showFpsRequestVersionRef.current;
 
-                  const requestVersion = ++showFpsRequestVersionRef.current;
+                    void (async () => {
+                      try {
+                        const result = await globalSettingsUpdate({ showFps: nextShowFps });
 
-                  void (async () => {
-                    try {
-                      const result = await globalSettingsUpdate({ showFps: nextShowFps });
+                        if (requestVersion !== showFpsRequestVersionRef.current) {
+                          return;
+                        }
 
-                      if (requestVersion !== showFpsRequestVersionRef.current) {
-                        return;
-                      }
+                        if (!result.ok || !result.globalSettings) {
+                          setShowFps(previousShowFps);
+                          setErrorMessage(result.error ?? "Failed to update FPS settings.");
+                          return;
+                        }
 
-                      if (!result.ok || !result.globalSettings) {
+                        setShowFps(result.globalSettings.showFps);
+                      } catch {
+                        if (requestVersion !== showFpsRequestVersionRef.current) {
+                          return;
+                        }
                         setShowFps(previousShowFps);
-                        setErrorMessage(result.error ?? "Failed to update FPS settings.");
-                        return;
+                        setErrorMessage("Failed to update FPS settings.");
                       }
+                    })();
+                  }}
+                />
+                Show FPS
+              </label>
+              <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={alwaysShowDiagnosticsSidebar}
+                  disabled={saveState === "saving"}
+                  onChange={(event) => {
+                    const nextValue = event.target.checked;
+                    const previousValue = alwaysShowDiagnosticsSidebar;
+                    setAlwaysShowDiagnosticsSidebar(nextValue);
+                    setErrorMessage(null);
 
-                      setShowFps(result.globalSettings.showFps);
-                    } catch {
-                      if (requestVersion !== showFpsRequestVersionRef.current) {
-                        return;
-                      }
-                      setShowFps(previousShowFps);
-                      setErrorMessage("Failed to update FPS settings.");
-                    }
-                  })();
-                }}
-              />
-              Show FPS
-            </label>
-            <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={alwaysShowDiagnosticsSidebar}
-                disabled={saveState === "saving"}
-                onChange={(event) => {
-                  const nextValue = event.target.checked;
-                  const previousValue = alwaysShowDiagnosticsSidebar;
-                  setAlwaysShowDiagnosticsSidebar(nextValue);
-                  setErrorMessage(null);
+                    const requestVersion = ++alwaysShowDiagnosticsSidebarRequestVersionRef.current;
 
-                  const requestVersion = ++alwaysShowDiagnosticsSidebarRequestVersionRef.current;
+                    void (async () => {
+                      try {
+                        const result = await globalSettingsUpdate({ alwaysShowDiagnosticsSidebar: nextValue });
 
-                  void (async () => {
-                    try {
-                      const result = await globalSettingsUpdate({ alwaysShowDiagnosticsSidebar: nextValue });
+                        if (requestVersion !== alwaysShowDiagnosticsSidebarRequestVersionRef.current) {
+                          return;
+                        }
 
-                      if (requestVersion !== alwaysShowDiagnosticsSidebarRequestVersionRef.current) {
-                        return;
-                      }
+                        if (!result.ok || !result.globalSettings) {
+                          setAlwaysShowDiagnosticsSidebar(previousValue);
+                          setErrorMessage(result.error ?? "Failed to update diagnostics sidebar visibility.");
+                          return;
+                        }
 
-                      if (!result.ok || !result.globalSettings) {
+                        setAlwaysShowDiagnosticsSidebar(result.globalSettings.alwaysShowDiagnosticsSidebar);
+                      } catch {
+                        if (requestVersion !== alwaysShowDiagnosticsSidebarRequestVersionRef.current) {
+                          return;
+                        }
                         setAlwaysShowDiagnosticsSidebar(previousValue);
-                        setErrorMessage(result.error ?? "Failed to update diagnostics sidebar visibility.");
-                        return;
+                        setErrorMessage("Failed to update diagnostics sidebar visibility.");
                       }
+                    })();
+                  }}
+                />
+                Always show diagnostics sidebar
+              </label>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
 
-                      setAlwaysShowDiagnosticsSidebar(result.globalSettings.alwaysShowDiagnosticsSidebar);
-                    } catch {
-                      if (requestVersion !== alwaysShowDiagnosticsSidebarRequestVersionRef.current) {
-                        return;
-                      }
-                      setAlwaysShowDiagnosticsSidebar(previousValue);
-                      setErrorMessage("Failed to update diagnostics sidebar visibility.");
-                    }
-                  })();
-                }}
-              />
-              Always show diagnostics sidebar
-            </label>
-          </div>
+        <WorktreeSymlinkPathsModal
+          open={isWorktreeSymlinkModalOpen}
+          workspaceRoot={workspaceRoot}
+          selectedPaths={worktreeSymlinkPaths}
+          savePending={isWorktreeSymlinkSaving}
+          onApply={onApplyWorktreeSymlinkPaths}
+          onOpenChange={(open) => {
+            if (!isWorktreeSymlinkSaving) {
+              setIsWorktreeSymlinkModalOpen(open);
+            }
+          }}
+        />
 
-          {connectionMessage && connectionMessageType === "success" && (
-            <p className="rounded-md border border-emerald-600/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">{connectionMessage}</p>
-          )}
+        {connectionMessage && connectionMessageType === "success" && (
+          <p className="rounded-md border border-emerald-600/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">{connectionMessage}</p>
+        )}
 
-          {connectionMessage && connectionMessageType === "error" && (
-            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{connectionMessage}</p>
-          )}
+        {connectionMessage && connectionMessageType === "error" && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{connectionMessage}</p>
+        )}
 
-          {errorMessage && (
-            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {errorMessage}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+        {errorMessage && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {errorMessage}
+          </p>
+        )}
+      </div>
     </PageShell>
   );
 }

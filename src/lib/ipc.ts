@@ -9,6 +9,8 @@ export type DefaultTerminal = "auto" | "ghostty" | "warp" | "kitty" | "gnome" | 
 export type CommandIntent = "blocking" | "background";
 
 export const DEFAULT_PLAY_GROOVE_COMMAND = "ghostty --working-directory={worktree} -e opencode";
+export const GROOVE_PLAY_COMMAND_SENTINEL = "__groove_terminal__";
+export const GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL = "__groove_terminal_open__";
 export const DEFAULT_RUN_LOCAL_COMMAND = "pnpm run dev";
 export const DEFAULT_TESTING_PORTS = [3000, 3001, 3002] as const;
 
@@ -16,7 +18,7 @@ type InvokeCommandOptions = {
   intent?: CommandIntent;
 };
 
-type WorkspaceMeta = {
+export type WorkspaceMeta = {
   version: number;
   rootName: string;
   createdAt: string;
@@ -685,6 +687,102 @@ type WorkspaceEvent = {
   kind?: string;
 };
 
+export type GrooveTerminalSession = {
+  sessionId: string;
+  workspaceRoot: string;
+  worktree: string;
+  worktreePath: string;
+  command: string;
+  startedAt: string;
+  cols: number;
+  rows: number;
+  snapshot?: string;
+};
+
+export type GrooveTerminalOpenPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree: string;
+  target?: string;
+  openMode?: "opencode" | "runLocal";
+  cols?: number;
+  rows?: number;
+  forceRestart?: boolean;
+  openNew?: boolean;
+};
+
+export type GrooveTerminalWritePayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree: string;
+  sessionId?: string;
+  input: string;
+};
+
+export type GrooveTerminalResizePayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree: string;
+  sessionId?: string;
+  cols: number;
+  rows: number;
+};
+
+export type GrooveTerminalClosePayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree: string;
+  sessionId?: string;
+};
+
+export type GrooveTerminalSessionPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree: string;
+  sessionId?: string;
+};
+
+export type GrooveTerminalCommandResponse = {
+  requestId?: string;
+  ok: boolean;
+  session?: GrooveTerminalSession;
+  error?: string;
+};
+
+export type GrooveTerminalSessionResponse = {
+  requestId?: string;
+  ok: boolean;
+  session?: GrooveTerminalSession;
+  error?: string;
+};
+
+export type GrooveTerminalSessionsResponse = {
+  requestId?: string;
+  ok: boolean;
+  sessions: GrooveTerminalSession[];
+  error?: string;
+};
+
+export type GrooveTerminalOutputEvent = {
+  sessionId: string;
+  workspaceRoot: string;
+  worktree: string;
+  chunk: string;
+};
+
+export type GrooveTerminalLifecycleEvent = {
+  sessionId: string;
+  workspaceRoot: string;
+  worktree: string;
+  kind: "started" | "closed" | "error";
+  message?: string;
+};
+
 const UNTRACKED_COMMANDS = new Set<string>([
   "groove_list",
   "testing_environment_get_status",
@@ -706,7 +804,15 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "global_settings_update",
   "diagnostics_get_system_overview",
   "workspace_list_symlink_entries",
+  "groove_terminal_open",
+  "groove_terminal_write",
+  "groove_terminal_resize",
+  "groove_terminal_close",
+  "groove_terminal_get_session",
+  "groove_terminal_list_sessions",
 ]);
+
+const NON_DEDUPED_COMMANDS = new Set<string>(["groove_terminal_write"]);
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 const MAX_ARGS_SUMMARY_LENGTH = 180;
@@ -1046,10 +1152,11 @@ function getInvokeDedupeKey(command: string, args?: Record<string, unknown>): st
 async function invokeCommand<T>(command: string, args?: Record<string, unknown>, options?: InvokeCommandOptions): Promise<T> {
   const startedAtMs = globalThis.performance?.now() ?? Date.now();
   const argsSummary = summarizeInvokeArgs(args);
-  const dedupeKey = getInvokeDedupeKey(command, args);
+  const shouldDedupe = !NON_DEDUPED_COMMANDS.has(command);
+  const dedupeKey = shouldDedupe ? getInvokeDedupeKey(command, args) : null;
   const commandIntent: CommandIntent = options?.intent ?? "blocking";
   const isBlockingInvoke = commandIntent === "blocking";
-  const existingInvoke = inflightInvokes.get(dedupeKey);
+  const existingInvoke = dedupeKey ? inflightInvokes.get(dedupeKey) : undefined;
 
   if (existingInvoke) {
     existingInvoke.joinedCalls += 1;
@@ -1110,10 +1217,12 @@ async function invokeCommand<T>(command: string, args?: Record<string, unknown>,
       ? await invokeRunner()
       : await trackCommandExecution(command, invokeRunner);
   })();
-  inflightInvokes.set(dedupeKey, {
-    promise: trackedInvokePromise as Promise<unknown>,
-    joinedCalls: 0,
-  });
+  if (dedupeKey) {
+    inflightInvokes.set(dedupeKey, {
+      promise: trackedInvokePromise as Promise<unknown>,
+      joinedCalls: 0,
+    });
+  }
 
   try {
     const result = await trackedInvokePromise;
@@ -1129,7 +1238,7 @@ async function invokeCommand<T>(command: string, args?: Record<string, unknown>,
         duration_ms: Number(durationMs.toFixed(2)),
         outcome,
         inflight: inflightAtStart,
-        deduped_joiners: inflightInvokes.get(dedupeKey)?.joinedCalls ?? 0,
+        deduped_joiners: dedupeKey ? (inflightInvokes.get(dedupeKey)?.joinedCalls ?? 0) : 0,
         command_intent: commandIntent,
         ...(argsSummary ? { args_summary: argsSummary } : {}),
       });
@@ -1145,14 +1254,16 @@ async function invokeCommand<T>(command: string, args?: Record<string, unknown>,
         duration_ms: Number(durationMs.toFixed(2)),
         outcome: "throw",
         inflight: inflightAtStart,
-        deduped_joiners: inflightInvokes.get(dedupeKey)?.joinedCalls ?? 0,
+        deduped_joiners: dedupeKey ? (inflightInvokes.get(dedupeKey)?.joinedCalls ?? 0) : 0,
         command_intent: commandIntent,
         ...(argsSummary ? { args_summary: argsSummary } : {}),
       });
     }
     throw error;
   } finally {
-    inflightInvokes.delete(dedupeKey);
+    if (dedupeKey) {
+      inflightInvokes.delete(dedupeKey);
+    }
     inflightInvokeCount = Math.max(0, inflightInvokeCount - 1);
     if (isBlockingInvoke) {
       updateBlockingInvokeCount(-1);
@@ -1248,6 +1359,22 @@ export function listenWorkspaceChange(
 
 export function listenWorkspaceReady(callback: (event: Record<string, unknown>) => void): Promise<UnlistenFn> {
   return listen<Record<string, unknown>>("workspace-ready", (event) => {
+    callback(event.payload);
+  });
+}
+
+export function listenGrooveTerminalOutput(
+  callback: (event: GrooveTerminalOutputEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<GrooveTerminalOutputEvent>("groove-terminal-output", (event) => {
+    callback(event.payload);
+  });
+}
+
+export function listenGrooveTerminalLifecycle(
+  callback: (event: GrooveTerminalLifecycleEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<GrooveTerminalLifecycleEvent>("groove-terminal-lifecycle", (event) => {
     callback(event.payload);
   });
 }
@@ -1428,4 +1555,32 @@ export function workspaceListSymlinkEntries(
 
 export function workspaceOpenTerminal(payload: TestingEnvironmentStartPayload): Promise<GrooveRestoreResponse> {
   return invokeCommand<GrooveRestoreResponse>("workspace_open_terminal", { payload });
+}
+
+export function workspaceOpenWorkspaceTerminal(payload: TestingEnvironmentStatusPayload): Promise<GrooveRestoreResponse> {
+  return invokeCommand<GrooveRestoreResponse>("workspace_open_workspace_terminal", { payload });
+}
+
+export function grooveTerminalOpen(payload: GrooveTerminalOpenPayload): Promise<GrooveTerminalCommandResponse> {
+  return invokeCommand<GrooveTerminalCommandResponse>("groove_terminal_open", { payload });
+}
+
+export function grooveTerminalWrite(payload: GrooveTerminalWritePayload): Promise<GrooveTerminalCommandResponse> {
+  return invokeCommand<GrooveTerminalCommandResponse>("groove_terminal_write", { payload }, { intent: "background" });
+}
+
+export function grooveTerminalResize(payload: GrooveTerminalResizePayload): Promise<GrooveTerminalCommandResponse> {
+  return invokeCommand<GrooveTerminalCommandResponse>("groove_terminal_resize", { payload }, { intent: "background" });
+}
+
+export function grooveTerminalClose(payload: GrooveTerminalClosePayload): Promise<GrooveTerminalCommandResponse> {
+  return invokeCommand<GrooveTerminalCommandResponse>("groove_terminal_close", { payload });
+}
+
+export function grooveTerminalGetSession(payload: GrooveTerminalSessionPayload): Promise<GrooveTerminalSessionResponse> {
+  return invokeCommand<GrooveTerminalSessionResponse>("groove_terminal_get_session", { payload }, { intent: "background" });
+}
+
+export function grooveTerminalListSessions(payload: GrooveTerminalSessionPayload): Promise<GrooveTerminalSessionsResponse> {
+  return invokeCommand<GrooveTerminalSessionsResponse>("groove_terminal_list_sessions", { payload }, { intent: "background" });
 }

@@ -16,6 +16,7 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Terminal,
   Wrench,
   X,
 } from "lucide-react";
@@ -62,17 +63,23 @@ type WorktreeRowActionsProps = {
   cutPending: boolean;
   stopPending: boolean;
   playPending: boolean;
-  testPending: boolean;
+  testPending?: boolean;
   runtimeRow: RuntimeStateRow | undefined;
-  isTestingTarget: boolean;
-  isTestingRunning: boolean;
+  isTestingTarget?: boolean;
+  isTestingRunning?: boolean;
   hasConnectedRepository: boolean;
   repositoryRemoteUrl?: string;
   onRepair: (row: WorktreeRow) => void;
   onPlay: (row: WorktreeRow) => void;
   onStop: (row: WorktreeRow, runtimeRow: RuntimeStateRow | undefined) => void;
-  onSetTestingTarget: (row: WorktreeRow) => void;
+  onSetTestingTarget?: (row: WorktreeRow) => void;
   onCutConfirm: (row: WorktreeRow) => void;
+  variant?: "dashboard" | "worktree-detail";
+  isTestingInstancePending?: boolean;
+  onRunLocal?: (worktree: string) => void;
+  onOpenTerminal?: (worktree: string) => void;
+  onCloseWorktree?: (row: WorktreeRow) => void;
+  closeWorktreePending?: boolean;
 };
 
 type CommitingFileState = {
@@ -95,10 +102,10 @@ export function WorktreeRowActions({
   cutPending,
   stopPending,
   playPending,
-  testPending,
+  testPending = false,
   runtimeRow,
-  isTestingTarget,
-  isTestingRunning,
+  isTestingTarget = false,
+  isTestingRunning = false,
   hasConnectedRepository,
   repositoryRemoteUrl,
   onRepair,
@@ -106,6 +113,12 @@ export function WorktreeRowActions({
   onStop,
   onSetTestingTarget,
   onCutConfirm,
+  variant = "dashboard",
+  isTestingInstancePending = false,
+  onRunLocal,
+  onOpenTerminal,
+  onCloseWorktree,
+  closeWorktreePending = false,
 }: WorktreeRowActionsProps) {
   const [isReadyPlayHovered, setIsReadyPlayHovered] = useState(false);
   const [isTestingToggleHovered, setIsTestingToggleHovered] = useState(false);
@@ -493,18 +506,23 @@ export function WorktreeRowActions({
         }
       }}
     >
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={`h-8 w-8 p-0 ${SOFT_ORANGE_BUTTON_CLASSES}`}
-          disabled={!hasConnectedRepository}
-          aria-label={`Git actions for ${row.worktree}`}
-        >
-          <GitBranch aria-hidden="true" className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={`h-8 w-8 p-0 ${SOFT_ORANGE_BUTTON_CLASSES}`}
+              disabled={!hasConnectedRepository}
+              aria-label={`Git actions for ${row.worktree}`}
+            >
+              <GitBranch aria-hidden="true" className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Git actions</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="end">
           <DropdownMenuItem
             className="group"
@@ -654,6 +672,62 @@ export function WorktreeRowActions({
   return (
     <>
       <div className="flex items-center justify-end gap-1">
+      {variant === "worktree-detail" ? (
+        <>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            onClick={() => {
+              if (onRunLocal) {
+                onRunLocal(row.worktree);
+              }
+            }}
+            disabled={isTestingInstancePending}
+          >
+            {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Play aria-hidden="true" className="size-4" />}
+            <span>Run local</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8"
+            onClick={() => {
+              if (onOpenTerminal) {
+                onOpenTerminal(row.worktree);
+              }
+            }}
+            disabled={isTestingInstancePending}
+            aria-label={`Open terminal for ${row.worktree}`}
+          >
+            {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Terminal aria-hidden="true" className="size-4" />}
+            <span>Open terminal</span>
+          </Button>
+          {gitAction}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={`h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`}
+                onClick={() => {
+                  if (onCloseWorktree) {
+                    onCloseWorktree(row);
+                  }
+                }}
+                disabled={rowPending || closeWorktreePending}
+                aria-label={`Close worktree terminals for ${row.worktree}`}
+              >
+                {closeWorktreePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <X aria-hidden="true" className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Close worktree terminals</TooltipContent>
+          </Tooltip>
+        </>
+      ) : (
+        <>
       {status === "corrupted" && (
         <>
           <Tooltip>
@@ -763,7 +837,9 @@ export function WorktreeRowActions({
                 size="sm"
                 className={testingButtonClasses}
                 onClick={() => {
-                  onSetTestingTarget(row);
+                  if (onSetTestingTarget) {
+                    onSetTestingTarget(row);
+                  }
                 }}
                 onMouseEnter={() => setIsTestingToggleHovered(true)}
                 onMouseLeave={() => setIsTestingToggleHovered(false)}
@@ -838,7 +914,9 @@ export function WorktreeRowActions({
                 size="sm"
                 className={testingButtonClasses}
                 onClick={() => {
-                  onSetTestingTarget(row);
+                  if (onSetTestingTarget) {
+                    onSetTestingTarget(row);
+                  }
                 }}
                 onMouseEnter={() => setIsTestingToggleHovered(true)}
                 onMouseLeave={() => setIsTestingToggleHovered(false)}
@@ -875,6 +953,8 @@ export function WorktreeRowActions({
             </TooltipTrigger>
             <TooltipContent>Remove worktree</TooltipContent>
           </Tooltip>
+        </>
+      )}
         </>
       )}
       </div>

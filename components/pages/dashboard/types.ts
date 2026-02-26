@@ -7,6 +7,7 @@ export type WorkspaceMeta = {
   updatedAt: string;
   defaultTerminal?: "auto" | "ghostty" | "warp" | "kitty" | "gnome" | "xterm" | "none" | "custom";
   terminalCustomCommand?: string | null;
+  playGrooveCommand?: string;
   openTerminalAtWorktreeCommand?: string | null;
   runLocalCommand?: string | null;
 };
@@ -22,6 +23,13 @@ export type RuntimeStateRow = {
   opencodeInstanceId?: string;
   logState: "latest" | "broken-latest" | "none" | "unknown";
   logTarget?: string;
+  opencodeActivityState?: "thinking" | "idle" | "finished" | "error" | "unknown";
+  opencodeActivityDetail?: {
+    reason?: string;
+    ageS?: number;
+    marker?: string;
+    log?: string;
+  };
 };
 
 export type RuntimeListApiResponse = {

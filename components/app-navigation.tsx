@@ -45,7 +45,6 @@ import {
   testingEnvironmentGetStatus,
   subscribeToGlobalSettings,
   type WorkspaceRow,
-  workspaceEvents,
   workspaceGetActive,
 } from "@/src/lib/ipc";
 import { getActiveWorktreeRows } from "@/lib/utils/worktree/status";
@@ -128,6 +127,9 @@ type GrooveSpriteMode = "idle" | "falling";
 type RuntimeStatusRow = {
   opencodeState: "running" | "not-running" | "unknown";
 };
+
+let cachedNavigationWorktrees: WorkspaceRow[] = [];
+let hasCachedNavigationWorktrees = false;
 
 function isWorkspaceRow(value: unknown): value is WorkspaceRow {
   if (!value || typeof value !== "object") {
@@ -353,7 +355,9 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const { pathname } = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [navigationWorktrees, setNavigationWorktrees] = useState<WorkspaceRow[]>([]);
+  const [navigationWorktrees, setNavigationWorktrees] = useState<WorkspaceRow[]>(() =>
+    hasCachedNavigationWorktrees ? cachedNavigationWorktrees : [],
+  );
   const [mascotFrameLabel, setMascotFrameLabel] = useState("Idle frame 1");
   const shouldShowFps = useSyncExternalStore(
     subscribeToGlobalSettings,
@@ -399,6 +403,8 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const refreshNavigationWorktrees = useCallback(async () => {
     if (!hasOpenWorkspace) {
       setNavigationWorktrees([]);
+      cachedNavigationWorktrees = [];
+      hasCachedNavigationWorktrees = false;
       return;
     }
 
@@ -412,6 +418,8 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
       const workspaceRows = normalizeWorkspaceRows((workspaceResult as { rows?: unknown }).rows);
       if (workspaceRows.length === 0) {
         setNavigationWorktrees([]);
+        cachedNavigationWorktrees = [];
+        hasCachedNavigationWorktrees = true;
         return;
       }
 
@@ -449,15 +457,30 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
           : [];
       }
 
-      setNavigationWorktrees(getActiveWorktreeRows(workspaceRows, runtimeRowsByWorktree, testingRunningWorktrees));
+      const activeRows = getActiveWorktreeRows(workspaceRows, runtimeRowsByWorktree, testingRunningWorktrees);
+      setNavigationWorktrees(activeRows);
+      cachedNavigationWorktrees = activeRows;
+      hasCachedNavigationWorktrees = true;
     } catch {
       setNavigationWorktrees([]);
+      cachedNavigationWorktrees = [];
+      hasCachedNavigationWorktrees = true;
     }
   }, [hasOpenWorkspace]);
 
   useEffect(() => {
+    if (!hasOpenWorkspace) {
+      setNavigationWorktrees([]);
+      return;
+    }
+
+    if (hasCachedNavigationWorktrees) {
+      setNavigationWorktrees(cachedNavigationWorktrees);
+      return;
+    }
+
     void refreshNavigationWorktrees();
-  }, [refreshNavigationWorktrees]);
+  }, [hasOpenWorkspace, refreshNavigationWorktrees]);
 
   useEffect(() => {
     if (!hasOpenWorkspace) {
@@ -465,7 +488,6 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
     }
 
     let isClosed = false;
-    let refreshRetryTimeoutId: number | null = null;
     const unlistenHandlers: Array<() => void> = [];
 
     const cleanupListeners = (): void => {
@@ -501,22 +523,6 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
 
         unlistenHandlers.push(unlistenReady, unlistenChange, unlistenTerminalLifecycle);
 
-        const workspaceResult = await workspaceGetActive();
-        const workspaceRows = workspaceResult.ok
-          ? normalizeWorkspaceRows((workspaceResult as { rows?: unknown }).rows)
-          : [];
-        await workspaceEvents({
-          rootName: workspaceResult.ok ? workspaceResult.workspaceMeta?.rootName : undefined,
-          knownWorktrees: workspaceRows.map((workspaceRow) => workspaceRow.worktree),
-          workspaceMeta: workspaceResult.ok ? workspaceResult.workspaceMeta : undefined,
-        });
-
-        refreshRetryTimeoutId = window.setTimeout(() => {
-          if (isClosed) {
-            return;
-          }
-          void refreshNavigationWorktrees();
-        }, 1_500);
       } catch {
         cleanupListeners();
       }
@@ -524,10 +530,6 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
 
     return () => {
       isClosed = true;
-      if (refreshRetryTimeoutId !== null) {
-        window.clearTimeout(refreshRetryTimeoutId);
-        refreshRetryTimeoutId = null;
-      }
       cleanupListeners();
     };
   }, [hasOpenWorkspace, refreshNavigationWorktrees]);

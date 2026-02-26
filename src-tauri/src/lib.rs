@@ -15,6 +15,14 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+mod diagnostics;
+mod git_gh;
+mod terminal;
+mod testing_environment;
+mod workspace;
+
+use terminal::GrooveTerminalOpenMode;
+
 const MAX_DISCOVERY_DEPTH: usize = 4;
 const MAX_DISCOVERY_DIRECTORIES: usize = 2500;
 const SEPARATE_TERMINAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
@@ -1394,13 +1402,12 @@ fn default_play_groove_command() -> String {
 }
 
 fn normalize_terminal_dimension(value: Option<u16>, default: u16) -> u16 {
-    value
-        .map(|candidate| {
-            candidate
-                .max(MIN_GROOVE_TERMINAL_DIMENSION)
-                .min(MAX_GROOVE_TERMINAL_DIMENSION)
-        })
-        .unwrap_or(default)
+    terminal::normalize_terminal_dimension(
+        value,
+        default,
+        MIN_GROOVE_TERMINAL_DIMENSION,
+        MAX_GROOVE_TERMINAL_DIMENSION,
+    )
 }
 
 fn is_groove_terminal_play_command(command: &str) -> bool {
@@ -1589,33 +1596,11 @@ fn collect_groove_terminal_exit_status(child: &mut (dyn PtyChild + Send)) -> Str
 }
 
 fn validate_groove_terminal_target(value: Option<&str>) -> Result<Option<String>, String> {
-    let Some(target) = value.map(str::trim).filter(|candidate| !candidate.is_empty()) else {
-        return Ok(None);
-    };
-    if !is_safe_path_token(target) {
-        return Err("target contains unsafe characters or path segments.".to_string());
-    }
-    Ok(Some(target.to_string()))
-}
-
-#[derive(Debug, Clone, Copy)]
-enum GrooveTerminalOpenMode {
-    Opencode,
-    RunLocal,
-    Plain,
+    terminal::validate_groove_terminal_target(value)
 }
 
 fn validate_groove_terminal_open_mode(value: Option<&str>) -> Result<GrooveTerminalOpenMode, String> {
-    let Some(mode) = value.map(str::trim).filter(|candidate| !candidate.is_empty()) else {
-        return Ok(GrooveTerminalOpenMode::Opencode);
-    };
-
-    match mode {
-        "opencode" => Ok(GrooveTerminalOpenMode::Opencode),
-        "runLocal" => Ok(GrooveTerminalOpenMode::RunLocal),
-        "plain" => Ok(GrooveTerminalOpenMode::Plain),
-        _ => Err("openMode must be either \"opencode\", \"runLocal\", or \"plain\".".to_string()),
-    }
+    terminal::validate_groove_terminal_open_mode(value)
 }
 
 #[cfg(target_os = "windows")]
@@ -2033,6 +2018,10 @@ fn open_groove_terminal_session(
                         )
                         .as_str(),
                     );
+                    invalidate_groove_list_cache_for_workspace(
+                        &app_handle,
+                        Path::new(&workspace_root_clone),
+                    );
                     emit_groove_terminal_lifecycle_event(
                         &app_handle,
                         &session_id_clone,
@@ -2101,6 +2090,10 @@ fn open_groove_terminal_session(
                         )
                         .as_str(),
                     );
+                    invalidate_groove_list_cache_for_workspace(
+                        &app_handle,
+                        Path::new(&workspace_root_clone),
+                    );
                     emit_groove_terminal_lifecycle_event(
                         &app_handle,
                         &session_id_clone,
@@ -2133,6 +2126,7 @@ fn open_groove_terminal_session(
         )
         .as_str(),
     );
+    invalidate_groove_list_cache_for_workspace(app, workspace_root);
 
     let sessions_state = state
         .inner
@@ -2168,147 +2162,19 @@ fn default_worktree_symlink_paths() -> Vec<String> {
 }
 
 fn normalize_default_terminal(value: &str) -> Result<String, String> {
-    let normalized = value.trim().to_lowercase();
-    if SUPPORTED_DEFAULT_TERMINALS.contains(&normalized.as_str()) {
-        Ok(normalized)
-    } else {
-        Err(format!(
-            "defaultTerminal must be one of: {}.",
-            SUPPORTED_DEFAULT_TERMINALS.join(", ")
-        ))
-    }
+    workspace::normalize_default_terminal(value, &SUPPORTED_DEFAULT_TERMINALS)
 }
 
 fn normalize_theme_mode(value: &str) -> Result<String, String> {
-    let normalized = value.trim().to_lowercase();
-    if SUPPORTED_THEME_MODES.contains(&normalized.as_str()) {
-        Ok(normalized)
-    } else {
-        Err(format!(
-            "themeMode must be one of: {}.",
-            SUPPORTED_THEME_MODES.join(", ")
-        ))
-    }
+    workspace::normalize_theme_mode(value, &SUPPORTED_THEME_MODES)
 }
 
 fn parse_terminal_command_tokens(command: &str) -> Result<Vec<String>, String> {
-    let trimmed = command.trim();
-    if trimmed.is_empty() {
-        return Err("terminalCustomCommand must be a non-empty command string.".to_string());
-    }
-
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut escaping = false;
-
-    for ch in trimmed.chars() {
-        if escaping {
-            current.push(ch);
-            escaping = false;
-            continue;
-        }
-
-        if ch == '\\' && !in_single_quote {
-            escaping = true;
-            continue;
-        }
-
-        if ch == '\'' && !in_double_quote {
-            in_single_quote = !in_single_quote;
-            continue;
-        }
-
-        if ch == '"' && !in_single_quote {
-            in_double_quote = !in_double_quote;
-            continue;
-        }
-
-        if ch.is_whitespace() && !in_single_quote && !in_double_quote {
-            if !current.is_empty() {
-                tokens.push(std::mem::take(&mut current));
-            }
-            continue;
-        }
-
-        current.push(ch);
-    }
-
-    if escaping {
-        return Err("terminalCustomCommand ends with an unfinished escape (\\).".to_string());
-    }
-    if in_single_quote || in_double_quote {
-        return Err("terminalCustomCommand has an unmatched quote.".to_string());
-    }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-    if tokens.is_empty() {
-        return Err("terminalCustomCommand must include an executable command.".to_string());
-    }
-
-    Ok(tokens)
+    terminal::parse_terminal_command_tokens(command)
 }
 
 fn parse_play_groove_command_tokens(command: &str) -> Result<Vec<String>, String> {
-    let trimmed = command.trim();
-    if trimmed.is_empty() {
-        return Err("playGrooveCommand must be a non-empty command string.".to_string());
-    }
-
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut escaping = false;
-
-    for ch in trimmed.chars() {
-        if escaping {
-            current.push(ch);
-            escaping = false;
-            continue;
-        }
-
-        if ch == '\\' && !in_single_quote {
-            escaping = true;
-            continue;
-        }
-
-        if ch == '\'' && !in_double_quote {
-            in_single_quote = !in_single_quote;
-            continue;
-        }
-
-        if ch == '"' && !in_single_quote {
-            in_double_quote = !in_double_quote;
-            continue;
-        }
-
-        if ch.is_whitespace() && !in_single_quote && !in_double_quote {
-            if !current.is_empty() {
-                tokens.push(std::mem::take(&mut current));
-            }
-            continue;
-        }
-
-        current.push(ch);
-    }
-
-    if escaping {
-        return Err("playGrooveCommand ends with an unfinished escape (\\).".to_string());
-    }
-    if in_single_quote || in_double_quote {
-        return Err("playGrooveCommand has an unmatched quote.".to_string());
-    }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-    if tokens.is_empty() {
-        return Err("playGrooveCommand must include an executable command.".to_string());
-    }
-
-    Ok(tokens)
+    terminal::parse_play_groove_command_tokens(command)
 }
 
 fn normalize_play_groove_command(value: &str) -> Result<String, String> {
@@ -2356,120 +2222,29 @@ fn normalize_run_local_command(value: Option<&str>) -> Result<Option<String>, St
 }
 
 fn normalize_testing_ports_from_u16(ports: &[u16]) -> Vec<u16> {
-    let mut seen = HashSet::new();
-    let mut normalized = Vec::new();
-
-    for port in ports {
-        if *port < MIN_TESTING_PORT || *port > MAX_TESTING_PORT {
-            continue;
-        }
-        if seen.insert(*port) {
-            normalized.push(*port);
-        }
-    }
-
-    if normalized.is_empty() {
-        return default_testing_ports();
-    }
-
-    normalized
+    testing_environment::normalize_testing_ports_from_u16(
+        ports,
+        MIN_TESTING_PORT,
+        MAX_TESTING_PORT,
+        &DEFAULT_TESTING_ENVIRONMENT_PORTS,
+    )
 }
 
 fn normalize_testing_ports_from_u32(ports: &[u32]) -> Vec<u16> {
-    let mut seen = HashSet::new();
-    let mut normalized = Vec::new();
-
-    for port in ports {
-        if *port < MIN_TESTING_PORT as u32 || *port > MAX_TESTING_PORT as u32 {
-            continue;
-        }
-        let Ok(port) = u16::try_from(*port) else {
-            continue;
-        };
-        if seen.insert(port) {
-            normalized.push(port);
-        }
-    }
-
-    if normalized.is_empty() {
-        return default_testing_ports();
-    }
-
-    normalized
+    testing_environment::normalize_testing_ports_from_u32(
+        ports,
+        MIN_TESTING_PORT,
+        MAX_TESTING_PORT,
+        &DEFAULT_TESTING_ENVIRONMENT_PORTS,
+    )
 }
 
 fn normalize_worktree_symlink_paths(paths: &[String]) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut normalized = Vec::new();
-
-    for path in paths {
-        let trimmed = path.trim();
-        if trimmed.is_empty() || trimmed.contains('\\') {
-            continue;
-        }
-
-        let candidate = Path::new(trimmed);
-        if candidate.is_absolute() {
-            continue;
-        }
-
-        let mut parts = Vec::new();
-        let mut valid = true;
-        for component in candidate.components() {
-            match component {
-                Component::Normal(value) => {
-                    let part = value.to_string_lossy().trim().to_string();
-                    if part.is_empty() {
-                        valid = false;
-                        break;
-                    }
-                    parts.push(part);
-                }
-                Component::ParentDir
-                | Component::CurDir
-                | Component::RootDir
-                | Component::Prefix(_) => {
-                    valid = false;
-                    break;
-                }
-            }
-        }
-
-        if !valid || parts.is_empty() {
-            continue;
-        }
-
-        let rendered = parts.join("/");
-        if is_restricted_worktree_symlink_path(&rendered) {
-            continue;
-        }
-        if seen.insert(rendered.clone()) {
-            normalized.push(rendered);
-        }
-    }
-
-    normalized
+    workspace::normalize_worktree_symlink_paths(paths)
 }
 
 fn validate_worktree_symlink_paths(paths: &[String]) -> Result<Vec<String>, String> {
-    let mut seen = HashSet::new();
-    let mut normalized = Vec::new();
-
-    for path in paths {
-        let candidate = normalize_worktree_symlink_paths(std::slice::from_ref(path));
-        let Some(value) = candidate.into_iter().next() else {
-            return Err(format!(
-                "worktreeSymlinkPaths contains an invalid or restricted path: \"{}\".",
-                path.trim()
-            ));
-        };
-
-        if seen.insert(value.clone()) {
-            normalized.push(value);
-        }
-    }
-
-    Ok(normalized)
+    workspace::validate_worktree_symlink_paths(paths)
 }
 
 fn resolve_play_groove_command(
@@ -2808,31 +2583,11 @@ fn launch_open_terminal_at_worktree_command(
 }
 
 fn is_restricted_worktree_symlink_path(path: &str) -> bool {
-    path.split('/')
-        .next()
-        .map(|part| part.eq_ignore_ascii_case(".worktrees"))
-        .unwrap_or(false)
+    workspace::is_restricted_worktree_symlink_path(path)
 }
 
 fn is_safe_path_token(value: &str) -> bool {
-    if value.is_empty() {
-        return false;
-    }
-
-    for segment in value.split('/') {
-        if segment.is_empty() || segment == "." || segment == ".." {
-            return false;
-        }
-
-        if !segment
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
-        {
-            return false;
-        }
-    }
-
-    true
+    workspace::is_safe_path_token(value)
 }
 
 fn is_valid_root_name(value: &str) -> bool {
@@ -2844,27 +2599,7 @@ fn is_valid_root_name(value: &str) -> bool {
 }
 
 fn validate_known_worktrees(known_worktrees: &[String]) -> Result<Vec<String>, String> {
-    if known_worktrees.len() > 128 {
-        return Err("knownWorktrees is too large (max 128 entries).".to_string());
-    }
-
-    let mut set = HashSet::new();
-    for entry in known_worktrees {
-        let trimmed = entry.trim();
-        if trimmed.is_empty() {
-            return Err("knownWorktrees entries must be non-empty strings.".to_string());
-        }
-
-        if !is_safe_path_token(trimmed) {
-            return Err("knownWorktrees contains unsafe characters or path segments.".to_string());
-        }
-
-        set.insert(trimmed.to_string());
-    }
-
-    let mut values = set.into_iter().collect::<Vec<_>>();
-    values.sort();
-    Ok(values)
+    workspace::validate_known_worktrees(known_worktrees)
 }
 
 fn validate_optional_relative_path(
@@ -2895,45 +2630,7 @@ fn validate_optional_relative_path(
 }
 
 fn normalize_browse_relative_path(value: Option<&str>) -> Result<String, String> {
-    let Some(trimmed) = value.map(str::trim).filter(|entry| !entry.is_empty()) else {
-        return Ok(String::new());
-    };
-
-    if trimmed.contains('\\') {
-        return Err("relativePath must use forward slashes only.".to_string());
-    }
-
-    let path = Path::new(trimmed);
-    if path.is_absolute() {
-        return Err("relativePath must be a relative path.".to_string());
-    }
-
-    let mut parts = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::Normal(value) => {
-                let part = value.to_string_lossy().trim().to_string();
-                if part.is_empty() {
-                    return Err("relativePath contains invalid path segments.".to_string());
-                }
-                parts.push(part);
-            }
-            Component::ParentDir | Component::CurDir | Component::RootDir | Component::Prefix(_) => {
-                return Err("relativePath contains unsafe path segments.".to_string());
-            }
-        }
-    }
-
-    if parts.is_empty() {
-        return Ok(String::new());
-    }
-
-    let normalized = parts.join("/");
-    if is_restricted_worktree_symlink_path(&normalized) {
-        return Err("relativePath cannot browse restricted workspace directories.".to_string());
-    }
-
-    Ok(normalized)
+    workspace::normalize_browse_relative_path(value)
 }
 
 fn path_is_directory(path: &Path) -> bool {
@@ -4472,105 +4169,11 @@ fn resolve_remote_url_with_fallback(repository_root: &Path) -> Option<(String, S
 }
 
 fn normalize_remote_repo_info(remote_url: &str) -> Option<(String, String, String)> {
-    let trimmed = remote_url.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let sanitized = trimmed
-        .split_once('#')
-        .map(|(value, _)| value)
-        .unwrap_or(trimmed)
-        .split_once('?')
-        .map(|(value, _)| value)
-        .unwrap_or(trimmed)
-        .trim_end_matches('/');
-
-    if let Some((left, path)) = sanitized
-        .strip_prefix("git@")
-        .and_then(|value| value.split_once(':'))
-    {
-        return normalize_remote_host_and_path(left, path);
-    }
-
-    if !sanitized.contains("://") {
-        if let Some((left, path)) = sanitized.split_once(':') {
-            if !left.contains('/') && path.contains('/') {
-                return normalize_remote_host_and_path(left, path);
-            }
-        }
-    }
-
-    if let Some((_, rest)) = sanitized.split_once("://") {
-        let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
-        let host_port = authority
-            .rsplit_once('@')
-            .map(|(_, value)| value)
-            .unwrap_or(authority);
-        return normalize_remote_host_and_path(host_port, path);
-    }
-
-    if let Some((host, path)) = sanitized.split_once('/') {
-        if host.contains('.') || host == "localhost" {
-            return normalize_remote_host_and_path(host, path);
-        }
-    }
-
-    None
-}
-
-fn normalize_remote_host_and_path(
-    host_value: &str,
-    path: &str,
-) -> Option<(String, String, String)> {
-    if host_value.contains('/') || host_value.contains('\\') {
-        return None;
-    }
-
-    let host = host_value
-        .split(':')
-        .next()
-        .map(str::trim)
-        .map(|value| value.trim_matches('[').trim_matches(']'))
-        .filter(|value| !value.is_empty())?
-        .to_lowercase();
-
-    let normalized_path = path.trim().trim_matches('/').trim_end_matches(".git");
-    let segments = normalized_path
-        .split('/')
-        .map(str::trim)
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>();
-    if segments.len() < 2 {
-        return None;
-    }
-
-    let owner = segments[segments.len() - 2].to_string();
-    let repo = segments[segments.len() - 1].to_string();
-    Some((host, owner, repo))
+    git_gh::normalize_remote_repo_info(remote_url)
 }
 
 fn normalize_gh_hostname(hostname: Option<&str>) -> Option<String> {
-    let raw = hostname
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?
-        .to_lowercase();
-
-    if raw.contains('/') || raw.contains('\\') {
-        return None;
-    }
-
-    if let Some((host, _, _)) = normalize_remote_repo_info(&raw) {
-        return Some(host);
-    }
-
-    Some(
-        raw.split(':')
-            .next()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())?
-            .to_string(),
-    )
+    git_gh::normalize_gh_hostname(hostname)
 }
 
 fn infer_gh_host_hint_from_payload(payload: &GhAuthStatusPayload, cwd: &Path) -> Option<String> {
@@ -4609,94 +4212,7 @@ fn parse_gh_auth_identity(
     output: &str,
     preferred_host: Option<&str>,
 ) -> (Option<String>, Option<String>) {
-    let preferred_host = preferred_host
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_lowercase());
-    let mut entries = Vec::<(String, Option<String>, Option<bool>)>::new();
-    let mut current_index: Option<usize> = None;
-
-    for line in output.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let lower = trimmed.to_lowercase();
-
-        if let Some(start) = lower.find("logged in to") {
-            let candidate = trimmed[start + "logged in to".len()..].trim();
-            let cut = [" account", " as "]
-                .iter()
-                .filter_map(|needle| candidate.find(needle))
-                .min()
-                .unwrap_or(candidate.len());
-            let host = candidate[..cut].trim().trim_matches(':').to_lowercase();
-            if host.is_empty() {
-                current_index = None;
-                continue;
-            }
-
-            let username = if let Some((_, right)) = trimmed.split_once(" account ") {
-                right
-                    .split_whitespace()
-                    .next()
-                    .map(|value| value.trim_matches(|ch| ch == '(' || ch == ')' || ch == ','))
-                    .filter(|value| !value.is_empty())
-                    .map(|value| value.to_string())
-            } else if let Some((_, right)) = trimmed.split_once(" as ") {
-                right
-                    .split_whitespace()
-                    .next()
-                    .map(|value| value.trim_matches(|ch| ch == '(' || ch == ')' || ch == ','))
-                    .filter(|value| !value.is_empty())
-                    .map(|value| value.to_string())
-            } else {
-                None
-            };
-
-            entries.push((host, username, None));
-            current_index = Some(entries.len() - 1);
-            continue;
-        }
-
-        if let Some(index) = current_index {
-            if let Some((_, right)) = trimmed.split_once("Active account:") {
-                let value = right.trim().to_lowercase();
-                if value.starts_with("true") {
-                    entries[index].2 = Some(true);
-                } else if value.starts_with("false") {
-                    entries[index].2 = Some(false);
-                }
-            }
-        }
-    }
-
-    let find_entry = |require_active: bool| {
-        entries.iter().find(|(host, _, active)| {
-            if preferred_host
-                .as_ref()
-                .is_some_and(|preferred| preferred != host)
-            {
-                return false;
-            }
-
-            if require_active {
-                matches!(active, Some(true))
-            } else {
-                true
-            }
-        })
-    };
-
-    if let Some((host, username, _)) = find_entry(true) {
-        return (Some(host.clone()), username.clone());
-    }
-    if let Some((host, username, _)) = find_entry(false) {
-        return (Some(host.clone()), username.clone());
-    }
-
-    (preferred_host, None)
+    git_gh::parse_gh_auth_identity(output, preferred_host)
 }
 
 fn gh_api_user_login(cwd: &Path, hostname: Option<&str>) -> Option<String> {
@@ -4720,14 +4236,7 @@ fn gh_api_user_login(cwd: &Path, hostname: Option<&str>) -> Option<String> {
 }
 
 fn parse_first_url(value: &str) -> Option<String> {
-    value
-        .split_whitespace()
-        .find(|segment| segment.starts_with("https://") || segment.starts_with("http://"))
-        .map(|segment| {
-            segment
-                .trim_matches(|ch: char| ch == '\'' || ch == '"' || ch == '(' || ch == ')')
-                .to_string()
-        })
+    git_gh::parse_first_url(value)
 }
 
 fn normalize_gh_repository(
@@ -4735,17 +4244,7 @@ fn normalize_gh_repository(
     repo: &str,
     hostname: Option<&str>,
 ) -> Result<String, String> {
-    let owner = owner.trim();
-    let repo = repo.trim();
-    if owner.is_empty() || repo.is_empty() {
-        return Err("owner and repo must be non-empty strings.".to_string());
-    }
-
-    if let Some(hostname) = hostname.map(str::trim).filter(|value| !value.is_empty()) {
-        Ok(format!("{hostname}/{owner}/{repo}"))
-    } else {
-        Ok(format!("{owner}/{repo}"))
-    }
+    git_gh::normalize_gh_repository(owner, repo, hostname)
 }
 
 fn validate_gh_branch_action_payload(
@@ -4760,20 +4259,6 @@ fn validate_gh_branch_action_payload(
     let repository_root = git_repository_root_from_path(&path)?;
 
     Ok((repository_root, branch.to_string()))
-}
-
-#[derive(Debug, Default, Clone)]
-struct GitPorcelainCounts {
-    modified: u32,
-    added: u32,
-    deleted: u32,
-    untracked: u32,
-}
-
-impl GitPorcelainCounts {
-    fn dirty(&self) -> bool {
-        self.modified > 0 || self.added > 0 || self.deleted > 0 || self.untracked > 0
-    }
 }
 
 fn validate_git_worktree_path(path: &str) -> Result<PathBuf, String> {
@@ -4857,155 +4342,20 @@ fn command_output_snippet(result: &CommandResult) -> Option<String> {
         })
 }
 
-fn parse_git_porcelain_counts(output: &str) -> GitPorcelainCounts {
-    let mut counts = GitPorcelainCounts::default();
-
-    for line in output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        if line.starts_with("??") {
-            counts.untracked += 1;
-            continue;
-        }
-
-        let bytes = line.as_bytes();
-        if bytes.len() < 2 {
-            continue;
-        }
-
-        let x = bytes[0] as char;
-        let y = bytes[1] as char;
-
-        if x == 'A' || y == 'A' {
-            counts.added += 1;
-        }
-        if x == 'D' || y == 'D' {
-            counts.deleted += 1;
-        }
-        if matches!(x, 'M' | 'R' | 'C' | 'T') || matches!(y, 'M' | 'R' | 'C' | 'T') {
-            counts.modified += 1;
-        }
-    }
-
-    counts
+fn parse_git_porcelain_counts(output: &str) -> git_gh::GitPorcelainCounts {
+    git_gh::parse_git_porcelain_counts(output)
 }
 
 fn parse_git_ahead_behind(status_sb_output: &str) -> (u32, u32) {
-    let Some(first_line) = status_sb_output
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-    else {
-        return (0, 0);
-    };
-
-    let Some(bracket_start) = first_line.find('[') else {
-        return (0, 0);
-    };
-    let Some(bracket_end_rel) = first_line[bracket_start + 1..].find(']') else {
-        return (0, 0);
-    };
-
-    let mut ahead = 0u32;
-    let mut behind = 0u32;
-    let details = &first_line[bracket_start + 1..bracket_start + 1 + bracket_end_rel];
-    for part in details.split(',') {
-        let token = part.trim();
-        if let Some(value) = token.strip_prefix("ahead ") {
-            ahead = value.trim().parse::<u32>().unwrap_or(0);
-            continue;
-        }
-        if let Some(value) = token.strip_prefix("behind ") {
-            behind = value.trim().parse::<u32>().unwrap_or(0);
-        }
-    }
-
-    (ahead, behind)
-}
-
-fn normalize_git_status_path(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    if let Some((_, right)) = trimmed.rsplit_once(" -> ") {
-        return Some(right.trim().to_string());
-    }
-
-    Some(trimmed.to_string())
+    git_gh::parse_git_ahead_behind(status_sb_output)
 }
 
 fn parse_git_file_states(output: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
-    let mut staged = HashSet::new();
-    let mut unstaged = HashSet::new();
-    let mut untracked = HashSet::new();
-
-    for line in output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        if line.starts_with("??") {
-            if let Some(path) = normalize_git_status_path(line.get(2..).unwrap_or_default()) {
-                untracked.insert(path);
-            }
-            continue;
-        }
-
-        if line.len() < 3 {
-            continue;
-        }
-
-        let Some(path) = normalize_git_status_path(line.get(3..).unwrap_or_default()) else {
-            continue;
-        };
-        let bytes = line.as_bytes();
-        let index_state = bytes[0] as char;
-        let worktree_state = bytes[1] as char;
-
-        if index_state != ' ' && index_state != '?' {
-            staged.insert(path.clone());
-        }
-        if worktree_state != ' ' && worktree_state != '?' {
-            unstaged.insert(path);
-        }
-    }
-
-    let mut staged = staged.into_iter().collect::<Vec<_>>();
-    let mut unstaged = unstaged.into_iter().collect::<Vec<_>>();
-    let mut untracked = untracked.into_iter().collect::<Vec<_>>();
-    staged.sort();
-    unstaged.sort();
-    untracked.sort();
-
-    (staged, unstaged, untracked)
+    git_gh::parse_git_file_states(output)
 }
 
 fn normalize_git_file_list(files: &[String]) -> Result<Vec<String>, String> {
-    let mut normalized = Vec::new();
-    let mut seen = HashSet::new();
-
-    for file in files {
-        let trimmed = file.trim();
-        if trimmed.is_empty() {
-            return Err("files entries must be non-empty strings.".to_string());
-        }
-        if trimmed.contains('\0') {
-            return Err("files entries cannot contain null bytes.".to_string());
-        }
-        if seen.insert(trimmed.to_string()) {
-            normalized.push(trimmed.to_string());
-        }
-    }
-
-    if normalized.is_empty() {
-        return Err("files must include at least one path.".to_string());
-    }
-
-    Ok(normalized)
+    git_gh::normalize_git_file_list(files)
 }
 
 fn resolve_workspace_root(
@@ -6133,11 +5483,7 @@ fn resolve_branch_from_worktree(worktree_path: &Path) -> Option<String> {
 }
 
 fn should_treat_as_already_stopped(stderr: &str) -> bool {
-    let lower = stderr.to_lowercase();
-    lower.contains("no such process")
-        || lower.contains("not found")
-        || lower.contains("cannot find")
-        || lower.contains("not running")
+    testing_environment::should_treat_as_already_stopped(stderr)
 }
 
 fn wait_for_process_exit(pid: i32, timeout_ms: u64) -> bool {
@@ -6152,38 +5498,11 @@ fn wait_for_process_exit(pid: i32, timeout_ms: u64) -> bool {
 }
 
 fn collect_descendant_pids(snapshot_rows: &[ProcessSnapshotRow], root_pid: i32) -> Vec<i32> {
-    if root_pid <= 0 {
-        return Vec::new();
-    }
-
-    let mut children_by_parent: HashMap<i32, Vec<i32>> = HashMap::new();
-    for row in snapshot_rows {
-        let Some(ppid) = row.ppid else {
-            continue;
-        };
-        children_by_parent.entry(ppid).or_default().push(row.pid);
-    }
-
-    let mut stack = vec![root_pid];
-    let mut descendants = Vec::new();
-    let mut seen = HashSet::new();
-
-    while let Some(parent_pid) = stack.pop() {
-        let Some(children) = children_by_parent.get(&parent_pid) else {
-            continue;
-        };
-
-        for child_pid in children {
-            if *child_pid <= 0 || !seen.insert(*child_pid) {
-                continue;
-            }
-
-            descendants.push(*child_pid);
-            stack.push(*child_pid);
-        }
-    }
-
-    descendants
+    let relationships = snapshot_rows
+        .iter()
+        .map(|row| (row.pid, row.ppid))
+        .collect::<Vec<_>>();
+    diagnostics::collect_descendant_pids(&relationships, root_pid)
 }
 
 fn stop_process_by_pid(pid: i32) -> Result<(bool, i32), String> {
@@ -6444,38 +5763,7 @@ fn is_process_running(pid: i32) -> bool {
 
 #[cfg(target_os = "windows")]
 fn parse_basic_csv_line(raw: &str) -> Vec<String> {
-    let mut values = Vec::new();
-    let mut current = String::new();
-    let mut in_quotes = false;
-    let chars = raw.chars().collect::<Vec<_>>();
-    let mut index = 0usize;
-
-    while index < chars.len() {
-        let ch = chars[index];
-        if ch == '"' {
-            if in_quotes && index + 1 < chars.len() && chars[index + 1] == '"' {
-                current.push('"');
-                index += 2;
-                continue;
-            }
-            in_quotes = !in_quotes;
-            index += 1;
-            continue;
-        }
-
-        if ch == ',' && !in_quotes {
-            values.push(current.trim().to_string());
-            current.clear();
-            index += 1;
-            continue;
-        }
-
-        current.push(ch);
-        index += 1;
-    }
-
-    values.push(current.trim().to_string());
-    values
+    diagnostics::parse_basic_csv_line(raw)
 }
 
 #[cfg(target_os = "windows")]
@@ -9521,6 +8809,7 @@ fn groove_terminal_close(
         )
         .as_str(),
     );
+    invalidate_groove_list_cache_for_workspace(&app, &workspace_root);
     emit_groove_terminal_lifecycle_event(
         &app,
         &closed_session_id,

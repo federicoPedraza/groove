@@ -168,6 +168,24 @@ For frontend-only iteration:
 npm run dev
 ```
 
+## Quality gates
+
+Before opening a PR, run:
+
+```bash
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+npm run check:rust
+```
+
+## Contributor pre-PR checklist
+
+- [ ] Run all quality gate commands locally and confirm they pass.
+- [ ] If your change affects desktop/runtime behavior, do a smoke run with `npm run tauri:dev`.
+- [ ] Update relevant docs when behavior, setup, or commands change.
+
 ## CI builds (Linux + macOS)
 
 A GitHub Actions workflow is included at:
@@ -212,7 +230,9 @@ npm run tauri:build:linux
 npm run tauri:build:macos
 ```
 
-RPM and PKG outputs are intentionally postponed for now.
+## Known limitations (0.1.4)
+
+- RPM and PKG installer outputs are intentionally deferred in 0.1.4.
 
 ## Notes
 

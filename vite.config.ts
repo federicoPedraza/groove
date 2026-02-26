@@ -20,5 +20,16 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "."),
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            "vendor-react": ["react", "react-dom", "react-router", "react-router-dom"],
+            "vendor-xterm": ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-clipboard"],
+            "vendor-ui": ["lucide-react", "radix-ui", "sonner", "class-variance-authority", "clsx", "tailwind-merge"],
+          },
+        },
+      },
+    },
   };
 });

@@ -83,6 +83,7 @@ const NAVIGATION_START_MARKER_KEY = "__grooveNavigationTelemetryStart";
 let shellWorkspaceGetActivePromise: Promise<Awaited<ReturnType<typeof workspaceGetActive>>> | null = null;
 let shellGrooveBinStatusPromise: Promise<Awaited<ReturnType<typeof grooveBinStatus>>> | null = null;
 let shellDiagnosticsOverviewPromise: Promise<DiagnosticsSystemOverviewResponse> | null = null;
+let hasLoggedShellWorkspaceGetActiveTelemetry = false;
 
 type NavigationStartMarker = {
   from: string;
@@ -237,6 +238,11 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
       return;
     }
 
+    if (hasLoggedShellWorkspaceGetActiveTelemetry) {
+      return;
+    }
+    hasLoggedShellWorkspaceGetActiveTelemetry = true;
+
     let cancelled = false;
 
     void (async () => {
@@ -252,7 +258,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
         console.info(`${UI_TELEMETRY_PREFIX} workspace_get_active.shell`, {
           duration_ms: Number(durationMs.toFixed(2)),
           outcome: result.ok ? "ok" : "error",
-          pathname,
+          pathname: window.location.pathname,
         });
       } catch {
         if (cancelled) {
@@ -263,7 +269,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
         console.info(`${UI_TELEMETRY_PREFIX} workspace_get_active.shell`, {
           duration_ms: Number(durationMs.toFixed(2)),
           outcome: "error",
-          pathname,
+          pathname: window.location.pathname,
         });
       }
     })();
@@ -271,7 +277,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
     return () => {
       cancelled = true;
     };
-  }, [pathname]);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof PerformanceObserver === "undefined") {

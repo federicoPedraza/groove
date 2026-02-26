@@ -25,6 +25,7 @@ import {
   grooveStop,
   grooveTerminalClose,
   grooveTerminalListSessions,
+  listenGrooveTerminalLifecycle,
   listenWorkspaceChange,
   listenWorkspaceReady,
   testingEnvironmentGetStatus,
@@ -551,30 +552,40 @@ export function useDashboardState() {
     }
   }, [applyWorkspaceContext, workspaceRescanRequestKey, workspaceRoot]);
 
-  const fetchRuntimeState = useCallback(async (): Promise<void> => {
+  const fetchRuntimeState = useCallback(async (options?: { force?: boolean }): Promise<void> => {
     if (!workspaceRoot || !workspaceMeta || knownWorktrees.length === 0 || !runtimeFetchRequestKey) {
       setRuntimeStateByWorktree({});
       return;
     }
     if (runtimeFetchInFlightRef.current) {
       runtimeFetchQueuedRef.current = true;
+      if (options?.force) {
+        runtimeFetchLastRequestRef.current = null;
+      }
       return;
     }
 
-    const now = Date.now();
-    const previousRuntimeFetch = runtimeFetchLastRequestRef.current;
-    if (
-      previousRuntimeFetch &&
-      previousRuntimeFetch.key === runtimeFetchRequestKey &&
-      now - previousRuntimeFetch.at < RUNTIME_FETCH_REQUEST_TTL_MS
-    ) {
-      return;
+    if (!options?.force) {
+      const now = Date.now();
+      const previousRuntimeFetch = runtimeFetchLastRequestRef.current;
+      if (
+        previousRuntimeFetch &&
+        previousRuntimeFetch.key === runtimeFetchRequestKey &&
+        now - previousRuntimeFetch.at < RUNTIME_FETCH_REQUEST_TTL_MS
+      ) {
+        return;
+      }
+      runtimeFetchLastRequestRef.current = {
+        key: runtimeFetchRequestKey,
+        at: now,
+      };
+    } else {
+      runtimeFetchLastRequestRef.current = {
+        key: runtimeFetchRequestKey,
+        at: Date.now(),
+      };
     }
     runtimeFetchInFlightRef.current = true;
-    runtimeFetchLastRequestRef.current = {
-      key: runtimeFetchRequestKey,
-      at: now,
-    };
 
     const fetchId = runtimeFetchCounterRef.current + 1;
     runtimeFetchCounterRef.current = fetchId;
@@ -612,7 +623,7 @@ export function useDashboardState() {
   }, [knownWorktrees, runtimeFetchRequestKey, workspaceMeta, workspaceRoot]);
 
   const scheduleRuntimeStateFetch = useCallback(
-    (delayMs = RUNTIME_FETCH_DEBOUNCE_MS): void => {
+    (delayMs = RUNTIME_FETCH_DEBOUNCE_MS, options?: { force?: boolean }): void => {
       const nextKey = runtimeFetchRequestKey;
       if (!nextKey) {
         return;
@@ -620,6 +631,7 @@ export function useDashboardState() {
 
       const pending = runtimeFetchScheduledRef.current;
       if (
+        !options?.force &&
         pending &&
         pending.key === nextKey &&
         Date.now() - pending.at < RUNTIME_FETCH_REQUEST_TTL_MS
@@ -634,7 +646,7 @@ export function useDashboardState() {
       runtimeFetchTimeoutRef.current = window.setTimeout(() => {
         runtimeFetchTimeoutRef.current = null;
         runtimeFetchScheduledRef.current = null;
-        void fetchRuntimeState();
+        void fetchRuntimeState(options);
       }, delayMs);
     },
     [fetchRuntimeState, runtimeFetchRequestKey],
@@ -757,6 +769,32 @@ export function useDashboardState() {
       }
     };
   }, [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, workspaceRoot]);
+
+  useEffect(() => {
+    if (!workspaceRoot || !workspaceMeta) {
+      return;
+    }
+
+    let mounted = true;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      unlisten = await listenGrooveTerminalLifecycle((event) => {
+        if (!mounted || event.workspaceRoot !== workspaceRoot) {
+          return;
+        }
+
+        scheduleRuntimeStateFetch(0, { force: true });
+      });
+    })();
+
+    return () => {
+      mounted = false;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [scheduleRuntimeStateFetch, workspaceMeta, workspaceRoot]);
 
   const refreshWorktrees = useCallback(async (): Promise<void> => {
     await rescanWorktrees({ force: true });

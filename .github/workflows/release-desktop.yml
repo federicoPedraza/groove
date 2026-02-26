@@ -1,0 +1,90 @@
+name: release-desktop
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build release bundles (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Linux setup
+        if: runner.os == 'Linux'
+        run: ./bash/setup-linux-fast
+
+      - name: macOS setup
+        if: runner.os == 'macOS'
+        run: ./bash/setup-macos-fast
+
+      - name: Build Linux bundles
+        if: runner.os == 'Linux'
+        run: npm run tauri:build:linux
+
+      - name: Build macOS bundles
+        if: runner.os == 'macOS'
+        run: npm run tauri:build:macos
+
+      - name: Upload Linux release artifacts
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: groove-Linux-release
+          path: |
+            src-tauri/target/release/bundle/**/*.AppImage
+            src-tauri/target/release/bundle/**/*.deb
+          if-no-files-found: error
+
+      - name: Upload macOS release artifacts
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: groove-macOS-release
+          path: |
+            src-tauri/target/release/bundle/**/*.dmg
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Show release artifacts
+        run: find release-artifacts -type f | sort
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/**/*.AppImage
+            release-artifacts/**/*.deb
+            release-artifacts/**/*.dmg
+          fail_on_unmatched_files: true
+          generate_release_notes: true

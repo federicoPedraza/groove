@@ -128,8 +128,8 @@ ensure_create_dmg
 
 cd "$repo_root"
 install_project_dependencies
-run_sanity_check
 run_sidecar_check
+run_sanity_check
 
 log "setup complete"
 log "next step: npm run tauri:dev"

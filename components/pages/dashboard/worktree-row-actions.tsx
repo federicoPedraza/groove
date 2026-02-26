@@ -73,6 +73,7 @@ type WorktreeRowActionsProps = {
   onPlay: (row: WorktreeRow) => void;
   onStop: (row: WorktreeRow, runtimeRow: RuntimeStateRow | undefined) => void;
   onSetTestingTarget?: (row: WorktreeRow) => void;
+  showTestingTargetButton?: boolean;
   onCutConfirm: (row: WorktreeRow) => void;
   variant?: "dashboard" | "worktree-detail";
   isTestingInstancePending?: boolean;
@@ -111,6 +112,7 @@ export function WorktreeRowActions({
   onPlay,
   onStop,
   onSetTestingTarget,
+  showTestingTargetButton = true,
   onCutConfirm,
   variant = "dashboard",
   isTestingInstancePending = false,
@@ -825,34 +827,36 @@ export function WorktreeRowActions({
             </TooltipTrigger>
             <TooltipContent>Play groove</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className={testingButtonClasses}
-                onClick={() => {
-                  if (onSetTestingTarget) {
-                    onSetTestingTarget(row);
-                  }
-                }}
-                onMouseEnter={() => setIsTestingToggleHovered(true)}
-                onMouseLeave={() => setIsTestingToggleHovered(false)}
-                aria-label={testingAriaLabel}
-                disabled={rowPending}
-              >
-                {testPending ? (
-                  <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-                ) : showUnsetTestingPreview ? (
-                  <FlaskConicalOff aria-hidden="true" className="size-4" />
-                ) : (
-                  <FlaskConical aria-hidden="true" className="size-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{testingTooltipLabel}</TooltipContent>
-          </Tooltip>
+          {showTestingTargetButton ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={testingButtonClasses}
+                  onClick={() => {
+                    if (onSetTestingTarget) {
+                      onSetTestingTarget(row);
+                    }
+                  }}
+                  onMouseEnter={() => setIsTestingToggleHovered(true)}
+                  onMouseLeave={() => setIsTestingToggleHovered(false)}
+                  aria-label={testingAriaLabel}
+                  disabled={rowPending}
+                >
+                  {testPending ? (
+                    <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                  ) : showUnsetTestingPreview ? (
+                    <FlaskConicalOff aria-hidden="true" className="size-4" />
+                  ) : (
+                    <FlaskConical aria-hidden="true" className="size-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{testingTooltipLabel}</TooltipContent>
+            </Tooltip>
+          ) : null}
           {gitAction}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -894,34 +898,36 @@ export function WorktreeRowActions({
             </TooltipTrigger>
             <TooltipContent>Pause Groove</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className={testingButtonClasses}
-                onClick={() => {
-                  if (onSetTestingTarget) {
-                    onSetTestingTarget(row);
-                  }
-                }}
-                onMouseEnter={() => setIsTestingToggleHovered(true)}
-                onMouseLeave={() => setIsTestingToggleHovered(false)}
-                aria-label={testingAriaLabel}
-                disabled={rowPending}
-              >
-                {testPending ? (
-                  <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-                ) : showUnsetTestingPreview ? (
-                  <FlaskConicalOff aria-hidden="true" className="size-4" />
-                ) : (
-                  <FlaskConical aria-hidden="true" className="size-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{testingTooltipLabel}</TooltipContent>
-          </Tooltip>
+          {showTestingTargetButton ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={testingButtonClasses}
+                  onClick={() => {
+                    if (onSetTestingTarget) {
+                      onSetTestingTarget(row);
+                    }
+                  }}
+                  onMouseEnter={() => setIsTestingToggleHovered(true)}
+                  onMouseLeave={() => setIsTestingToggleHovered(false)}
+                  aria-label={testingAriaLabel}
+                  disabled={rowPending}
+                >
+                  {testPending ? (
+                    <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                  ) : showUnsetTestingPreview ? (
+                    <FlaskConicalOff aria-hidden="true" className="size-4" />
+                  ) : (
+                    <FlaskConical aria-hidden="true" className="size-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{testingTooltipLabel}</TooltipContent>
+            </Tooltip>
+          ) : null}
           {gitAction}
           <Tooltip>
             <TooltipTrigger asChild>

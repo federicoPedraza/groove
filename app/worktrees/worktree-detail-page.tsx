@@ -63,7 +63,7 @@ export default function WorktreeDetailPage() {
     runPlayGrooveAction,
     runCreateWorktreeAction,
     copyBranchName,
-    runStartTestingInstanceSeparateTerminalAction,
+    runStartTestingInstanceAction,
     runOpenTestingTerminalAction,
     isTestingInstancePending,
     closeCurrentWorkspace,
@@ -245,7 +245,7 @@ export default function WorktreeDetailPage() {
                         return;
                       }
 
-                      void runStartTestingInstanceSeparateTerminalAction(worktree);
+                      void runStartTestingInstanceAction(worktree);
                     }}
                     onOpenTerminal={(worktree) => {
                       void runOpenTestingTerminalAction(worktree);

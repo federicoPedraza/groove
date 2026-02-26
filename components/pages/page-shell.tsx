@@ -348,6 +348,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
   const showGrooveBinWarning = grooveBinStatusState?.hasIssue === true;
   const hasOpenWorkspace = noDirectoryOpenState?.isVisible !== true;
   const shouldAppendDiagnosticsSidebar = hasOpenWorkspace && pathname !== "/diagnostics" && shouldAlwaysShowDiagnosticsSidebar;
+  const shouldShowDevelopmentModeLabel = import.meta.env.DEV && isTauriRuntimeAvailable();
 
   const refreshDiagnosticsOverview = useCallback(async (): Promise<void> => {
     setIsDiagnosticsOverviewLoading(true);
@@ -679,6 +680,11 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
       {shouldShowFps && (
         <div className="pointer-events-none fixed right-4 top-4 z-50 rounded border border-border/80 bg-background/90 px-2 py-1 font-mono text-xs text-foreground shadow-sm">
           FPS {currentFps ?? "--"}
+        </div>
+      )}
+      {shouldShowDevelopmentModeLabel && (
+        <div className="pointer-events-none fixed bottom-4 right-4 z-40 rounded border border-border/80 bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
+          Development mode
         </div>
       )}
       <HelpModal open={isHelpModalOpen} onOpenChange={setIsHelpModalOpen} />

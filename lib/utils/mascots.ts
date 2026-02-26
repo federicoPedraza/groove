@@ -1,4 +1,5 @@
 export type MascotSpriteMode = "idle" | "running" | "falling";
+export type MascotIdleAnimationMode = "ping-pong" | "forward-loop";
 
 type ThemeVariantClassNames = {
   light: string;
@@ -14,13 +15,18 @@ export type MascotColorDefinition = {
 export type MascotSpriteDefinition = {
   src: string;
   frameCount: number;
+  frameWidthPx: number;
   frameHeightPx: number;
   frameYOffsetPx: number;
+  renderedHeightPx?: number;
+  renderScale?: number;
+  animationSpeedMultiplier?: number;
 };
 
 export type MascotDefinition = {
   id: string;
   name: string;
+  idleAnimationMode?: MascotIdleAnimationMode;
   sprites: {
     idle: MascotSpriteDefinition;
     running?: MascotSpriteDefinition;
@@ -38,20 +44,26 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
       idle: {
         src: "/idle.png",
         frameCount: 11,
+        frameWidthPx: 144,
         frameHeightPx: 96,
         frameYOffsetPx: 0,
+        renderedHeightPx: 96,
       },
       running: {
         src: "/running.png",
         frameCount: 20,
+        frameWidthPx: 144,
         frameHeightPx: 96,
         frameYOffsetPx: 0,
+        renderedHeightPx: 96,
       },
       falling: {
         src: "/falling.png",
         frameCount: 18,
+        frameWidthPx: 144,
         frameHeightPx: 60,
         frameYOffsetPx: 18,
+        renderedHeightPx: 96,
       },
     },
   },
@@ -62,8 +74,27 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
       idle: {
         src: "/enguarde/idle.png",
         frameCount: 16,
+        frameWidthPx: 144,
         frameHeightPx: 96,
         frameYOffsetPx: 0,
+        renderedHeightPx: 96,
+      },
+    },
+  },
+  {
+    id: "wilhem",
+    name: "Wilhem",
+    idleAnimationMode: "forward-loop",
+    sprites: {
+      idle: {
+        src: "/wilhem/idle.png",
+        frameCount: 16,
+        frameWidthPx: 72,
+        frameHeightPx: 62,
+        frameYOffsetPx: 0,
+        renderedHeightPx: 62,
+        renderScale: 1.8,
+        animationSpeedMultiplier: 1.2,
       },
     },
   },

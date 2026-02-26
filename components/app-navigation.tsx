@@ -31,6 +31,7 @@ import {
   getDefaultMascotAssignment,
   getMascotSpriteForMode,
   getWorktreeMascotAssignment,
+  type MascotIdleAnimationMode,
   type MascotDefinition,
 } from "@/lib/utils/mascots";
 import {
@@ -80,9 +81,9 @@ type GrooveLoadingSpriteProps = {
   mascotColorClassName: string;
   isCompact?: boolean;
   shouldShowFrameIndex: boolean;
+  onFrameLabelChange?: (frameLabel: string) => void;
 };
 
-const SPRITE_FRAME_WIDTH_PX = 144;
 const IDLE_SPRITE_ANIMATION_DURATION_MS = 5_333.3333;
 const FALLING_FIRST_FRAME_HOLD_MS = 1_000;
 const FALLING_FRAME_STEP_DURATION_MS = 100;
@@ -160,9 +161,20 @@ function toRuntimeStatusRow(value: unknown): RuntimeStatusRow | undefined {
     : undefined;
 }
 
-function getIdleFrameIndex(elapsedMs: number, animationDurationMs: number, frameCount: number): number {
+function getIdleFrameIndex(
+  elapsedMs: number,
+  animationDurationMs: number,
+  frameCount: number,
+  animationMode: MascotIdleAnimationMode,
+): number {
   if (frameCount <= 1) {
     return 0;
+  }
+
+  if (animationMode === "forward-loop") {
+    const segmentDurationMs = animationDurationMs / frameCount;
+    const cycleElapsedMs = elapsedMs % animationDurationMs;
+    return Math.floor(cycleElapsedMs / segmentDurationMs);
   }
 
   const idlePingPongSegmentCount = (frameCount - 1) * 2;
@@ -195,7 +207,7 @@ function getIsGrooveLoadingSectionDisabledSnapshot(): boolean {
   return isGrooveLoadingSectionDisabled();
 }
 
-function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, shouldShowFrameIndex }: GrooveLoadingSpriteProps) {
+function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, shouldShowFrameIndex, onFrameLabelChange }: GrooveLoadingSpriteProps) {
   const [, setIdleClickCount] = useState(0);
   const [isPlayingFalling, setIsPlayingFalling] = useState(false);
   const spriteMode: GrooveSpriteMode = isPlayingFalling ? "falling" : "idle";
@@ -203,11 +215,23 @@ function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, 
   const animationDurationMs =
     spriteMode === "falling"
         ? FALLING_SPRITE_ANIMATION_DURATION_MS
-        : IDLE_SPRITE_ANIMATION_DURATION_MS;
+        : IDLE_SPRITE_ANIMATION_DURATION_MS / (sprite.animationSpeedMultiplier ?? 1);
   const frameStepCount = Math.max(sprite.frameCount, 1);
+  const spriteFrameWidthPx = sprite.frameWidthPx;
+  const spriteRenderedHeightPx = sprite.renderedHeightPx ?? sprite.frameHeightPx;
+  const spriteRenderScale = isCompact ? 1 : (sprite.renderScale ?? 1);
+  const spriteRenderedWidthPx = spriteFrameWidthPx * spriteRenderScale;
+  const spriteRenderedScaledHeightPx = spriteRenderedHeightPx * spriteRenderScale;
   const [frameIndex, setFrameIndex] = useState(0);
   const shouldRenderFrameIndex = shouldShowFrameIndex && !isCompact;
   const canPlayFallingEasterEgg = mascot.id === DEFAULT_MASCOT_ID;
+  const idleAnimationMode = mascot.idleAnimationMode ?? "ping-pong";
+  const currentFrameLabel = useMemo(
+    () => spriteMode === "falling"
+      ? `Falling frame ${String(frameIndex + 1)}`
+      : `Idle frame ${String(frameIndex + 1)}`,
+    [frameIndex, spriteMode],
+  );
 
   const handleSpriteClick = useCallback(() => {
     if (isPlayingFalling || !canPlayFallingEasterEgg) {
@@ -254,7 +278,7 @@ function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, 
       const nextFrameIndex =
         spriteMode === "falling"
             ? getFallingFrameIndex(elapsedMs)
-            : getIdleFrameIndex(elapsedMs, animationDurationMs, frameStepCount);
+            : getIdleFrameIndex(elapsedMs, animationDurationMs, frameStepCount, idleAnimationMode);
       setFrameIndex((previousFrameIndex) => (previousFrameIndex === nextFrameIndex ? previousFrameIndex : nextFrameIndex));
     };
 
@@ -270,12 +294,17 @@ function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, 
         window.clearInterval(frameIntervalId);
       }
     };
-  }, [animationDurationMs, frameStepCount, spriteMode]);
+  }, [animationDurationMs, frameStepCount, idleAnimationMode, spriteMode]);
+
+  useEffect(() => {
+    onFrameLabelChange?.(currentFrameLabel);
+  }, [currentFrameLabel, onFrameLabelChange]);
 
   return (
     <div
-      className={cn("relative overflow-hidden", isCompact ? "h-8 w-8" : "h-[96px] w-[144px]")}
+      className={cn("relative overflow-hidden", isCompact && "h-8 w-8")}
       onClick={handleSpriteClick}
+      style={isCompact ? undefined : { height: `${String(spriteRenderedScaledHeightPx)}px`, width: `${String(spriteRenderedWidthPx)}px` }}
     >
       <div
         aria-hidden="true"
@@ -285,15 +314,17 @@ function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, 
           isCompact && "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 scale-[0.3333]",
         )}
         style={{
+          width: `${String(spriteRenderedWidthPx)}px`,
+          height: `${String(spriteRenderedScaledHeightPx)}px`,
           backgroundColor: "currentColor",
           WebkitMaskImage: `url("${sprite.src}")`,
           WebkitMaskRepeat: "no-repeat",
-          WebkitMaskSize: `${String(sprite.frameCount * SPRITE_FRAME_WIDTH_PX)}px ${String(sprite.frameHeightPx)}px`,
-          WebkitMaskPosition: `${String(-frameIndex * SPRITE_FRAME_WIDTH_PX)}px ${String(sprite.frameYOffsetPx)}px`,
+          WebkitMaskSize: `${String(sprite.frameCount * spriteFrameWidthPx * spriteRenderScale)}px ${String(sprite.frameHeightPx * spriteRenderScale)}px`,
+          WebkitMaskPosition: `${String(-frameIndex * spriteFrameWidthPx * spriteRenderScale)}px ${String(sprite.frameYOffsetPx * spriteRenderScale)}px`,
           maskImage: `url("${sprite.src}")`,
           maskRepeat: "no-repeat",
-          maskSize: `${String(sprite.frameCount * SPRITE_FRAME_WIDTH_PX)}px ${String(sprite.frameHeightPx)}px`,
-          maskPosition: `${String(-frameIndex * SPRITE_FRAME_WIDTH_PX)}px ${String(sprite.frameYOffsetPx)}px`,
+          maskSize: `${String(sprite.frameCount * spriteFrameWidthPx * spriteRenderScale)}px ${String(sprite.frameHeightPx * spriteRenderScale)}px`,
+          maskPosition: `${String(-frameIndex * spriteFrameWidthPx * spriteRenderScale)}px ${String(sprite.frameYOffsetPx * spriteRenderScale)}px`,
         }}
       />
       {shouldRenderFrameIndex && (
@@ -323,6 +354,7 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [navigationWorktrees, setNavigationWorktrees] = useState<WorkspaceRow[]>([]);
+  const [mascotFrameLabel, setMascotFrameLabel] = useState("Idle frame 1");
   const shouldShowFps = useSyncExternalStore(
     subscribeToGlobalSettings,
     getIsShowFpsEnabledSnapshot,
@@ -535,19 +567,27 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
           <SidebarHeader>
             {!shouldHideGrooveLoadingSection && (
               <div className="flex items-center justify-center">
-                <div
-                  className={cn(
-                    "flex shrink-0 items-center justify-center overflow-hidden rounded-sm border",
-                    isSidebarCollapsed ? "h-12 w-12" : "h-[128px] w-[144px]",
-                  )}
-                >
-                  <GrooveLoadingSprite
-                    mascot={mascotDisplay.mascot}
-                    mascotColorClassName={mascotDisplay.mascotColorClassName}
-                    isCompact={isSidebarCollapsed}
-                    shouldShowFrameIndex={shouldShowFps}
-                  />
-                </div>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div
+                        className={cn(
+                          "flex shrink-0 items-center justify-center overflow-hidden rounded-sm border",
+                          isSidebarCollapsed ? "h-12 w-12" : "h-[128px] w-[144px]",
+                        )}
+                      >
+                        <GrooveLoadingSprite
+                          mascot={mascotDisplay.mascot}
+                          mascotColorClassName={mascotDisplay.mascotColorClassName}
+                          isCompact={isSidebarCollapsed}
+                          shouldShowFrameIndex={shouldShowFps}
+                          onFrameLabelChange={setMascotFrameLabel}
+                        />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{mascotFrameLabel}</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             )}
             <div className={cn("flex items-center justify-between gap-2", !shouldHideGrooveLoadingSection && "mt-4")}>

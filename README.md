@@ -77,6 +77,37 @@ Prerequisites: install Node.js (with npm) and Rust (cargo/rustc) manually before
 
 This script does not install Node.js or Rust; it verifies they are available, attempts a best-effort install of minimal Tauri Linux system dependencies via `apt` when available, installs project dependencies, runs `npm run check:rust`, and validates Linux sidecars.
 
+## Guided setup scripts (visual step-by-step)
+
+For a robust, interactive setup flow with numbered steps and PASS/FAIL status output, use:
+
+```bash
+# Linux
+./setup-linux.sh
+
+# macOS
+./setup-macos.sh
+
+# Optional flags
+./setup-linux.sh --verbose
+./setup-macos.sh --no-color
+```
+
+These wrappers are intentionally focused on setup UX and do not modify app/runtime code.
+
+What they do:
+- validate OS compatibility
+- run visible preflight checks (node, npm, rustc, cargo)
+- show detected tool versions
+- run the existing fast setup scripts (`bash/setup-*-fast`)
+- run sidecar checks (`bash/check-*-sidecars`)
+- print a clear summary and next step (`npm run tauri:dev`)
+
+Troubleshooting tips:
+- If preflight fails, install the missing tool and re-run.
+- If sidecar checks fail, place required files in `src-tauri/binaries/` and make them executable.
+- If Homebrew/apt steps fail, run the OS package manager command manually and retry.
+
 ## Windows quick setup
 
 From the repo root (PowerShell), run:

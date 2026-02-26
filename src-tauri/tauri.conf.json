@@ -34,9 +34,6 @@
     ],
     "publisher": "Groove",
     "shortDescription": "Desktop workspace manager for groove worktrees.",
-    "externalBin": [
-      "binaries/groove"
-    ],
     "icon": [
       "icons/icon.png"
     ]

@@ -6765,7 +6765,45 @@ fn read_linux_cpu_usage_percent() -> Option<f64> {
     Some(clamp_percentage((used_delta as f64 / total_delta as f64) * 100.0))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn read_linux_cpu_usage_percent() -> Option<f64> {
+    let output = Command::new("top")
+        .args(["-l", "2", "-n", "0", "-s", "0"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut cpu_idle: Option<f64> = None;
+    let mut line_count = 0;
+    for line in stdout.lines() {
+        if line.starts_with("CPU usage:") {
+            line_count += 1;
+            if line_count == 2 {
+                for part in line.split(',') {
+                    let trimmed = part.trim();
+                    if trimmed.ends_with("% idle") {
+                        cpu_idle = trimmed
+                            .trim_end_matches("% idle")
+                            .trim()
+                            .parse::<f64>()
+                            .ok();
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    let idle = cpu_idle?;
+    let usage = 100.0 - idle;
+    Some(clamp_percentage(usage))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn read_linux_cpu_usage_percent() -> Option<f64> {
     None
 }
@@ -6840,12 +6878,152 @@ fn read_linux_swap_usage() -> Option<(u64, u64, f64)> {
     Some((total_bytes, used_bytes, usage_percent))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn read_linux_swap_usage() -> Option<(u64, u64, f64)> {
+    let output = Command::new("sysctl")
+        .args(["vm.swapusage"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut total_mb: Option<f64> = None;
+    let mut used_mb: Option<f64> = None;
+
+    for part in stdout.split_whitespace() {
+        if let Some(value_str) = part.strip_suffix('M') {
+            if total_mb.is_none() {
+                total_mb = value_str.parse::<f64>().ok();
+            } else if used_mb.is_none() {
+                used_mb = value_str.parse::<f64>().ok();
+                break;
+            }
+        }
+    }
+
+    let total_mb_val = total_mb?;
+    let used_mb_val = used_mb?;
+    let total_bytes = (total_mb_val * 1024.0 * 1024.0) as u64;
+    let used_bytes = (used_mb_val * 1024.0 * 1024.0) as u64;
+
+    if total_bytes == 0 {
+        return Some((0, 0, 0.0));
+    }
+
+    let usage_percent = clamp_percentage((used_bytes as f64 / total_bytes as f64) * 100.0);
+    Some((total_bytes, used_bytes, usage_percent))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn read_linux_swap_usage() -> Option<(u64, u64, f64)> {
     None
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn read_linux_ram_usage() -> Option<(u64, u64, f64)> {
+    let output = Command::new("vm_stat").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut page_size: u64 = 4096;
+    let mut pages_active: Option<u64> = None;
+    let mut pages_inactive: Option<u64> = None;
+    let mut pages_speculative: Option<u64> = None;
+    let mut pages_wired: Option<u64> = None;
+    let mut pages_compressed: Option<u64> = None;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("page size of ") {
+            if let Some(size_str) = trimmed.strip_prefix("page size of ") {
+                if let Some(size) = size_str.split_whitespace().next() {
+                    page_size = size.parse::<u64>().unwrap_or(4096);
+                }
+            }
+        } else if trimmed.starts_with("Pages active:") {
+            pages_active = trimmed
+                .split(':')
+                .nth(1)?
+                .trim()
+                .trim_end_matches('.')
+                .parse::<u64>()
+                .ok();
+        } else if trimmed.starts_with("Pages inactive:") {
+            pages_inactive = trimmed
+                .split(':')
+                .nth(1)?
+                .trim()
+                .trim_end_matches('.')
+                .parse::<u64>()
+                .ok();
+        } else if trimmed.starts_with("Pages speculative:") {
+            pages_speculative = trimmed
+                .split(':')
+                .nth(1)?
+                .trim()
+                .trim_end_matches('.')
+                .parse::<u64>()
+                .ok();
+        } else if trimmed.starts_with("Pages wired down:") {
+            pages_wired = trimmed
+                .split(':')
+                .nth(1)?
+                .trim()
+                .trim_end_matches('.')
+                .parse::<u64>()
+                .ok();
+        } else if trimmed.starts_with("Pages occupied by compressor:") {
+            pages_compressed = trimmed
+                .split(':')
+                .nth(1)?
+                .trim()
+                .trim_end_matches('.')
+                .parse::<u64>()
+                .ok();
+        }
+    }
+
+    let output_sysctl = Command::new("sysctl")
+        .args(["hw.memsize"])
+        .output()
+        .ok()?;
+    if !output_sysctl.status.success() {
+        return None;
+    }
+
+    let sysctl_stdout = String::from_utf8_lossy(&output_sysctl.stdout);
+    let total_bytes = sysctl_stdout
+        .split(':')
+        .nth(1)?
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+
+    let active = pages_active.unwrap_or(0);
+    let wired = pages_wired.unwrap_or(0);
+    let compressed = pages_compressed.unwrap_or(0);
+    let inactive = pages_inactive.unwrap_or(0);
+    let speculative = pages_speculative.unwrap_or(0);
+
+    let used_pages = active
+        .saturating_add(wired)
+        .saturating_add(compressed)
+        .saturating_add(inactive.saturating_sub(speculative));
+    let used_bytes = used_pages.saturating_mul(page_size);
+
+    if total_bytes == 0 {
+        return None;
+    }
+
+    let usage_percent = clamp_percentage((used_bytes as f64 / total_bytes as f64) * 100.0);
+    Some((total_bytes, used_bytes, usage_percent))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn read_linux_ram_usage() -> Option<(u64, u64, f64)> {
     None
 }
@@ -6894,7 +7072,51 @@ fn read_linux_disk_usage(path: &Path) -> Option<(u64, u64, f64)> {
     ))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+fn read_linux_disk_usage(path: &Path) -> Option<(u64, u64, f64)> {
+    let output = Command::new("df")
+        .args(["-k", &path.display().to_string()])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let data_line = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .nth(1)?;
+    let columns = data_line.split_whitespace().collect::<Vec<_>>();
+    if columns.len() < 5 {
+        return None;
+    }
+
+    let total_kib = columns.get(1)?.parse::<u64>().ok()?;
+    let used_kib = columns.get(2)?.parse::<u64>().ok()?;
+    let usage_percent = columns
+        .get(4)?
+        .trim_end_matches('%')
+        .parse::<f64>()
+        .ok()
+        .map(clamp_percentage)
+        .unwrap_or_else(|| {
+            if total_kib == 0 {
+                0.0
+            } else {
+                clamp_percentage((used_kib as f64 / total_kib as f64) * 100.0)
+            }
+        });
+
+    Some((
+        total_kib.saturating_mul(1024),
+        used_kib.saturating_mul(1024),
+        usage_percent,
+    ))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn read_linux_disk_usage(_path: &Path) -> Option<(u64, u64, f64)> {
     None
 }

@@ -61,7 +61,7 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     sprites: {
       idle: {
         src: "/enguarde/idle.png",
-        frameCount: 1,
+        frameCount: 16,
         frameHeightPx: 96,
         frameYOffsetPx: 0,
       },

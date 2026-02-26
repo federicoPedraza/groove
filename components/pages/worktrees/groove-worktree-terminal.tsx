@@ -346,30 +346,6 @@ export function GrooveWorktreeTerminal({
     };
   }, [syncSessions, workspaceRoot, worktree]);
 
-  useEffect(() => {
-    return () => {
-      void (async () => {
-        try {
-          const result = await grooveTerminalListSessions(terminalPayloadBase);
-          if (!result.ok || result.sessions.length === 0) {
-            return;
-          }
-
-          await Promise.allSettled(
-            result.sessions.map((session) =>
-              grooveTerminalClose({
-                ...terminalPayloadBase,
-                sessionId: session.sessionId,
-              }),
-            ),
-          );
-        } catch {
-          return;
-        }
-      })();
-    };
-  }, [terminalPayloadBase]);
-
   const handleNewSplit = useCallback(async () => {
     setIsStarting(true);
     try {

@@ -78,7 +78,6 @@ type WorktreeRowActionsProps = {
   isTestingInstancePending?: boolean;
   onRunLocal?: (worktree: string) => void;
   onOpenTerminal?: (worktree: string) => void;
-  onCloseWorktree?: (row: WorktreeRow) => void;
   closeWorktreePending?: boolean;
 };
 
@@ -117,10 +116,8 @@ export function WorktreeRowActions({
   isTestingInstancePending = false,
   onRunLocal,
   onOpenTerminal,
-  onCloseWorktree,
   closeWorktreePending = false,
 }: WorktreeRowActionsProps) {
-  const [isReadyPlayHovered, setIsReadyPlayHovered] = useState(false);
   const [isTestingToggleHovered, setIsTestingToggleHovered] = useState(false);
   const [isPrCheckPending, setIsPrCheckPending] = useState(false);
   const [activePr, setActivePr] = useState<{ number: number; title: string; url: string } | null>(null);
@@ -711,19 +708,18 @@ export function WorktreeRowActions({
                 type="button"
                 variant="outline"
                 size="sm"
-                className={`h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`}
+                className={`h-8 ${SOFT_YELLOW_BUTTON_CLASSES}`}
                 onClick={() => {
-                  if (onCloseWorktree) {
-                    onCloseWorktree(row);
-                  }
+                  onStop(row, runtimeRow);
                 }}
                 disabled={rowPending || closeWorktreePending}
-                aria-label={`Close worktree terminals for ${row.worktree}`}
+                aria-label={`Pause Groove for ${row.worktree}`}
               >
-                {closeWorktreePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <X aria-hidden="true" className="size-4" />}
+                {closeWorktreePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Pause aria-hidden="true" className="size-4" />}
+                <span>Pause Groove</span>
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Close worktree terminals</TooltipContent>
+            <TooltipContent>Pause Groove</TooltipContent>
           </Tooltip>
         </>
       ) : (
@@ -886,25 +882,17 @@ export function WorktreeRowActions({
                 type="button"
                 variant="outline"
                 size="sm"
-                className={`h-8 w-8 p-0 ${isReadyPlayHovered ? SOFT_YELLOW_BUTTON_CLASSES : ACTIVE_GREEN_BUTTON_CLASSES}`}
+                className={`h-8 w-8 p-0 ${ACTIVE_GREEN_BUTTON_CLASSES}`}
                 onClick={() => {
                   onStop(row, runtimeRow);
                 }}
-                onMouseEnter={() => setIsReadyPlayHovered(true)}
-                onMouseLeave={() => setIsReadyPlayHovered(false)}
-                aria-label={isReadyPlayHovered ? `Pause groove for ${row.worktree}` : `Groove running for ${row.worktree}`}
+                aria-label={`Pause Groove for ${row.worktree}`}
                 disabled={rowPending || !hasRunningOpencodeInstance}
               >
-                {stopPending ? (
-                  <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-                ) : isReadyPlayHovered ? (
-                  <Pause aria-hidden="true" className="size-4" />
-                ) : (
-                  <Play aria-hidden="true" className="size-4" />
-                )}
+                {stopPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Pause aria-hidden="true" className="size-4" />}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{isReadyPlayHovered ? "Pause groove" : "Groove running"}</TooltipContent>
+            <TooltipContent>Pause Groove</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>

@@ -23,6 +23,8 @@ import {
   grooveRestore,
   grooveRm,
   grooveStop,
+  grooveTerminalClose,
+  grooveTerminalListSessions,
   listenWorkspaceChange,
   listenWorkspaceReady,
   testingEnvironmentGetStatus,
@@ -894,14 +896,39 @@ export function useDashboardState() {
   );
 
   const runStopAction = useCallback(
-    async (row: WorktreeRow, runtimeRow: RuntimeStateRow | undefined): Promise<void> => {
+    async (row: WorktreeRow, runtimeRow: RuntimeStateRow | undefined): Promise<boolean> => {
       if (!workspaceMeta) {
-        return;
+        return false;
       }
       const actionKey = `${row.path}:stop`;
       setPendingStopActions((prev) => (prev.includes(actionKey) ? prev : [...prev, actionKey]));
 
       try {
+        try {
+          const sessionListResult = await grooveTerminalListSessions({
+            rootName: workspaceMeta.rootName,
+            knownWorktrees,
+            workspaceMeta,
+            worktree: row.worktree,
+          });
+
+          if (sessionListResult.ok && sessionListResult.sessions.length > 0) {
+            await Promise.allSettled(
+              sessionListResult.sessions.map((session) =>
+                grooveTerminalClose({
+                  rootName: workspaceMeta.rootName,
+                  knownWorktrees,
+                  workspaceMeta,
+                  worktree: row.worktree,
+                  sessionId: session.sessionId,
+                }),
+              ),
+            );
+          }
+        } catch {
+          // Best-effort cleanup before stopping Groove.
+        }
+
         const result = (await grooveStop({
           rootName: workspaceMeta.rootName,
           knownWorktrees,
@@ -919,12 +946,14 @@ export function useDashboardState() {
           await rescanWorktrees({ force: true });
           scheduleRuntimeStateFetch(0);
           await fetchTestingEnvironmentState();
-          return;
+          return true;
         }
 
         toast.error("Stop failed.");
+        return false;
       } catch {
         toast.error("Stop request failed.");
+        return false;
       } finally {
         setPendingStopActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }

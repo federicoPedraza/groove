@@ -2,7 +2,7 @@
 
 import { Check, Copy, GitBranch } from "lucide-react";
 import { useCallback, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { DashboardModals } from "@/components/pages/dashboard/dashboard-modals";
 import { useDashboardState } from "@/components/pages/dashboard/hooks/use-dashboard-state";
@@ -14,17 +14,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/lib/toast";
 import { deriveWorktreeStatus } from "@/lib/utils/worktree/status";
-import type { WorktreeRow } from "@/components/pages/dashboard/types";
+import type { RuntimeStateRow, WorktreeRow } from "@/components/pages/dashboard/types";
 import {
   GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
   GROOVE_PLAY_COMMAND_SENTINEL,
-  grooveTerminalClose,
-  grooveTerminalListSessions,
   grooveTerminalOpen,
 } from "@/src/lib/ipc";
 
 export default function WorktreeDetailPage() {
   const { worktree: worktreeParam } = useParams();
+  const navigate = useNavigate();
   const {
     activeWorkspace,
     worktreeRows,
@@ -103,60 +102,26 @@ export default function WorktreeDetailPage() {
     workspaceMeta?.openTerminalAtWorktreeCommand?.trim() === GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL;
   const branchCopied = row ? copiedBranchPath === row.path : false;
 
-  const handleCloseWorktree = useCallback(
-    async (targetRow: WorktreeRow): Promise<void> => {
-      if (!workspaceMeta || isClosingWorktree) {
+  const handlePauseGroove = useCallback(
+    async (targetRow: WorktreeRow, targetRuntimeRow: RuntimeStateRow | undefined): Promise<void> => {
+      if (isClosingWorktree) {
         return;
       }
 
-      const payloadBase = {
-        rootName: workspaceMeta.rootName,
-        knownWorktrees,
-        workspaceMeta,
-        worktree: targetRow.worktree,
-      };
-
       setIsClosingWorktree(true);
       try {
-        const listResult = await grooveTerminalListSessions(payloadBase);
-        if (!listResult.ok) {
-          toast.error(listResult.error ?? "Failed to list in-app terminal sessions.");
+        const didPause = await runStopAction(targetRow, targetRuntimeRow);
+        if (!didPause) {
           return;
         }
 
-        if (listResult.sessions.length === 0) {
-          toast.info("No in-app terminal sessions to close.");
-          return;
-        }
-
-        const closeResults = await Promise.allSettled(
-          listResult.sessions.map((session) => grooveTerminalClose({ ...payloadBase, sessionId: session.sessionId })),
-        );
-
-        let closedCount = 0;
-        let failedCount = 0;
-        closeResults.forEach((result) => {
-          if (result.status === "fulfilled" && result.value.ok) {
-            closedCount += 1;
-            return;
-          }
-          failedCount += 1;
-        });
-
-        if (failedCount === 0) {
-          setRunningTerminalSessionIds([]);
-          toast.success(`Closed ${String(closedCount)} in-app terminal session${closedCount === 1 ? "" : "s"}.`);
-          return;
-        }
-
-        toast.error(`Closed ${String(closedCount)} session${closedCount === 1 ? "" : "s"}; ${String(failedCount)} failed.`);
-      } catch {
-        toast.error("Failed to close in-app terminal sessions.");
+        setRunningTerminalSessionIds([]);
+        navigate("/");
       } finally {
         setIsClosingWorktree(false);
       }
     },
-    [isClosingWorktree, knownWorktrees, workspaceMeta],
+    [isClosingWorktree, navigate, runStopAction],
   );
 
   const handleOpenInAppSplit = useCallback(
@@ -269,7 +234,7 @@ export default function WorktreeDetailPage() {
                       void runPlayGrooveAction(targetRow);
                     }}
                     onStop={(targetRow, targetRuntimeRow) => {
-                      void runStopAction(targetRow, targetRuntimeRow);
+                      void handlePauseGroove(targetRow, targetRuntimeRow);
                     }}
                     onCutConfirm={setCutConfirmRow}
                     variant="worktree-detail"
@@ -284,9 +249,6 @@ export default function WorktreeDetailPage() {
                     }}
                     onOpenTerminal={(worktree) => {
                       void runOpenTestingTerminalAction(worktree);
-                    }}
-                    onCloseWorktree={(targetRow) => {
-                      void handleCloseWorktree(targetRow);
                     }}
                     closeWorktreePending={isClosingWorktree}
                   />

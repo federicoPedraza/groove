@@ -1331,6 +1331,10 @@ export function diagnosticsStopAllOpencodeInstances(): Promise<DiagnosticsStopAl
   return invokeCommand<DiagnosticsStopAllResponse>("diagnostics_stop_all_opencode_instances");
 }
 
+export function diagnosticsStopAllNonWorktreeOpencodeInstances(): Promise<DiagnosticsStopAllResponse> {
+  return invokeCommand<DiagnosticsStopAllResponse>("diagnostics_stop_all_non_worktree_opencode_instances");
+}
+
 export function diagnosticsListWorktreeNodeApps(): Promise<DiagnosticsNodeAppsResponse> {
   return invokeCommand<DiagnosticsNodeAppsResponse>("diagnostics_list_worktree_node_apps");
 }

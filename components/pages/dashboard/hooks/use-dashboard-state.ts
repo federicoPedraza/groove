@@ -41,7 +41,6 @@ import {
   workspaceOpenWorkspaceTerminal,
   workspaceOpenTerminal,
   workspacePickAndOpen,
-  GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
   GROOVE_PLAY_COMMAND_SENTINEL,
   isTelemetryEnabled,
   type WorkspaceContextResponse,
@@ -1187,9 +1186,6 @@ export function useDashboardState() {
       return;
     }
 
-    const isGrooveOpenTemplate =
-      workspaceMeta.openTerminalAtWorktreeCommand?.trim() === GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL;
-
     try {
       const result = (await workspaceOpenTerminal({
         rootName: workspaceMeta.rootName,
@@ -1198,13 +1194,13 @@ export function useDashboardState() {
         worktree,
       })) as RestoreApiResponse;
       if (result.ok) {
-        toast.success(isGrooveOpenTemplate ? "Opened Groove in-app terminal split." : "Opened terminal.");
+        toast.success("Opened terminal.");
         return;
       }
 
-      toast.error(isGrooveOpenTemplate ? "Failed to open Groove in-app terminal split." : "Failed to open terminal.");
+      toast.error("Failed to open terminal.");
     } catch {
-      toast.error(isGrooveOpenTemplate ? "Groove in-app terminal open request failed." : "Terminal open request failed.");
+      toast.error("Terminal open request failed.");
     }
   }, [knownWorktrees, workspaceMeta]);
 

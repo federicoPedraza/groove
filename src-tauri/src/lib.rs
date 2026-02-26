@@ -1602,6 +1602,7 @@ fn validate_groove_terminal_target(value: Option<&str>) -> Result<Option<String>
 enum GrooveTerminalOpenMode {
     Opencode,
     RunLocal,
+    Plain,
 }
 
 fn validate_groove_terminal_open_mode(value: Option<&str>) -> Result<GrooveTerminalOpenMode, String> {
@@ -1612,8 +1613,29 @@ fn validate_groove_terminal_open_mode(value: Option<&str>) -> Result<GrooveTermi
     match mode {
         "opencode" => Ok(GrooveTerminalOpenMode::Opencode),
         "runLocal" => Ok(GrooveTerminalOpenMode::RunLocal),
-        _ => Err("openMode must be either \"opencode\" or \"runLocal\".".to_string()),
+        "plain" => Ok(GrooveTerminalOpenMode::Plain),
+        _ => Err("openMode must be either \"opencode\", \"runLocal\", or \"plain\".".to_string()),
     }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_plain_terminal_command() -> (String, Vec<String>) {
+    let program = std::env::var("COMSPEC")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "cmd.exe".to_string());
+    (program, Vec::new())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn resolve_plain_terminal_command() -> (String, Vec<String>) {
+    let program = std::env::var("SHELL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "/bin/bash".to_string());
+    (program, Vec::new())
 }
 
 fn resolve_terminal_worktree_context(
@@ -1699,6 +1721,7 @@ fn open_groove_terminal_session(
                 .unwrap_or(DEFAULT_RUN_LOCAL_COMMAND);
             resolve_run_local_command(command_template, worktree_path)?
         }
+        GrooveTerminalOpenMode::Plain => resolve_plain_terminal_command(),
     };
     let command_rendered = std::iter::once(program.as_str())
         .chain(args.iter().map(|value| value.as_str()))
@@ -6564,6 +6587,25 @@ fn list_opencode_process_rows() -> Result<Vec<DiagnosticsProcessRow>, String> {
     Ok(rows)
 }
 
+fn list_non_worktree_opencode_process_rows() -> Result<Vec<DiagnosticsProcessRow>, String> {
+    let (snapshot_rows, _warning) = list_process_snapshot_rows()?;
+    let mut rows = snapshot_rows
+        .into_iter()
+        .filter(|row| {
+            is_opencode_process(row.process_name.as_deref(), &row.command)
+                && !command_mentions_worktrees(&row.command)
+        })
+        .map(|row| DiagnosticsProcessRow {
+            pid: row.pid,
+            process_name: row.process_name.unwrap_or_else(|| "unknown".to_string()),
+            command: row.command,
+        })
+        .collect::<Vec<_>>();
+
+    rows.sort_by(|left, right| left.pid.cmp(&right.pid));
+    Ok(rows)
+}
+
 fn list_worktree_node_app_rows() -> Result<(Vec<DiagnosticsNodeAppRow>, Option<String>), String> {
     let (snapshot_rows, warning) = list_process_snapshot_rows()?;
     let mut rows = snapshot_rows
@@ -8699,23 +8741,22 @@ fn workspace_open_terminal(
         .open_terminal_at_worktree_command
         .as_deref()
         .map(str::trim)
-        .map(is_groove_terminal_open_command)
-        .unwrap_or(false)
+        .is_some_and(is_groove_terminal_open_command)
     {
-        let session = match open_groove_terminal_session(
+        match open_groove_terminal_session(
             &app,
             &terminal_state,
             &workspace_root,
             worktree,
-            Path::new(&worktree_path),
-            GrooveTerminalOpenMode::Opencode,
+            &worktree_path,
+            GrooveTerminalOpenMode::Plain,
             None,
             None,
             None,
             false,
             true,
         ) {
-            Ok(session) => session,
+            Ok(session) => session.command,
             Err(error) => {
                 return GrooveCommandResponse {
                     request_id,
@@ -8726,14 +8767,9 @@ fn workspace_open_terminal(
                     error: Some(error),
                 }
             }
-        };
-
-        format!(
-            "Started Groove terminal session {} using: {}",
-            session.session_id, session.command
-        )
+        }
     } else {
-        match launch_open_terminal_at_worktree_command(Path::new(&worktree_path), &workspace_meta) {
+        match launch_open_terminal_at_worktree_command(&worktree_path, &workspace_meta) {
             Ok(command) => command,
             Err(error) => {
                 return GrooveCommandResponse {
@@ -8763,11 +8799,7 @@ fn workspace_open_terminal(
         request_id,
         ok: true,
         exit_code: Some(0),
-        stdout: if launched_command.starts_with("Started Groove terminal session") {
-            launched_command
-        } else {
-            format!("Opened terminal using: {launched_command}")
-        },
+        stdout: format!("Opened terminal using: {launched_command}"),
         stderr: String::new(),
         error: None,
     }
@@ -14071,6 +14103,52 @@ fn diagnostics_stop_all_opencode_instances() -> DiagnosticsStopAllResponse {
 }
 
 #[tauri::command]
+fn diagnostics_stop_all_non_worktree_opencode_instances() -> DiagnosticsStopAllResponse {
+    let request_id = request_id();
+
+    let rows = match list_non_worktree_opencode_process_rows() {
+        Ok(rows) => rows,
+        Err(error) => {
+            return DiagnosticsStopAllResponse {
+                request_id,
+                ok: false,
+                attempted: 0,
+                stopped: 0,
+                already_stopped: 0,
+                failed: 0,
+                errors: Vec::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let unique_pids = rows
+        .into_iter()
+        .map(|row| row.pid)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    let (stopped, already_stopped, failed, errors) = stop_pid_set(&unique_pids);
+    let has_errors = !errors.is_empty();
+
+    DiagnosticsStopAllResponse {
+        request_id,
+        ok: failed == 0,
+        attempted: unique_pids.len(),
+        stopped,
+        already_stopped,
+        failed,
+        errors,
+        error: if has_errors {
+            Some(format!("Failed to stop {} process(es).", failed))
+        } else {
+            None
+        },
+    }
+}
+
+#[tauri::command]
 fn diagnostics_list_worktree_node_apps(app: AppHandle) -> DiagnosticsNodeAppsResponse {
     let started_at = Instant::now();
     let request_id = request_id();
@@ -14591,6 +14669,7 @@ pub fn run() {
             diagnostics_list_opencode_instances,
             diagnostics_stop_process,
             diagnostics_stop_all_opencode_instances,
+            diagnostics_stop_all_non_worktree_opencode_instances,
             diagnostics_list_worktree_node_apps,
             diagnostics_clean_all_dev_servers,
             diagnostics_get_msot_consuming_programs,

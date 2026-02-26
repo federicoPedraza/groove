@@ -5,6 +5,7 @@ import { Loader2, X } from "lucide-react";
 
 import { DiagnosticsHeader } from "@/components/pages/diagnostics/diagnostics-header";
 import { DiagnosticsSystemSidebar } from "@/components/pages/diagnostics/diagnostics-system-sidebar";
+import { EmergencyCard } from "@/components/pages/diagnostics/emergency-card";
 import { NodeAppsCard } from "@/components/pages/diagnostics/node-apps-card";
 import { OpencodeInstancesCard } from "@/components/pages/diagnostics/opencode-instances-card";
 import { PageShell } from "@/components/pages/page-shell";
@@ -17,6 +18,7 @@ import {
   diagnosticsGetMsotConsumingPrograms,
   diagnosticsListOpencodeInstances,
   diagnosticsListWorktreeNodeApps,
+  diagnosticsStopAllNonWorktreeOpencodeInstances,
   isTelemetryEnabled,
   type DiagnosticsMostConsumingProgramsResponse,
   type DiagnosticsSystemOverview,
@@ -53,6 +55,7 @@ export default function DiagnosticsPage() {
   const [hasLoadedProcessSnapshots, setHasLoadedProcessSnapshots] = useState(false);
   const [isClosingAll, setIsClosingAll] = useState(false);
   const [isClosingAllNodeInstances, setIsClosingAllNodeInstances] = useState(false);
+  const [isKillingAllNonWorktreeOpencode, setIsKillingAllNonWorktreeOpencode] = useState(false);
   const [isCleaningAllDevServers, setIsCleaningAllDevServers] = useState(false);
   const [pendingStopPids, setPendingStopPids] = useState<number[]>([]);
   const [opencodeError, setOpencodeError] = useState<string | null>(null);
@@ -499,6 +502,31 @@ export default function DiagnosticsPage() {
     }
   };
 
+  const runKillAllNonWorktreeOpencodeAction = async (): Promise<void> => {
+    setIsKillingAllNonWorktreeOpencode(true);
+
+    try {
+      const result = (await diagnosticsStopAllNonWorktreeOpencodeInstances()) as DiagnosticsStopAllResponse;
+      if (!result.ok) {
+        toast.error("Failed to kill non-worktree OpenCode processes.", {
+          description: appendRequestId(result.error, result.requestId),
+        });
+        return;
+      }
+
+      toast.success("Emergency kill completed for non-worktree OpenCode processes.", {
+        description: appendRequestId(
+          `attempted=${String(result.attempted)}, stopped=${String(result.stopped)}, alreadyStopped=${String(result.alreadyStopped)}, failed=${String(result.failed)}`,
+          result.requestId,
+        ),
+      });
+    } catch {
+      toast.error("Emergency kill request failed.");
+    } finally {
+      setIsKillingAllNonWorktreeOpencode(false);
+    }
+  };
+
   const runCloseAllNodeInstancesAction = async (): Promise<void> => {
     const uniquePids = [...new Set(nodeAppRows.map((row) => row.pid))];
     if (uniquePids.length === 0) {
@@ -698,6 +726,13 @@ export default function DiagnosticsPage() {
         }}
         onStopWorktreeProcesses={(worktree, pids) => {
           void runStopWorktreeProcessesAction(worktree, pids, "OpenCode");
+        }}
+      />
+
+      <EmergencyCard
+        isKillingAllNonWorktreeOpencode={isKillingAllNonWorktreeOpencode}
+        onKillAllNonWorktreeOpencode={() => {
+          void runKillAllNonWorktreeOpencodeAction();
         }}
       />
     </PageShell>

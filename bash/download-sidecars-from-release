@@ -78,14 +78,25 @@ if [[ -z "${GH_TOKEN:-}" && -z "${GITHUB_TOKEN:-}" ]]; then
   warn "GH_TOKEN/GITHUB_TOKEN is not set; unauthenticated GitHub API calls may be rate-limited"
 fi
 
+resolve_latest_release_tag() {
+  gh api "repos/$repo/releases" --jq 'map(select(.draft | not)) | .[0].tag_name' 2>/dev/null || true
+}
+
 if [[ "$requested_tag" == "latest" ]]; then
   log "resolving latest release tag from $repo"
-  resolved_tag="$(gh api "repos/$repo/releases" --jq 'map(select(.draft | not)) | .[0].tag_name' 2>/dev/null || true)"
+  resolved_tag="$(resolve_latest_release_tag)"
   if [[ -z "$resolved_tag" || "$resolved_tag" == "null" ]]; then
     fail "could not resolve latest release tag from $repo"
   fi
 else
   resolved_tag="$requested_tag"
+  if ! gh release view "$resolved_tag" --repo "$repo" >/dev/null 2>&1; then
+    warn "release tag '$resolved_tag' was not found in $repo; falling back to latest non-draft release"
+    resolved_tag="$(resolve_latest_release_tag)"
+    if [[ -z "$resolved_tag" || "$resolved_tag" == "null" ]]; then
+      fail "could not resolve fallback latest release tag from $repo"
+    fi
+  fi
 fi
 
 log "using release: $repo@$resolved_tag"

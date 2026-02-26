@@ -31,6 +31,7 @@ import {
   getDefaultMascotAssignment,
   getMascotSpriteForMode,
   getWorktreeMascotAssignment,
+  syncActiveWorktreeMascotAssignments,
   type MascotIdleAnimationMode,
   type MascotDefinition,
 } from "@/lib/utils/mascots";
@@ -80,7 +81,6 @@ type GrooveLoadingSpriteProps = {
   mascotColorClassName: string;
   isCompact?: boolean;
   shouldShowFrameIndex: boolean;
-  onFrameLabelChange?: (frameLabel: string) => void;
 };
 
 const IDLE_SPRITE_ANIMATION_DURATION_MS = 5_333.3333;
@@ -209,7 +209,7 @@ function getIsGrooveLoadingSectionDisabledSnapshot(): boolean {
   return isGrooveLoadingSectionDisabled();
 }
 
-function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, shouldShowFrameIndex, onFrameLabelChange }: GrooveLoadingSpriteProps) {
+function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, shouldShowFrameIndex }: GrooveLoadingSpriteProps) {
   const [, setIdleClickCount] = useState(0);
   const [isPlayingFalling, setIsPlayingFalling] = useState(false);
   const spriteMode: GrooveSpriteMode = isPlayingFalling ? "falling" : "idle";
@@ -228,12 +228,6 @@ function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, 
   const shouldRenderFrameIndex = shouldShowFrameIndex && !isCompact;
   const canPlayFallingEasterEgg = mascot.id === DEFAULT_MASCOT_ID;
   const idleAnimationMode = mascot.idleAnimationMode ?? "ping-pong";
-  const currentFrameLabel = useMemo(
-    () => spriteMode === "falling"
-      ? `Falling frame ${String(frameIndex + 1)}`
-      : `Idle frame ${String(frameIndex + 1)}`,
-    [frameIndex, spriteMode],
-  );
 
   const handleSpriteClick = useCallback(() => {
     if (isPlayingFalling || !canPlayFallingEasterEgg) {
@@ -298,10 +292,6 @@ function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, 
     };
   }, [animationDurationMs, frameStepCount, idleAnimationMode, spriteMode]);
 
-  useEffect(() => {
-    onFrameLabelChange?.(currentFrameLabel);
-  }, [currentFrameLabel, onFrameLabelChange]);
-
   return (
     <div
       className={cn("relative overflow-hidden", isCompact && "h-8 w-8")}
@@ -358,7 +348,6 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const [navigationWorktrees, setNavigationWorktrees] = useState<WorkspaceRow[]>(() =>
     hasCachedNavigationWorktrees ? cachedNavigationWorktrees : [],
   );
-  const [mascotFrameLabel, setMascotFrameLabel] = useState("Idle frame 1");
   const shouldShowFps = useSyncExternalStore(
     subscribeToGlobalSettings,
     getIsShowFpsEnabledSnapshot,
@@ -467,6 +456,10 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
       hasCachedNavigationWorktrees = true;
     }
   }, [hasOpenWorkspace]);
+
+  useEffect(() => {
+    syncActiveWorktreeMascotAssignments(navigationWorktrees.map((workspaceRow) => workspaceRow.worktree));
+  }, [navigationWorktrees]);
 
   useEffect(() => {
     if (!hasOpenWorkspace) {
@@ -583,11 +576,10 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                           mascotColorClassName={mascotDisplay.mascotColorClassName}
                           isCompact={isSidebarCollapsed}
                           shouldShowFrameIndex={shouldShowFps}
-                          onFrameLabelChange={setMascotFrameLabel}
                         />
                       </div>
                     </TooltipTrigger>
-                    <TooltipContent side="right">{mascotFrameLabel}</TooltipContent>
+                    <TooltipContent side="right">{mascotDisplay.mascot.name}</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>

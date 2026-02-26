@@ -169,12 +169,65 @@ export const WORKTREE_MASCOT_COLOR_PALETTE: readonly MascotColorDefinition[] = [
   },
 ];
 
-function hashKey(value: string): number {
-  let hash = 5381;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 33) ^ value.charCodeAt(index);
+type WorktreeMascotAssignmentIndex = {
+  mascotIndex: number;
+  colorIndex: number;
+};
+
+const worktreeMascotAssignmentByKey = new Map<string, WorktreeMascotAssignmentIndex>();
+const activeWorktreeMascotKeys = new Set<string>();
+
+function pickRandomIndex(length: number): number {
+  return Math.floor(Math.random() * length);
+}
+
+function pickPaletteIndex(length: number, usedIndices: Set<number>): number {
+  if (length <= 0) {
+    return 0;
   }
-  return hash >>> 0;
+
+  if (usedIndices.size >= length) {
+    return pickRandomIndex(length);
+  }
+
+  const availableIndices: number[] = [];
+  for (let index = 0; index < length; index += 1) {
+    if (!usedIndices.has(index)) {
+      availableIndices.push(index);
+    }
+  }
+
+  return availableIndices[pickRandomIndex(availableIndices.length)];
+}
+
+function ensureWorktreeMascotAssignment(instanceKey: string): WorktreeMascotAssignmentIndex {
+  const existingAssignment = worktreeMascotAssignmentByKey.get(instanceKey);
+  if (existingAssignment) {
+    activeWorktreeMascotKeys.add(instanceKey);
+    return existingAssignment;
+  }
+
+  const usedMascotIndices = new Set<number>();
+  const usedColorIndices = new Set<number>();
+
+  for (const activeKey of activeWorktreeMascotKeys) {
+    const assignment = worktreeMascotAssignmentByKey.get(activeKey);
+    if (!assignment) {
+      continue;
+    }
+
+    usedMascotIndices.add(assignment.mascotIndex);
+    usedColorIndices.add(assignment.colorIndex);
+  }
+
+  const nextAssignment: WorktreeMascotAssignmentIndex = {
+    mascotIndex: pickPaletteIndex(MASCOT_DEFINITIONS.length, usedMascotIndices),
+    colorIndex: pickPaletteIndex(WORKTREE_MASCOT_COLOR_PALETTE.length, usedColorIndices),
+  };
+
+  worktreeMascotAssignmentByKey.set(instanceKey, nextAssignment);
+  activeWorktreeMascotKeys.add(instanceKey);
+  return nextAssignment;
 }
 
 function findDefaultMascot(): MascotDefinition {
@@ -200,12 +253,30 @@ export function getMascotSpriteForMode(mascot: MascotDefinition, mode: MascotSpr
   return mascot.sprites.idle;
 }
 
+export function syncActiveWorktreeMascotAssignments(instanceKeys: readonly string[]): void {
+  const nextActiveKeys = new Set(instanceKeys);
+
+  activeWorktreeMascotKeys.clear();
+  for (const instanceKey of nextActiveKeys) {
+    activeWorktreeMascotKeys.add(instanceKey);
+  }
+
+  for (const instanceKey of worktreeMascotAssignmentByKey.keys()) {
+    if (!nextActiveKeys.has(instanceKey)) {
+      worktreeMascotAssignmentByKey.delete(instanceKey);
+    }
+  }
+
+  for (const instanceKey of nextActiveKeys) {
+    ensureWorktreeMascotAssignment(instanceKey);
+  }
+}
+
 export function getWorktreeMascotAssignment(instanceKey: string): { mascot: MascotDefinition; color: MascotColorDefinition } {
-  const mascotIndex = hashKey(`${instanceKey}:mascot`) % MASCOT_DEFINITIONS.length;
-  const colorIndex = hashKey(`${instanceKey}:color`) % WORKTREE_MASCOT_COLOR_PALETTE.length;
+  const assignment = ensureWorktreeMascotAssignment(instanceKey);
   return {
-    mascot: MASCOT_DEFINITIONS[mascotIndex],
-    color: WORKTREE_MASCOT_COLOR_PALETTE[colorIndex],
+    mascot: MASCOT_DEFINITIONS[assignment.mascotIndex],
+    color: WORKTREE_MASCOT_COLOR_PALETTE[assignment.colorIndex],
   };
 }
 

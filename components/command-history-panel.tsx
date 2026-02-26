@@ -9,7 +9,6 @@ import {
   subscribeToCommandHistory,
   type CommandExecutionEntry,
 } from "@/lib/command-history";
-import { setIsCommandHistoryPanelOpen } from "@/lib/command-history-panel-state";
 import { getCommandMetadata } from "@/lib/command-metadata";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -85,14 +84,6 @@ export function CommandHistoryPanel() {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const historyListRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    setIsCommandHistoryPanelOpen(isOpen);
-
-    return () => {
-      setIsCommandHistoryPanelOpen(false);
-    };
-  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {

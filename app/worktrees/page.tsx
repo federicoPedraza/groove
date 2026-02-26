@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 
 import { useDashboardState } from "@/components/pages/dashboard/hooks/use-dashboard-state";
 import { getWorktreeStatusBadgeClasses, getWorktreeStatusIcon, getWorktreeStatusTitle } from "@/components/pages/dashboard/worktree-status";
-import { PageShell } from "@/components/pages/page-shell";
+import { useAppLayout } from "@/components/pages/use-app-layout";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,17 +26,19 @@ export default function WorktreesPage() {
 
   const runnableRows = getActiveWorktreeRows(worktreeRows, runtimeStateByWorktree, testingRunningWorktrees);
 
+  useAppLayout({
+    noDirectoryOpenState: {
+      isVisible: !isWorkspaceHydrating && !activeWorkspace,
+      isBusy,
+      statusMessage,
+      errorMessage,
+      onSelectDirectory: pickDirectory,
+      onOpenRecentDirectory: openRecentDirectory,
+    },
+  });
+
   return (
-    <PageShell
-      noDirectoryOpenState={{
-        isVisible: !isWorkspaceHydrating && !activeWorkspace,
-        isBusy,
-        statusMessage,
-        errorMessage,
-        onSelectDirectory: pickDirectory,
-        onOpenRecentDirectory: openRecentDirectory,
-      }}
-    >
+    <>
       {!activeWorkspace ? null : (
         <div className="space-y-3">
           <header className="flex flex-wrap items-start justify-between gap-3 rounded-xl border bg-card p-4 shadow-xs">
@@ -84,6 +86,6 @@ export default function WorktreesPage() {
           )}
         </div>
       )}
-    </PageShell>
+    </>
   );
 }

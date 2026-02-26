@@ -1,0 +1,1 @@
+mod diagnostics_scope;

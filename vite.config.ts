@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks: {
             "vendor-react": ["react", "react-dom", "react-router", "react-router-dom"],
-            "vendor-xterm": ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-clipboard"],
+            "vendor-xterm": ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-clipboard", "@xterm/addon-unicode11", "@xterm/addon-webgl"],
             "vendor-ui": ["lucide-react", "radix-ui", "sonner", "class-variance-authority", "clsx", "tailwind-merge"],
           },
         },

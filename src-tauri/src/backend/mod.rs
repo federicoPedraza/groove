@@ -1,0 +1,14 @@
+pub(crate) mod app_state_management;
+pub(crate) mod common;
+pub(crate) mod diagnostics_process_control;
+pub(crate) mod event_polling_emission_pipeline;
+pub(crate) mod frontend_command_registry;
+pub(crate) mod git_github_bridge;
+pub(crate) mod groove_worktree_lifecycle;
+pub(crate) mod pty_terminal_sessions;
+pub(crate) mod runtime_cache_dedupe;
+pub(crate) mod startup_health_checks_binary_validation;
+pub(crate) mod tauri_backend_entry;
+pub(crate) mod testing_environment_orchestration;
+pub(crate) mod workspace_discovery_context;
+pub(crate) mod workspace_metadata_settings;

@@ -1,5 +1,3 @@
-import { toast as sonnerToast } from "sonner";
-
 let isCommandHistoryPanelOpen = false;
 
 export function getIsCommandHistoryPanelOpen(): boolean {
@@ -12,7 +10,4 @@ export function setIsCommandHistoryPanelOpen(isOpen: boolean): void {
   }
 
   isCommandHistoryPanelOpen = isOpen;
-  if (isOpen) {
-    sonnerToast.dismiss();
-  }
 }

@@ -8,12 +8,18 @@ const {
   workspaceGetActiveMock,
   testingEnvironmentGetStatusMock,
   grooveListMock,
+  grooveTerminalCloseMock,
+  grooveTerminalListSessionsMock,
+  grooveStopMock,
   listenGrooveTerminalLifecycleMock,
   grooveTerminalLifecycleHandlerRef,
 } = vi.hoisted(() => ({
   workspaceGetActiveMock: vi.fn<() => Promise<WorkspaceContextResponse>>(),
   testingEnvironmentGetStatusMock: vi.fn(),
   grooveListMock: vi.fn(),
+  grooveTerminalCloseMock: vi.fn(),
+  grooveTerminalListSessionsMock: vi.fn(),
+  grooveStopMock: vi.fn(),
   listenGrooveTerminalLifecycleMock: vi.fn(),
   grooveTerminalLifecycleHandlerRef: {
     current: null as null | ((event: { workspaceRoot: string; worktree: string; sessionId: string; kind: "started" | "closed" | "error" }) => void),
@@ -27,9 +33,9 @@ vi.mock("@/src/lib/ipc", () => ({
   grooveNew: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "" })),
   grooveRestore: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "" })),
   grooveRm: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "" })),
-  grooveStop: vi.fn(async () => ({ ok: true })),
-  grooveTerminalClose: vi.fn(async () => ({ ok: true })),
-  grooveTerminalListSessions: vi.fn(async () => ({ ok: true, sessions: [] })),
+  grooveStop: grooveStopMock,
+  grooveTerminalClose: grooveTerminalCloseMock,
+  grooveTerminalListSessions: grooveTerminalListSessionsMock,
   listenGrooveTerminalLifecycle: listenGrooveTerminalLifecycleMock,
   listenWorkspaceChange: vi.fn(async () => () => {}),
   listenWorkspaceReady: vi.fn(async () => () => {}),
@@ -68,6 +74,9 @@ describe("useDashboardState", () => {
     workspaceGetActiveMock.mockReset();
     testingEnvironmentGetStatusMock.mockReset();
     grooveListMock.mockReset();
+    grooveTerminalCloseMock.mockReset();
+    grooveTerminalListSessionsMock.mockReset();
+    grooveStopMock.mockReset();
     listenGrooveTerminalLifecycleMock.mockReset();
     grooveTerminalLifecycleHandlerRef.current = null;
     testingEnvironmentGetStatusMock.mockResolvedValue({
@@ -76,6 +85,9 @@ describe("useDashboardState", () => {
       status: "none",
     });
     grooveListMock.mockResolvedValue({ ok: true, rows: {}, stdout: "", stderr: "" });
+    grooveTerminalCloseMock.mockResolvedValue({ ok: true });
+    grooveTerminalListSessionsMock.mockResolvedValue({ ok: true, sessions: [] });
+    grooveStopMock.mockResolvedValue({ ok: true });
     listenGrooveTerminalLifecycleMock.mockImplementation(async (handler) => {
       grooveTerminalLifecycleHandlerRef.current = handler;
       return () => {
@@ -192,5 +204,78 @@ describe("useDashboardState", () => {
     await waitFor(() => {
       expect(result.current.runtimeStateByWorktree["feature-alpha"]?.opencodeState).toBe("not-running");
     });
+  });
+
+  it("ignores terminal lifecycle refresh events while a stop action is closing sessions", async () => {
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      workspaceRoot: "/repo/groove",
+      repositoryRemoteUrl: "https://example.com/repo.git",
+      workspaceMeta: {
+        version: 1,
+        rootName: "groove",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+        playGrooveCommand: "__groove_terminal__",
+      },
+      hasWorktreesDirectory: true,
+      rows: [
+        {
+          worktree: "feature-alpha",
+          branchGuess: "feature/alpha",
+          path: "/repo/groove/.worktrees/feature-alpha",
+          status: "paused",
+        },
+      ],
+    });
+    grooveListMock.mockResolvedValue({
+      ok: true,
+      rows: {
+        "feature-alpha": {
+          branch: "feature/alpha",
+          worktree: "feature-alpha",
+          opencodeState: "running",
+          logState: "latest",
+          opencodeActivityState: "idle",
+        },
+      },
+      stdout: "",
+      stderr: "",
+    });
+    grooveTerminalListSessionsMock
+      .mockResolvedValueOnce({ ok: true, sessions: [{ sessionId: "session-1", workspaceRoot: "/repo/groove", worktree: "feature-alpha" }] })
+      .mockResolvedValueOnce({ ok: true, sessions: [] });
+    grooveTerminalCloseMock.mockImplementation(async () => {
+      grooveTerminalLifecycleHandlerRef.current?.({
+        workspaceRoot: "/repo/groove",
+        worktree: "feature-alpha",
+        sessionId: "session-1",
+        kind: "closed",
+      });
+      return { ok: true };
+    });
+    grooveStopMock.mockResolvedValue({ ok: false });
+
+    const { result } = renderHook(() => useDashboardState());
+
+    await waitFor(() => {
+      expect(result.current.runtimeStateByWorktree["feature-alpha"]?.opencodeState).toBe("running");
+    });
+
+    const row = result.current.worktreeRows[0];
+    expect(row).toBeDefined();
+    const runtimeRow = result.current.runtimeStateByWorktree["feature-alpha"];
+    const callsBeforeStop = grooveListMock.mock.calls.length;
+
+    await act(async () => {
+      await result.current.runStopAction(row!, runtimeRow);
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(grooveListMock.mock.calls.length).toBe(callsBeforeStop);
   });
 });

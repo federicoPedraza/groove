@@ -2,10 +2,15 @@ import { toast as sonnerToast } from "sonner";
 
 import { getIsCommandHistoryPanelOpen } from "@/lib/command-history-panel-state";
 
-const SUPPRESSED_TOAST_ID = "" as ReturnType<typeof sonnerToast>;
+export type ToastId = ReturnType<typeof sonnerToast>;
+export type ToastMessage = Parameters<typeof sonnerToast>[0];
+export type ToastOptions = NonNullable<Parameters<typeof sonnerToast>[1]>;
+export type ToastApi = typeof sonnerToast;
+
+const SUPPRESSED_TOAST_ID = "" as ToastId;
 const PASSTHROUGH_METHODS = new Set<string>(["dismiss"]);
 
-export const toast: typeof sonnerToast = new Proxy(sonnerToast as typeof sonnerToast, {
+export const toast: ToastApi = new Proxy(sonnerToast as ToastApi, {
   apply(target, thisArg, argArray) {
     if (getIsCommandHistoryPanelOpen()) {
       return SUPPRESSED_TOAST_ID;

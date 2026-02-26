@@ -1,16 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, CircleHelp, Copy, Loader2 } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
-import { PageShell } from "@/components/pages/page-shell";
 import { CommandsSettingsForm } from "@/components/pages/settings/commands-settings-form";
 import { WorktreeSymlinkPathsModal } from "@/components/pages/settings/worktree-symlink-paths-modal";
 import type { SaveState, WorkspaceMeta } from "@/components/pages/settings/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { THEME_MODE_OPTIONS, type ThemeMode } from "@/src/lib/theme-constants";
 import { applyThemeToDom } from "@/src/lib/theme";
 import {
@@ -18,18 +17,13 @@ import {
   DEFAULT_TESTING_PORTS,
   getGlobalSettingsSnapshot,
   getThemeMode,
-  ghAuthStatus,
-  ghDetectRepo,
   globalSettingsGet,
   globalSettingsUpdate,
   isTelemetryEnabled,
   subscribeToGlobalSettings,
   workspaceGetActive,
-  workspacePickAndOpen,
   workspaceUpdateCommandsSettings,
   workspaceUpdateWorktreeSymlinkPaths,
-  type GhAuthStatusResponse,
-  type GhDetectRepoResponse,
   type WorkspaceCommandSettingsPayload,
 } from "@/src/lib/ipc";
 import { describeWorkspaceContextError } from "@/lib/utils/workspace/context";
@@ -44,17 +38,6 @@ function logSettingsTelemetry(event: string, payload: Record<string, unknown>): 
     return;
   }
   console.info(`${UI_TELEMETRY_PREFIX} ${event}`, payload);
-}
-
-function normalizeHostnameCandidate(value: string | null | undefined): string | undefined {
-  const trimmed = value?.trim().toLowerCase();
-  if (!trimmed) {
-    return undefined;
-  }
-  if (trimmed.includes("/") || trimmed.includes("\\")) {
-    return undefined;
-  }
-  return trimmed.split(":")[0]?.trim() || undefined;
 }
 
 function loadSettingsGlobalSettings(): Promise<Awaited<ReturnType<typeof globalSettingsGet>>> {
@@ -75,26 +58,6 @@ function loadSettingsWorkspaceGetActive(): Promise<Awaited<ReturnType<typeof wor
   return settingsWorkspaceGetActivePromise;
 }
 
-function waitForDeferredTask(timeoutMs = 180): Promise<void> {
-  const idleWindow = window as Window & {
-    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-    cancelIdleCallback?: (handle: number) => void;
-  };
-
-  return new Promise<void>((resolve) => {
-    if (typeof idleWindow.requestIdleCallback === "function") {
-      idleWindow.requestIdleCallback(() => {
-        resolve();
-      }, { timeout: timeoutMs });
-      return;
-    }
-
-    window.setTimeout(() => {
-      resolve();
-    }, timeoutMs);
-  });
-}
-
 export default function SettingsPage() {
   const settingsEnterPerfMsRef = useRef<number>(performance.now());
   const globalSettingsSnapshot = useSyncExternalStore(
@@ -106,13 +69,11 @@ export default function SettingsPage() {
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
-  const [connectionMessageType, setConnectionMessageType] = useState<"success" | "error" | null>(null);
   const [telemetryEnabled, setTelemetryEnabled] = useState(globalSettingsSnapshot.telemetryEnabled);
   const [disableGrooveLoadingSection, setDisableGrooveLoadingSection] = useState(globalSettingsSnapshot.disableGrooveLoadingSection);
   const [showFps, setShowFps] = useState(globalSettingsSnapshot.showFps);
   const [alwaysShowDiagnosticsSidebar, setAlwaysShowDiagnosticsSidebar] = useState(globalSettingsSnapshot.alwaysShowDiagnosticsSidebar);
+  const [periodicRerenderEnabled, setPeriodicRerenderEnabled] = useState(globalSettingsSnapshot.periodicRerenderEnabled);
   const [playGrooveCommand, setPlayGrooveCommand] = useState(DEFAULT_PLAY_GROOVE_COMMAND);
   const [testingPorts, setTestingPorts] = useState<number[]>([...DEFAULT_TESTING_PORTS]);
   const [openTerminalAtWorktreeCommand, setOpenTerminalAtWorktreeCommand] = useState("");
@@ -124,98 +85,19 @@ export default function SettingsPage() {
   const [worktreeSymlinkMessageType, setWorktreeSymlinkMessageType] = useState<"success" | "error" | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemeMode());
-  const [isGitHubCliLoading, setIsGitHubCliLoading] = useState(false);
-  const [gitHubCliStatus, setGitHubCliStatus] = useState<GhAuthStatusResponse | null>(null);
-  const [gitHubCliRepo, setGitHubCliRepo] = useState<GhDetectRepoResponse | null>(null);
-  const [gitHubCliError, setGitHubCliError] = useState<string | null>(null);
-  const [gitHubCliCheckedRoot, setGitHubCliCheckedRoot] = useState<string | null>(null);
-  const gitHubCliRequestVersionRef = useRef(0);
   const disableGrooveLoadingSectionRequestVersionRef = useRef(0);
   const telemetryEnabledRequestVersionRef = useRef(0);
   const showFpsRequestVersionRef = useRef(0);
   const alwaysShowDiagnosticsSidebarRequestVersionRef = useRef(0);
+  const periodicRerenderEnabledRequestVersionRef = useRef(0);
   const themeModeRequestVersionRef = useRef(0);
-
-  const loadGitHubCliStatus = useCallback(async (root: string | null, options?: { deferAuth?: boolean }): Promise<void> => {
-    const startedAtMs = performance.now();
-    const requestVersion = ++gitHubCliRequestVersionRef.current;
-    const isLatestRequest = (): boolean => gitHubCliRequestVersionRef.current === requestVersion;
-
-    setGitHubCliCheckedRoot(root);
-    setIsGitHubCliLoading(true);
-    setGitHubCliError(null);
-    try {
-      if (!root) {
-        setGitHubCliStatus(null);
-        setGitHubCliRepo(null);
-        const durationMs = Math.max(0, performance.now() - startedAtMs);
-        logSettingsTelemetry("settings.load_github_cli_status", {
-          duration_ms: Number(durationMs.toFixed(2)),
-          outcome: "skipped",
-          has_workspace_root: false,
-        });
-        return;
-      }
-
-      const detectedRepo = await ghDetectRepo({ path: root });
-      if (!isLatestRequest()) {
-        return;
-      }
-      setGitHubCliRepo(detectedRepo);
-
-      if (options?.deferAuth) {
-        await waitForDeferredTask();
-        if (!isLatestRequest()) {
-          return;
-        }
-      }
-
-      const status = await ghAuthStatus({
-        hostname: normalizeHostnameCandidate(detectedRepo.host),
-        path: root,
-        remoteUrl: detectedRepo.remoteUrl,
-      });
-      if (!isLatestRequest()) {
-        return;
-      }
-      setGitHubCliStatus(status);
-      if (!status.ok) {
-        setGitHubCliError(status.error ?? "Failed to load GitHub CLI authentication status.");
-      }
-
-      const durationMs = Math.max(0, performance.now() - startedAtMs);
-      logSettingsTelemetry("settings.load_github_cli_status", {
-        duration_ms: Number(durationMs.toFixed(2)),
-        outcome: status.ok ? "ok" : "error",
-        has_workspace_root: true,
-        has_remote_url: detectedRepo.remoteUrl != null,
-        installed: status.installed,
-        authenticated: status.authenticated,
-      });
-    } catch {
-      if (!isLatestRequest()) {
-        return;
-      }
-      setGitHubCliError("Failed to load GitHub CLI authentication status.");
-
-      const durationMs = Math.max(0, performance.now() - startedAtMs);
-      logSettingsTelemetry("settings.load_github_cli_status", {
-        duration_ms: Number(durationMs.toFixed(2)),
-        outcome: "error",
-        has_workspace_root: root != null,
-      });
-    } finally {
-      if (isLatestRequest()) {
-        setIsGitHubCliLoading(false);
-      }
-    }
-  }, []);
 
   useEffect(() => {
     setTelemetryEnabled(globalSettingsSnapshot.telemetryEnabled);
     setDisableGrooveLoadingSection(globalSettingsSnapshot.disableGrooveLoadingSection);
     setShowFps(globalSettingsSnapshot.showFps);
     setAlwaysShowDiagnosticsSidebar(globalSettingsSnapshot.alwaysShowDiagnosticsSidebar);
+    setPeriodicRerenderEnabled(globalSettingsSnapshot.periodicRerenderEnabled);
     setThemeMode(globalSettingsSnapshot.themeMode);
   }, [globalSettingsSnapshot]);
 
@@ -345,10 +227,6 @@ export default function SettingsPage() {
           setOpenTerminalAtWorktreeCommand("");
           setRunLocalCommand("");
           setWorktreeSymlinkPaths([]);
-          setGitHubCliStatus(null);
-          setGitHubCliRepo(null);
-          setGitHubCliError(null);
-          setGitHubCliCheckedRoot(null);
           const durationMs = Math.max(0, performance.now() - startedAtMs);
           logSettingsTelemetry("workspace_get_active.settings", {
             duration_ms: Number(durationMs.toFixed(2)),
@@ -389,10 +267,6 @@ export default function SettingsPage() {
           setRunLocalCommand("");
           setWorktreeSymlinkPaths([]);
           setErrorMessage("Failed to load the active workspace context.");
-          setGitHubCliStatus(null);
-          setGitHubCliRepo(null);
-          setGitHubCliError(null);
-          setGitHubCliCheckedRoot(null);
 
           const durationMs = Math.max(0, performance.now() - startedAtMs);
           logSettingsTelemetry("workspace_get_active.settings", {
@@ -413,62 +287,6 @@ export default function SettingsPage() {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (!workspaceRoot || isGitHubCliLoading) {
-      return;
-    }
-    if (gitHubCliCheckedRoot === workspaceRoot) {
-      return;
-    }
-    void loadGitHubCliStatus(workspaceRoot, { deferAuth: true });
-  }, [gitHubCliCheckedRoot, isGitHubCliLoading, loadGitHubCliStatus, workspaceRoot]);
-
-  const onConnectRepository = async (): Promise<void> => {
-    setIsConnecting(true);
-    setConnectionMessage(null);
-    setConnectionMessageType(null);
-    setErrorMessage(null);
-
-    try {
-      const result = await workspacePickAndOpen();
-      if (result.cancelled) {
-        return;
-      }
-
-      if (!result.ok || !result.workspaceMeta) {
-        setConnectionMessage(describeWorkspaceContextError(result, "Failed to connect repository."));
-        setConnectionMessageType("error");
-        return;
-      }
-
-      setWorkspaceMeta(result.workspaceMeta);
-      setWorkspaceRoot(result.workspaceRoot ?? null);
-      setPlayGrooveCommand(result.workspaceMeta.playGrooveCommand ?? DEFAULT_PLAY_GROOVE_COMMAND);
-      setTestingPorts(
-        result.workspaceMeta.testingPorts && result.workspaceMeta.testingPorts.length > 0
-          ? result.workspaceMeta.testingPorts
-          : [...DEFAULT_TESTING_PORTS],
-      );
-      setOpenTerminalAtWorktreeCommand(result.workspaceMeta.openTerminalAtWorktreeCommand ?? "");
-      setRunLocalCommand(result.workspaceMeta.runLocalCommand ?? "");
-      setWorktreeSymlinkPaths(result.workspaceMeta.worktreeSymlinkPaths ?? []);
-      setSaveState("idle");
-      setConnectionMessage(`Connected to repository: ${result.workspaceRoot ?? result.workspaceMeta.rootName}`);
-      setConnectionMessageType("success");
-      setGitHubCliCheckedRoot(null);
-      void loadGitHubCliStatus(result.workspaceRoot ?? null);
-    } catch {
-      setConnectionMessage("Failed to connect repository.");
-      setConnectionMessageType("error");
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
-  const onCopyGitHubCliInstruction = (): void => {
-    void navigator.clipboard.writeText("gh auth login");
-  };
 
   const onApplyWorktreeSymlinkPaths = useCallback(
     async (paths: string[]) => {
@@ -507,10 +325,6 @@ export default function SettingsPage() {
     [workspaceMeta],
   );
 
-  const onRefreshGitHubCliStatus = async (): Promise<void> => {
-    await loadGitHubCliStatus(workspaceRoot);
-  };
-
   const onThemeModeChange = (nextTheme: ThemeMode): void => {
     const previousThemeMode = themeMode;
     setThemeMode(nextTheme);
@@ -546,13 +360,8 @@ export default function SettingsPage() {
     })();
   };
 
-  const gitHubCliRepositoryLabel =
-    gitHubCliRepo?.nameWithOwner ?? (gitHubCliRepo?.owner && gitHubCliRepo?.repo ? `${gitHubCliRepo.owner}/${gitHubCliRepo.repo}` : null);
-  const hideAuthenticatedStatusLabel = gitHubCliStatus?.message === "Authenticated via GitHub CLI session.";
-  const isGitHubStatusPending = Boolean(workspaceRoot) && (isGitHubCliLoading || gitHubCliCheckedRoot !== workspaceRoot);
-
   return (
-    <PageShell>
+    <>
       <div className="space-y-3">
         <div className="space-y-1">
           <h1 className="text-xl font-semibold text-foreground">Settings</h1>
@@ -689,79 +498,6 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
-                  aria-label="Toggle Github CLI settings"
-                >
-                  <CardTitle className="text-sm">Github CLI</CardTitle>
-                  <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
-                </button>
-              </CollapsibleTrigger>
-            </CardHeader>
-            <CollapsibleContent>
-              <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                onClick={() => {
-                  void onConnectRepository();
-                }}
-                disabled={isLoading || isConnecting}
-              >
-                {isConnecting ? "Opening picker..." : "Connect to repository"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  void onRefreshGitHubCliStatus();
-                }}
-                disabled={isGitHubCliLoading || !workspaceRoot || isConnecting}
-              >
-                {isGitHubCliLoading ? "Refreshing..." : "Refresh status"}
-              </Button>
-              {gitHubCliStatus?.installed && !gitHubCliStatus.authenticated && (
-                <Button type="button" variant="ghost" size="sm" className="h-9 px-3" onClick={onCopyGitHubCliInstruction}>
-                  <Copy aria-hidden="true" className="mr-1 size-3" />
-                  Copy login command
-                </Button>
-              )}
-            </div>
-
-            {!workspaceRoot ? (
-              <p className="text-sm text-muted-foreground">Connect a repository to inspect GitHub CLI auth.</p>
-            ) : (
-              <div className="space-y-2">
-                {isGitHubStatusPending && (
-                  <p className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-                    Checking GitHub CLI status...
-                  </p>
-                )}
-
-                <div className="space-y-1.5 text-xs text-muted-foreground">
-                  {gitHubCliStatus?.installed && gitHubCliStatus.authenticated && gitHubCliStatus.username && (
-                    <p className="font-semibold text-foreground">{gitHubCliStatus.username}</p>
-                  )}
-                  {gitHubCliRepositoryLabel && <p>{gitHubCliRepositoryLabel}</p>}
-                  {gitHubCliStatus && !hideAuthenticatedStatusLabel && <p>{gitHubCliStatus.message}</p>}
-                  {!gitHubCliStatus?.installed && <p>Install GitHub CLI (`gh`) to enable auth and PR actions.</p>}
-                  {gitHubCliStatus?.installed && !gitHubCliStatus.authenticated && <p>Run `gh auth login` in a terminal to authenticate.</p>}
-                  {!gitHubCliStatus && isGitHubStatusPending && !gitHubCliError && <p>Checking GitHub CLI status...</p>}
-                  {gitHubCliError && <p className="line-clamp-2 text-[11px] text-destructive">Error: {gitHubCliError}</p>}
-                </div>
-              </div>
-            )}
-              </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
-
-        <Collapsible defaultOpen>
-          <Card className="my-4 gap-0">
-            <CardHeader className="py-3">
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
                   aria-label="Toggle appearance settings"
                 >
                   <CardTitle className="text-sm">Appearance</CardTitle>
@@ -802,8 +538,8 @@ export default function SettingsPage() {
                       <span className="block font-medium text-foreground">{option.label}</span>
                       <span className="block text-xs text-muted-foreground">{option.description}</span>
 
-                      <div data-theme={option.value} className="rounded-md border border-border bg-background p-2">
-                        <div className="space-y-2">
+                      <div data-theme={option.value} className="rounded-md border border-border bg-background p-3">
+                        <div className="space-y-3">
                           <div className="flex items-center gap-1.5">
                             <span className="inline-flex h-6 items-center rounded-md bg-primary px-2 text-[11px] font-medium text-primary-foreground">
                               Primary
@@ -813,11 +549,11 @@ export default function SettingsPage() {
                             </span>
                           </div>
 
-                          <div className="rounded-md border border-input bg-background px-2 py-1.5 text-[11px] text-muted-foreground">
+                          <div className="rounded-md border border-input bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
                             Search branches...
                           </div>
 
-                          <div className="rounded-md border border-border bg-card px-2 py-1.5">
+                          <div className="rounded-md border border-border bg-card px-2.5 py-2">
                             <p className="text-[11px] font-medium text-card-foreground">Preview card</p>
                             <p className="text-[10px] text-muted-foreground">Body text and muted helper content.</p>
                           </div>
@@ -850,206 +586,228 @@ export default function SettingsPage() {
             <CollapsibleContent>
               <CardContent className="space-y-3">
 
-              <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={telemetryEnabled}
-                  disabled={saveState === "saving"}
-                  onChange={(event) => {
-                    const nextTelemetryEnabled = event.target.checked;
-                    const previousTelemetryEnabled = telemetryEnabled;
-                    setTelemetryEnabled(nextTelemetryEnabled);
-                    setErrorMessage(null);
+              <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Checkbox
+                    checked={telemetryEnabled}
+                    disabled={saveState === "saving"}
+                    onCheckedChange={(checked) => {
+                      const nextTelemetryEnabled = checked === true;
+                      const previousTelemetryEnabled = telemetryEnabled;
+                      setTelemetryEnabled(nextTelemetryEnabled);
+                      setErrorMessage(null);
 
-                    const requestVersion = ++telemetryEnabledRequestVersionRef.current;
+                      const requestVersion = ++telemetryEnabledRequestVersionRef.current;
 
-                    void (async () => {
-                      try {
-                        const result = await globalSettingsUpdate({ telemetryEnabled: nextTelemetryEnabled });
+                      void (async () => {
+                        try {
+                          const result = await globalSettingsUpdate({ telemetryEnabled: nextTelemetryEnabled });
 
-                        if (requestVersion !== telemetryEnabledRequestVersionRef.current) {
-                          return;
-                        }
+                          if (requestVersion !== telemetryEnabledRequestVersionRef.current) {
+                            return;
+                          }
 
-                        if (!result.ok || !result.globalSettings) {
+                          if (!result.ok || !result.globalSettings) {
+                            setTelemetryEnabled(previousTelemetryEnabled);
+                            setErrorMessage(result.error ?? "Failed to update telemetry settings.");
+                            return;
+                          }
+
+                          setTelemetryEnabled(result.globalSettings.telemetryEnabled);
+                        } catch {
+                          if (requestVersion !== telemetryEnabledRequestVersionRef.current) {
+                            return;
+                          }
                           setTelemetryEnabled(previousTelemetryEnabled);
-                          setErrorMessage(result.error ?? "Failed to update telemetry settings.");
-                          return;
+                          setErrorMessage("Failed to update telemetry settings.");
                         }
-
-                        setTelemetryEnabled(result.globalSettings.telemetryEnabled);
-                      } catch {
-                        if (requestVersion !== telemetryEnabledRequestVersionRef.current) {
-                          return;
-                        }
-                        setTelemetryEnabled(previousTelemetryEnabled);
-                        setErrorMessage("Failed to update telemetry settings.");
-                      }
-                    })();
-                  }}
-                />
-                <span className="inline-flex items-center gap-1.5">
+                      })();
+                    }}
+                  />
                   <span>Enable telemetry</span>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                          aria-label="About telemetry"
-                          onClick={(event) => {
-                            event.preventDefault();
-                          }}
-                        >
-                          <CircleHelp aria-hidden="true" className="size-3" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>Controls whether Groove records UI telemetry events.</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                </span>
+                <span className="text-xs text-muted-foreground/70 sm:text-right">
+                  Controls whether Groove records UI telemetry events.
                 </span>
               </label>
 
-              <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={disableGrooveLoadingSection}
-                  disabled={saveState === "saving"}
-                  onChange={(event) => {
-                    const nextDisableGrooveLoadingSection = event.target.checked;
-                    const previousDisableGrooveLoadingSection = disableGrooveLoadingSection;
-                    setDisableGrooveLoadingSection(nextDisableGrooveLoadingSection);
-                    setErrorMessage(null);
+              <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Checkbox
+                    checked={disableGrooveLoadingSection}
+                    disabled={saveState === "saving"}
+                    onCheckedChange={(checked) => {
+                      const nextDisableGrooveLoadingSection = checked === true;
+                      const previousDisableGrooveLoadingSection = disableGrooveLoadingSection;
+                      setDisableGrooveLoadingSection(nextDisableGrooveLoadingSection);
+                      setErrorMessage(null);
 
-                    const requestVersion = ++disableGrooveLoadingSectionRequestVersionRef.current;
+                      const requestVersion = ++disableGrooveLoadingSectionRequestVersionRef.current;
 
-                    void (async () => {
-                      try {
-                        const result = await globalSettingsUpdate({
-                          disableGrooveLoadingSection: nextDisableGrooveLoadingSection,
-                        });
+                      void (async () => {
+                        try {
+                          const result = await globalSettingsUpdate({
+                            disableGrooveLoadingSection: nextDisableGrooveLoadingSection,
+                          });
 
-                        if (requestVersion !== disableGrooveLoadingSectionRequestVersionRef.current) {
-                          return;
-                        }
+                          if (requestVersion !== disableGrooveLoadingSectionRequestVersionRef.current) {
+                            return;
+                          }
 
-                        if (!result.ok || !result.globalSettings) {
+                          if (!result.ok || !result.globalSettings) {
+                            setDisableGrooveLoadingSection(previousDisableGrooveLoadingSection);
+                            setErrorMessage(result.error ?? "Failed to update Groove loading section visibility.");
+                            return;
+                          }
+
+                          setDisableGrooveLoadingSection(result.globalSettings.disableGrooveLoadingSection);
+                        } catch {
+                          if (requestVersion !== disableGrooveLoadingSectionRequestVersionRef.current) {
+                            return;
+                          }
                           setDisableGrooveLoadingSection(previousDisableGrooveLoadingSection);
-                          setErrorMessage(result.error ?? "Failed to update Groove loading section visibility.");
-                          return;
+                          setErrorMessage("Failed to update Groove loading section visibility.");
                         }
-
-                        setDisableGrooveLoadingSection(result.globalSettings.disableGrooveLoadingSection);
-                      } catch {
-                        if (requestVersion !== disableGrooveLoadingSectionRequestVersionRef.current) {
-                          return;
-                        }
-                        setDisableGrooveLoadingSection(previousDisableGrooveLoadingSection);
-                        setErrorMessage("Failed to update Groove loading section visibility.");
-                      }
-                    })();
-                  }}
-                />
-                <span className="inline-flex items-center gap-1.5">
+                      })();
+                    }}
+                  />
                   <span>Disable monkey</span>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                          aria-label="About Disable monkey"
-                          onClick={(event) => {
-                            event.preventDefault();
-                          }}
-                        >
-                          <CircleHelp aria-hidden="true" className="size-3" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>Hides the sidebar monkey sprite frame on desktop.</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                </span>
+                <span className="text-xs text-muted-foreground/70 sm:text-right">
+                  Hides the sidebar monkey sprite frame on desktop.
                 </span>
               </label>
-              <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={showFps}
-                  disabled={saveState === "saving"}
-                  onChange={(event) => {
-                    const nextShowFps = event.target.checked;
-                    const previousShowFps = showFps;
-                    setShowFps(nextShowFps);
-                    setErrorMessage(null);
+              <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Checkbox
+                    checked={showFps}
+                    disabled={saveState === "saving"}
+                    onCheckedChange={(checked) => {
+                      const nextShowFps = checked === true;
+                      const previousShowFps = showFps;
+                      setShowFps(nextShowFps);
+                      setErrorMessage(null);
 
-                    const requestVersion = ++showFpsRequestVersionRef.current;
+                      const requestVersion = ++showFpsRequestVersionRef.current;
 
-                    void (async () => {
-                      try {
-                        const result = await globalSettingsUpdate({ showFps: nextShowFps });
+                      void (async () => {
+                        try {
+                          const result = await globalSettingsUpdate({ showFps: nextShowFps });
 
-                        if (requestVersion !== showFpsRequestVersionRef.current) {
-                          return;
-                        }
+                          if (requestVersion !== showFpsRequestVersionRef.current) {
+                            return;
+                          }
 
-                        if (!result.ok || !result.globalSettings) {
+                          if (!result.ok || !result.globalSettings) {
+                            setShowFps(previousShowFps);
+                            setErrorMessage(result.error ?? "Failed to update FPS settings.");
+                            return;
+                          }
+
+                          setShowFps(result.globalSettings.showFps);
+                        } catch {
+                          if (requestVersion !== showFpsRequestVersionRef.current) {
+                            return;
+                          }
                           setShowFps(previousShowFps);
-                          setErrorMessage(result.error ?? "Failed to update FPS settings.");
-                          return;
+                          setErrorMessage("Failed to update FPS settings.");
                         }
-
-                        setShowFps(result.globalSettings.showFps);
-                      } catch {
-                        if (requestVersion !== showFpsRequestVersionRef.current) {
-                          return;
-                        }
-                        setShowFps(previousShowFps);
-                        setErrorMessage("Failed to update FPS settings.");
-                      }
-                    })();
-                  }}
-                />
-                Show FPS
+                      })();
+                    }}
+                  />
+                  <span>Show FPS</span>
+                </span>
+                <span className="text-xs text-muted-foreground/70 sm:text-right">
+                  Shows the frames-per-second overlay for UI performance checks.
+                </span>
               </label>
-              <label className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={alwaysShowDiagnosticsSidebar}
-                  disabled={saveState === "saving"}
-                  onChange={(event) => {
-                    const nextValue = event.target.checked;
-                    const previousValue = alwaysShowDiagnosticsSidebar;
-                    setAlwaysShowDiagnosticsSidebar(nextValue);
-                    setErrorMessage(null);
+              <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Checkbox
+                    checked={periodicRerenderEnabled}
+                    disabled={saveState === "saving"}
+                    onCheckedChange={(checked) => {
+                      const nextValue = checked === true;
+                      const previousValue = periodicRerenderEnabled;
+                      setPeriodicRerenderEnabled(nextValue);
+                      setErrorMessage(null);
 
-                    const requestVersion = ++alwaysShowDiagnosticsSidebarRequestVersionRef.current;
+                      const requestVersion = ++periodicRerenderEnabledRequestVersionRef.current;
 
-                    void (async () => {
-                      try {
-                        const result = await globalSettingsUpdate({ alwaysShowDiagnosticsSidebar: nextValue });
+                      void (async () => {
+                        try {
+                          const result = await globalSettingsUpdate({ periodicRerenderEnabled: nextValue });
 
-                        if (requestVersion !== alwaysShowDiagnosticsSidebarRequestVersionRef.current) {
-                          return;
+                          if (requestVersion !== periodicRerenderEnabledRequestVersionRef.current) {
+                            return;
+                          }
+
+                          if (!result.ok || !result.globalSettings) {
+                            setPeriodicRerenderEnabled(previousValue);
+                            setErrorMessage(result.error ?? "Failed to update periodic re-render trigger settings.");
+                            return;
+                          }
+
+                          setPeriodicRerenderEnabled(result.globalSettings.periodicRerenderEnabled);
+                        } catch {
+                          if (requestVersion !== periodicRerenderEnabledRequestVersionRef.current) {
+                            return;
+                          }
+                          setPeriodicRerenderEnabled(previousValue);
+                          setErrorMessage("Failed to update periodic re-render trigger settings.");
                         }
+                      })();
+                    }}
+                  />
+                  <span>Trigger periodic re-renders</span>
+                </span>
+                <span className="text-xs text-muted-foreground/70 sm:text-right">
+                  Forces a React re-render every second to stress test UI updates. Disable when you are done testing.
+                </span>
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Checkbox
+                    checked={alwaysShowDiagnosticsSidebar}
+                    disabled={saveState === "saving"}
+                    onCheckedChange={(checked) => {
+                      const nextValue = checked === true;
+                      const previousValue = alwaysShowDiagnosticsSidebar;
+                      setAlwaysShowDiagnosticsSidebar(nextValue);
+                      setErrorMessage(null);
 
-                        if (!result.ok || !result.globalSettings) {
+                      const requestVersion = ++alwaysShowDiagnosticsSidebarRequestVersionRef.current;
+
+                      void (async () => {
+                        try {
+                          const result = await globalSettingsUpdate({ alwaysShowDiagnosticsSidebar: nextValue });
+
+                          if (requestVersion !== alwaysShowDiagnosticsSidebarRequestVersionRef.current) {
+                            return;
+                          }
+
+                          if (!result.ok || !result.globalSettings) {
+                            setAlwaysShowDiagnosticsSidebar(previousValue);
+                            setErrorMessage(result.error ?? "Failed to update diagnostics sidebar visibility.");
+                            return;
+                          }
+
+                          setAlwaysShowDiagnosticsSidebar(result.globalSettings.alwaysShowDiagnosticsSidebar);
+                        } catch {
+                          if (requestVersion !== alwaysShowDiagnosticsSidebarRequestVersionRef.current) {
+                            return;
+                          }
                           setAlwaysShowDiagnosticsSidebar(previousValue);
-                          setErrorMessage(result.error ?? "Failed to update diagnostics sidebar visibility.");
-                          return;
+                          setErrorMessage("Failed to update diagnostics sidebar visibility.");
                         }
-
-                        setAlwaysShowDiagnosticsSidebar(result.globalSettings.alwaysShowDiagnosticsSidebar);
-                      } catch {
-                        if (requestVersion !== alwaysShowDiagnosticsSidebarRequestVersionRef.current) {
-                          return;
-                        }
-                        setAlwaysShowDiagnosticsSidebar(previousValue);
-                        setErrorMessage("Failed to update diagnostics sidebar visibility.");
-                      }
-                    })();
-                  }}
-                />
-                Always show diagnostics sidebar
+                      })();
+                    }}
+                  />
+                  <span>Always show diagnostics sidebar</span>
+                </span>
+                <span className="text-xs text-muted-foreground/70 sm:text-right">
+                  Keeps the diagnostics sidebar visible in Groove.
+                </span>
               </label>
               </CardContent>
             </CollapsibleContent>
@@ -1069,20 +827,12 @@ export default function SettingsPage() {
           }}
         />
 
-        {connectionMessage && connectionMessageType === "success" && (
-          <p className="rounded-md border border-emerald-600/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">{connectionMessage}</p>
-        )}
-
-        {connectionMessage && connectionMessageType === "error" && (
-          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{connectionMessage}</p>
-        )}
-
         {errorMessage && (
           <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {errorMessage}
           </p>
         )}
       </div>
-    </PageShell>
+    </>
   );
 }

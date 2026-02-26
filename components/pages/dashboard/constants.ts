@@ -15,31 +15,79 @@ export const ACTIVE_TESTING_BUTTON_CLASSES =
   "bg-cyan-500/20 text-cyan-700 border-cyan-700/55 transition-colors dark:text-cyan-100 dark:border-cyan-200/75";
 export const ACTIVE_ORANGE_BUTTON_CLASSES =
   "bg-orange-500/20 text-orange-700 border-orange-700/55 transition-colors dark:text-orange-100 dark:border-orange-200/75";
+export const ACTIVE_AMBER_BUTTON_CLASSES =
+  "bg-amber-500/20 text-amber-800 border-amber-700/55 transition-colors dark:text-amber-100 dark:border-amber-200/75";
 export const SOFT_YELLOW_BUTTON_CLASSES =
   "transition-colors hover:bg-yellow-500/20 hover:text-yellow-800 hover:border-yellow-700/55 active:bg-yellow-500/25 active:text-yellow-800 active:border-yellow-700/60 dark:hover:text-yellow-200 dark:hover:border-yellow-300/70 dark:active:text-yellow-100 dark:active:border-yellow-200/75";
+export const SOFT_AMBER_BUTTON_CLASSES =
+  "transition-colors hover:bg-amber-500/20 hover:text-amber-800 hover:border-amber-700/55 active:bg-amber-500/25 active:text-amber-800 active:border-amber-700/60 dark:hover:text-amber-200 dark:hover:border-amber-300/70 dark:active:text-amber-100 dark:active:border-amber-200/75";
 export const SOFT_ORANGE_BUTTON_CLASSES =
   "transition-colors hover:bg-orange-500/20 hover:text-orange-700 hover:border-orange-700/55 active:bg-orange-500/25 active:text-orange-700 active:border-orange-700/60 dark:hover:text-orange-200 dark:hover:border-orange-300/70 dark:active:text-orange-100 dark:active:border-orange-200/75";
 
-const TESTING_ENVIRONMENT_COLOR_PALETTE: TestingEnvironmentColor[] = [
+const RED_TESTING_ENVIRONMENT_COLOR_PALETTE: TestingEnvironmentColor[] = [
   {
-    iconClassName: "text-emerald-700",
-    cardBorderClassName: "border-emerald-700/45",
-    cardBackgroundClassName: "bg-emerald-500/10",
+    iconClassName: "text-rose-700",
+    cardBorderClassName: "border-rose-700/45",
+    cardBackgroundClassName: "bg-rose-500/10",
   },
   {
-    iconClassName: "text-blue-700",
-    cardBorderClassName: "border-blue-700/45",
-    cardBackgroundClassName: "bg-blue-500/10",
+    iconClassName: "text-red-700",
+    cardBorderClassName: "border-red-700/45",
+    cardBackgroundClassName: "bg-red-500/10",
+  },
+  {
+    iconClassName: "text-pink-700",
+    cardBorderClassName: "border-pink-700/45",
+    cardBackgroundClassName: "bg-pink-500/10",
+  },
+  {
+    iconClassName: "text-fuchsia-700",
+    cardBorderClassName: "border-fuchsia-700/45",
+    cardBackgroundClassName: "bg-fuchsia-500/10",
+  },
+];
+
+const ORANGE_TESTING_ENVIRONMENT_COLOR_PALETTE: TestingEnvironmentColor[] = [
+  {
+    iconClassName: "text-orange-700",
+    cardBorderClassName: "border-orange-700/45",
+    cardBackgroundClassName: "bg-orange-500/10",
   },
   {
     iconClassName: "text-amber-700",
     cardBorderClassName: "border-amber-700/50",
     cardBackgroundClassName: "bg-amber-500/10",
   },
+];
+
+const YELLOW_TESTING_ENVIRONMENT_COLOR_PALETTE: TestingEnvironmentColor[] = [
   {
-    iconClassName: "text-indigo-700",
-    cardBorderClassName: "border-indigo-700/45",
-    cardBackgroundClassName: "bg-indigo-500/10",
+    iconClassName: "text-yellow-700",
+    cardBorderClassName: "border-yellow-700/45",
+    cardBackgroundClassName: "bg-yellow-500/10",
+  },
+  {
+    iconClassName: "text-lime-700",
+    cardBorderClassName: "border-lime-700/45",
+    cardBackgroundClassName: "bg-lime-500/10",
+  },
+];
+
+const COOL_TESTING_ENVIRONMENT_COLOR_PALETTE: TestingEnvironmentColor[] = [
+  {
+    iconClassName: "text-emerald-700",
+    cardBorderClassName: "border-emerald-700/45",
+    cardBackgroundClassName: "bg-emerald-500/10",
+  },
+  {
+    iconClassName: "text-green-700",
+    cardBorderClassName: "border-green-700/45",
+    cardBackgroundClassName: "bg-green-500/10",
+  },
+  {
+    iconClassName: "text-teal-700",
+    cardBorderClassName: "border-teal-700/45",
+    cardBackgroundClassName: "bg-teal-500/10",
   },
   {
     iconClassName: "text-cyan-700",
@@ -47,43 +95,120 @@ const TESTING_ENVIRONMENT_COLOR_PALETTE: TestingEnvironmentColor[] = [
     cardBackgroundClassName: "bg-cyan-500/10",
   },
   {
-    iconClassName: "text-orange-700",
-    cardBorderClassName: "border-orange-700/45",
-    cardBackgroundClassName: "bg-orange-500/10",
-  },
-  {
-    iconClassName: "text-lime-700",
-    cardBorderClassName: "border-lime-700/45",
-    cardBackgroundClassName: "bg-lime-500/10",
-  },
-  {
     iconClassName: "text-sky-700",
     cardBorderClassName: "border-sky-700/45",
     cardBackgroundClassName: "bg-sky-500/10",
   },
+  {
+    iconClassName: "text-blue-700",
+    cardBorderClassName: "border-blue-700/45",
+    cardBackgroundClassName: "bg-blue-500/10",
+  },
+  {
+    iconClassName: "text-indigo-700",
+    cardBorderClassName: "border-indigo-700/45",
+    cardBackgroundClassName: "bg-indigo-500/10",
+  },
+  {
+    iconClassName: "text-violet-700",
+    cardBorderClassName: "border-violet-700/45",
+    cardBackgroundClassName: "bg-violet-500/10",
+  },
+  {
+    iconClassName: "text-slate-700",
+    cardBorderClassName: "border-slate-700/45",
+    cardBackgroundClassName: "bg-slate-500/10",
+  },
+  {
+    iconClassName: "text-stone-700",
+    cardBorderClassName: "border-stone-700/45",
+    cardBackgroundClassName: "bg-stone-500/10",
+  },
 ];
 
-const NON_RED_TESTING_ENVIRONMENT_FALLBACK_COLOR: TestingEnvironmentColor = {
-  iconClassName: "text-indigo-700",
-  cardBorderClassName: "border-indigo-700/45",
-  cardBackgroundClassName: "bg-indigo-500/10",
+const TESTING_ENVIRONMENT_COLOR_PALETTE: TestingEnvironmentColor[] = [
+  ...RED_TESTING_ENVIRONMENT_COLOR_PALETTE,
+  ...ORANGE_TESTING_ENVIRONMENT_COLOR_PALETTE,
+  ...YELLOW_TESTING_ENVIRONMENT_COLOR_PALETTE,
+  ...COOL_TESTING_ENVIRONMENT_COLOR_PALETTE,
+];
+
+type TestingEnvironmentColorAssignment = {
+  paletteIndex: number;
 };
 
-function hasDisallowedTestingEnvironmentColor(color: TestingEnvironmentColor): boolean {
-  const combinedClassNames = `${color.iconClassName} ${color.cardBorderClassName} ${color.cardBackgroundClassName}`;
-  return /(rose|red)-/u.test(combinedClassNames);
+const testingEnvironmentColorAssignmentByWorktree = new Map<string, TestingEnvironmentColorAssignment>();
+const activeTestingEnvironmentWorktrees = new Set<string>();
+
+function pickRandomIndex(length: number): number {
+  return Math.floor(Math.random() * length);
 }
 
-function hashLabel(value: string): number {
-  let hash = 5381;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 33) ^ value.charCodeAt(index);
+function pickPaletteIndex(length: number, usedIndices: Set<number>): number {
+  if (length <= 0) {
+    return 0;
   }
-  return hash >>> 0;
+
+  if (usedIndices.size >= length) {
+    return pickRandomIndex(length);
+  }
+
+  const availableIndices: number[] = [];
+  for (let index = 0; index < length; index += 1) {
+    if (!usedIndices.has(index)) {
+      availableIndices.push(index);
+    }
+  }
+
+  return availableIndices[pickRandomIndex(availableIndices.length)];
+}
+
+function ensureTestingEnvironmentColorAssignment(worktree: string): TestingEnvironmentColorAssignment {
+  const existingAssignment = testingEnvironmentColorAssignmentByWorktree.get(worktree);
+  if (existingAssignment) {
+    activeTestingEnvironmentWorktrees.add(worktree);
+    return existingAssignment;
+  }
+
+  const usedPaletteIndices = new Set<number>();
+  for (const activeWorktree of activeTestingEnvironmentWorktrees) {
+    const assignment = testingEnvironmentColorAssignmentByWorktree.get(activeWorktree);
+    if (!assignment) {
+      continue;
+    }
+
+    usedPaletteIndices.add(assignment.paletteIndex);
+  }
+
+  const nextAssignment = {
+    paletteIndex: pickPaletteIndex(TESTING_ENVIRONMENT_COLOR_PALETTE.length, usedPaletteIndices),
+  };
+
+  testingEnvironmentColorAssignmentByWorktree.set(worktree, nextAssignment);
+  activeTestingEnvironmentWorktrees.add(worktree);
+  return nextAssignment;
+}
+
+export function syncActiveTestingEnvironmentColorAssignments(worktrees: readonly string[]): void {
+  const nextActiveWorktrees = new Set(worktrees);
+
+  activeTestingEnvironmentWorktrees.clear();
+  for (const worktree of nextActiveWorktrees) {
+    activeTestingEnvironmentWorktrees.add(worktree);
+  }
+
+  for (const worktree of testingEnvironmentColorAssignmentByWorktree.keys()) {
+    if (!nextActiveWorktrees.has(worktree)) {
+      testingEnvironmentColorAssignmentByWorktree.delete(worktree);
+    }
+  }
+
+  for (const worktree of nextActiveWorktrees) {
+    ensureTestingEnvironmentColorAssignment(worktree);
+  }
 }
 
 export function getTestingEnvironmentColor(worktree: string): TestingEnvironmentColor {
-  const paletteIndex = hashLabel(worktree) % TESTING_ENVIRONMENT_COLOR_PALETTE.length;
-  const assignedColor = TESTING_ENVIRONMENT_COLOR_PALETTE[paletteIndex];
-  return hasDisallowedTestingEnvironmentColor(assignedColor) ? NON_RED_TESTING_ENVIRONMENT_FALLBACK_COLOR : assignedColor;
+  const assignment = ensureTestingEnvironmentColorAssignment(worktree);
+  return TESTING_ENVIRONMENT_COLOR_PALETTE[assignment.paletteIndex];
 }

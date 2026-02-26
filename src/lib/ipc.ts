@@ -81,6 +81,7 @@ export type GlobalSettings = {
   disableGrooveLoadingSection: boolean;
   showFps: boolean;
   alwaysShowDiagnosticsSidebar: boolean;
+  periodicRerenderEnabled: boolean;
   themeMode: ThemeMode;
 };
 
@@ -89,6 +90,7 @@ export type GlobalSettingsUpdatePayload = {
   disableGrooveLoadingSection?: boolean;
   showFps?: boolean;
   alwaysShowDiagnosticsSidebar?: boolean;
+  periodicRerenderEnabled?: boolean;
   themeMode?: ThemeMode;
 };
 
@@ -851,6 +853,7 @@ let latestGlobalSettings: GlobalSettings = {
   disableGrooveLoadingSection: false,
   showFps: false,
   alwaysShowDiagnosticsSidebar: false,
+  periodicRerenderEnabled: false,
   themeMode: DEFAULT_THEME_MODE,
 };
 const globalSettingsListeners = new Set<() => void>();
@@ -866,6 +869,7 @@ function normalizeGlobalSettings(value: Partial<GlobalSettings> | null | undefin
     disableGrooveLoadingSection: value?.disableGrooveLoadingSection === true,
     showFps: value?.showFps === true,
     alwaysShowDiagnosticsSidebar: value?.alwaysShowDiagnosticsSidebar === true,
+    periodicRerenderEnabled: value?.periodicRerenderEnabled === true,
     themeMode: isThemeMode(value?.themeMode) ? value.themeMode : DEFAULT_THEME_MODE,
   };
 }
@@ -910,6 +914,7 @@ function syncGlobalSettingsFromResult(result: unknown): void {
     nextGlobalSettings.disableGrooveLoadingSection !== latestGlobalSettings.disableGrooveLoadingSection ||
     nextGlobalSettings.showFps !== latestGlobalSettings.showFps ||
     nextGlobalSettings.alwaysShowDiagnosticsSidebar !== latestGlobalSettings.alwaysShowDiagnosticsSidebar ||
+    nextGlobalSettings.periodicRerenderEnabled !== latestGlobalSettings.periodicRerenderEnabled ||
     nextGlobalSettings.themeMode !== latestGlobalSettings.themeMode;
 
   latestGlobalSettings = nextGlobalSettings;
@@ -933,6 +938,10 @@ export function isShowFpsEnabled(): boolean {
 
 export function isAlwaysShowDiagnosticsSidebarEnabled(): boolean {
   return latestGlobalSettings.alwaysShowDiagnosticsSidebar;
+}
+
+export function isPeriodicRerenderEnabled(): boolean {
+  return latestGlobalSettings.periodicRerenderEnabled;
 }
 
 export function getThemeMode(): ThemeMode {

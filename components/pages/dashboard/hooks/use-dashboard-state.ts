@@ -11,7 +11,7 @@ import type {
   WorkspaceMeta,
   WorktreeRow,
 } from "@/components/pages/dashboard/types";
-import { getTestingEnvironmentColor } from "@/components/pages/dashboard/constants";
+import { getTestingEnvironmentColor, syncActiveTestingEnvironmentColorAssignments } from "@/components/pages/dashboard/constants";
 import { toast } from "@/lib/toast";
 import type { GroupedWorktreeItem } from "@/lib/utils/time/grouping";
 import { buildGroupedWorktreeItems } from "@/lib/utils/time/grouping";
@@ -56,6 +56,7 @@ const EVENT_RESCAN_MIN_INTERVAL_MS = 2200;
 const WORKSPACE_RESCAN_REQUEST_TTL_MS = 2500;
 const RUNTIME_FETCH_DEBOUNCE_MS = 200;
 const RUNTIME_FETCH_REQUEST_TTL_MS = 2000;
+const STOP_TERMINAL_EVENT_MUTE_KEY_PREFIX = "stop:";
 const RECENT_DIRECTORIES_STORAGE_KEY = "groove:recent-directories";
 const MAX_RECENT_DIRECTORIES = 5;
 
@@ -216,6 +217,7 @@ export function useDashboardState() {
   const runtimeFetchLastRequestRef = useRef<{ key: string; at: number } | null>(null);
   const runtimeFetchScheduledRef = useRef<{ key: string; at: number } | null>(null);
   const realtimeUnavailableRef = useRef(false);
+  const mutedTerminalLifecycleWorktreeKeysRef = useRef<Set<string>>(new Set());
 
   const workspaceMeta = activeWorkspace?.workspaceMeta ?? null;
   const workspaceRoot = activeWorkspace?.workspaceRoot ?? null;
@@ -230,6 +232,11 @@ export function useDashboardState() {
   const testingRunningWorktrees = useMemo<string[]>(() => {
     return testingEnvironments.filter((environment) => environment.status === "running").map((environment) => environment.worktree);
   }, [testingEnvironments]);
+
+  useEffect(() => {
+    syncActiveTestingEnvironmentColorAssignments(testingEnvironments.map((environment) => environment.worktree));
+  }, [testingEnvironments]);
+
   const testingEnvironmentColorByWorktree = useMemo<Record<string, TestingEnvironmentColor>>(() => {
     return testingEnvironments.reduce<Record<string, TestingEnvironmentColor>>((colors, environment) => {
       colors[environment.worktree] = getTestingEnvironmentColor(environment.worktree);
@@ -784,6 +791,11 @@ export function useDashboardState() {
           return;
         }
 
+        const lifecycleMuteKey = `${STOP_TERMINAL_EVENT_MUTE_KEY_PREFIX}${event.workspaceRoot}:${event.worktree}`;
+        if (mutedTerminalLifecycleWorktreeKeysRef.current.has(lifecycleMuteKey)) {
+          return;
+        }
+
         scheduleRuntimeStateFetch(0, { force: true });
       });
     })();
@@ -939,31 +951,57 @@ export function useDashboardState() {
       }
       const actionKey = `${row.path}:stop`;
       setPendingStopActions((prev) => (prev.includes(actionKey) ? prev : [...prev, actionKey]));
+      const terminalLifecycleMuteKey = `${STOP_TERMINAL_EVENT_MUTE_KEY_PREFIX}${workspaceRoot}:${row.worktree}`;
+      mutedTerminalLifecycleWorktreeKeysRef.current.add(terminalLifecycleMuteKey);
 
       try {
-        try {
-          const sessionListResult = await grooveTerminalListSessions({
-            rootName: workspaceMeta.rootName,
-            knownWorktrees,
-            workspaceMeta,
-            worktree: row.worktree,
+        const terminalPayloadBase = {
+          rootName: workspaceMeta.rootName,
+          knownWorktrees,
+          workspaceMeta,
+          worktree: row.worktree,
+        };
+
+        const sessionListResult = await grooveTerminalListSessions(terminalPayloadBase);
+        if (!sessionListResult.ok) {
+          toast.error(sessionListResult.error ?? "Failed to list in-app terminal sessions before pausing.");
+          return false;
+        }
+
+        if (sessionListResult.sessions.length > 0) {
+          const closeResults = await Promise.allSettled(
+            sessionListResult.sessions.map((session) =>
+              grooveTerminalClose({
+                ...terminalPayloadBase,
+                sessionId: session.sessionId,
+              }),
+            ),
+          );
+
+          const failedClose = closeResults.some((result) => {
+            if (result.status === "rejected") {
+              return true;
+            }
+            return !result.value.ok;
           });
 
-          if (sessionListResult.ok && sessionListResult.sessions.length > 0) {
-            await Promise.allSettled(
-              sessionListResult.sessions.map((session) =>
-                grooveTerminalClose({
-                  rootName: workspaceMeta.rootName,
-                  knownWorktrees,
-                  workspaceMeta,
-                  worktree: row.worktree,
-                  sessionId: session.sessionId,
-                }),
-              ),
-            );
+          if (failedClose) {
+            toast.error("Failed to close all in-app terminal sessions before pausing.");
+            scheduleRuntimeStateFetch(0, { force: true });
+            return false;
           }
-        } catch {
-          // Best-effort cleanup before stopping Groove.
+
+          const remainingSessionsResult = await grooveTerminalListSessions(terminalPayloadBase);
+          if (!remainingSessionsResult.ok) {
+            toast.error(remainingSessionsResult.error ?? "Failed to verify terminal sessions were closed.");
+            return false;
+          }
+
+          if (remainingSessionsResult.sessions.length > 0) {
+            toast.error("Could not close all in-app terminal sessions for this worktree.");
+            scheduleRuntimeStateFetch(0, { force: true });
+            return false;
+          }
         }
 
         const result = (await grooveStop({
@@ -992,10 +1030,11 @@ export function useDashboardState() {
         toast.error("Stop request failed.");
         return false;
       } finally {
+        mutedTerminalLifecycleWorktreeKeysRef.current.delete(terminalLifecycleMuteKey);
         setPendingStopActions((prev) => prev.filter((candidate) => candidate !== actionKey));
       }
     },
-    [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
+    [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, workspaceRoot],
   );
 
   const runPlayGrooveAction = useCallback(

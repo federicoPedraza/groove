@@ -8,7 +8,7 @@ import { DiagnosticsSystemSidebar } from "@/components/pages/diagnostics/diagnos
 import { EmergencyCard } from "@/components/pages/diagnostics/emergency-card";
 import { NodeAppsCard } from "@/components/pages/diagnostics/node-apps-card";
 import { OpencodeInstancesCard } from "@/components/pages/diagnostics/opencode-instances-card";
-import { PageShell } from "@/components/pages/page-shell";
+import { useAppLayout } from "@/components/pages/use-app-layout";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
 import { appendRequestId } from "@/lib/utils/common/request-id";
@@ -602,20 +602,22 @@ export default function DiagnosticsPage() {
     }
   }
 
+  useAppLayout({
+    pageSidebar: ({ collapsed }) => (
+      <DiagnosticsSystemSidebar
+        collapsed={collapsed}
+        overview={systemOverview}
+        isLoading={isLoadingSystemOverview}
+        errorMessage={systemOverviewError}
+        onRefresh={() => {
+          void loadSystemOverview();
+        }}
+      />
+    ),
+  });
+
   return (
-    <PageShell
-      pageSidebar={({ collapsed }) => (
-        <DiagnosticsSystemSidebar
-          collapsed={collapsed}
-          overview={systemOverview}
-          isLoading={isLoadingSystemOverview}
-          errorMessage={systemOverviewError}
-          onRefresh={() => {
-            void loadSystemOverview();
-          }}
-        />
-      )}
-    >
+    <>
       <DiagnosticsHeader
         isLoadingProcessSnapshots={isLoadingOpencode || isLoadingNodeApps}
         hasLoadedProcessSnapshots={hasLoadedProcessSnapshots}
@@ -735,6 +737,6 @@ export default function DiagnosticsPage() {
           void runKillAllNonWorktreeOpencodeAction();
         }}
       />
-    </PageShell>
+    </>
   );
 }

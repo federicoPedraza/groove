@@ -2,7 +2,6 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 
-import { Toaster } from "@/components/ui/sonner";
 import { App } from "@/src/App";
 import { applyThemeToDom } from "@/src/lib/theme";
 import { getThemeMode, globalSettingsGet, subscribeToGlobalSettings } from "@/src/lib/ipc";
@@ -13,7 +12,6 @@ const disableStrictModeForPerf = import.meta.env.DEV && import.meta.env.VITE_DIS
 const appTree = (
   <BrowserRouter>
     <App />
-    <Toaster />
   </BrowserRouter>
 );
 

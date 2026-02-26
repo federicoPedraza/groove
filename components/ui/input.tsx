@@ -2,9 +2,10 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-function Input({ className, type = "text", ...props }: React.ComponentProps<"input">) {
+const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(({ className, type = "text", ...props }, ref) => {
   return (
     <input
+      ref={ref}
       type={type}
       data-slot="input"
       className={cn(
@@ -14,6 +15,8 @@ function Input({ className, type = "text", ...props }: React.ComponentProps<"inp
       {...props}
     />
   );
-}
+});
+
+Input.displayName = "Input";
 
 export { Input };

@@ -163,6 +163,20 @@ For frontend-only iteration:
 npm run dev
 ```
 
+## CI builds (Linux + macOS)
+
+A GitHub Actions workflow is included at:
+
+- `.github/workflows/build-desktop.yml`
+
+It builds desktop artifacts on:
+- `ubuntu-latest` → Linux bundles (`AppImage`, `deb`)
+- `macos-latest` → macOS bundle (`dmg`)
+
+It runs the guided setup scripts in CI (`--no-color`) before building, then uploads artifacts from `src-tauri/target/release/bundle/**`.
+
+You can run it manually from GitHub Actions via **workflow_dispatch**, or it runs on push/PR.
+
 ## Build
 
 Frontend build:

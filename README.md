@@ -6,27 +6,29 @@
 [![Release Desktop](https://github.com/federicoPedraza/groove/actions/workflows/release-desktop.yml/badge.svg)](https://github.com/federicoPedraza/groove/actions/workflows/release-desktop.yml)
 [![Publish Sidecars](https://github.com/federicoPedraza/groove/actions/workflows/publish-sidecars.yml/badge.svg)](https://github.com/federicoPedraza/groove/actions/workflows/publish-sidecars.yml)
 
-Groove helps you manage many Git worktrees without terminal-tab chaos.
+Groove helps you run many Git worktrees without terminal-tab chaos.
 
-Instead of constantly switching branches in one folder, Groove gives you one place to:
-- see active worktrees,
-- start/stop workflows in the correct context,
+Instead of constantly branch-switching one folder, Groove gives you one place to:
+- see what’s active,
+- launch workflows in the correct worktree,
 - open terminals at the right path,
-- clean up noisy local processes,
-- keep workspace behavior consistent via settings.
+- clean stale local processes,
+- keep behavior consistent with workspace settings.
 
 ---
 
 ## Table of Contents
 
 - [Why Groove](#why-groove)
+- [First 60 Seconds](#first-60-seconds)
+- [Visual mental model](#visual-mental-model)
 - [What Groove does](#what-groove-does)
+- [Pages at a glance](#pages-at-a-glance)
 - [Architecture](#architecture)
 - [Stack](#stack)
 - [Repository structure](#repository-structure)
 - [Requirements](#requirements)
-- [Quick start](#quick-start)
-- [Setup scripts](#setup-scripts)
+- [Installation and setup](#installation-and-setup)
 - [Sidecars](#sidecars)
 - [How to use Groove](#how-to-use-groove)
 - [Settings model](#settings-model)
@@ -43,29 +45,79 @@ Instead of constantly switching branches in one folder, Groove gives you one pla
 
 ## Why Groove
 
-When you juggle multiple branches/worktrees, it gets messy fast:
+Multi-worktree development is powerful, but it usually turns into:
 - wrong-directory commands,
-- hard-to-track local runtimes,
+- hard-to-track runtimes,
 - stale processes,
-- context switching overhead.
+- expensive context switching.
 
-Groove is built to reduce that operational load and keep your flow clean.
+Groove exists to reduce that operational drag.
 
 **Core promise:** keep multi-worktree development organized, visible, and low-friction.
+
+---
+
+## First 60 Seconds
+
+If you just cloned the repo, do this:
+
+```bash
+npm install
+npm run setup
+npm run tauri:dev
+```
+
+Then in the app:
+
+1. Select a repository with `.worktrees/`.
+2. Open a worktree from Dashboard.
+3. Hit **Play** (or open terminal in worktree).
+4. Confirm runtime status in Worktrees/Diagnostics.
+
+That’s the fastest path from zero → useful.
+
+---
+
+## Visual mental model
+
+### 1) Workflow loop
+
+```mermaid
+flowchart LR
+    A[Select Workspace] --> B[Discover .worktrees]
+    B --> C[Pick Worktree]
+    C --> D[Play / Open Terminal]
+    D --> E[Code + Test]
+    E --> F[Diagnostics Cleanup]
+    F --> C
+```
+
+### 2) Runtime architecture
+
+```mermaid
+flowchart TB
+    UI[React + Vite UI]
+    IPC[Typed IPC Layer]
+    Tauri[Tauri + Rust Commands]
+    Local[Git + Worktrees + Sidecar + Local Processes]
+
+    UI --> IPC --> Tauri --> Local
+    Local --> Tauri --> UI
+```
 
 ---
 
 ## What Groove does
 
 ### Workspace + worktree management
-- Connect a repository directory as an active workspace.
+- Connect a repository directory as active workspace.
 - Persist workspace metadata in `.groove/workspace.json`.
-- Scan `.worktrees/` and surface actionable state.
+- Scan `.worktrees/` and present actionable state.
 - Provide worktree actions: restore, play, stop, remove.
 
 ### Context-aware execution
-- Open a terminal in the selected worktree path.
-- Run configurable commands per workspace:
+- Open terminal directly at selected worktree path.
+- Run configurable workspace commands:
   - Play Groove command
   - Open terminal command
   - Run local command
@@ -73,15 +125,27 @@ Groove is built to reduce that operational load and keep your flow clean.
 
 ### Diagnostics and cleanup
 - Inspect OpenCode / Node-related runtime processes.
-- Stop individual processes or perform bulk cleanup.
+- Stop individual processes or bulk process groups.
 - Emergency kill for non-worktree OpenCode processes.
-- System overview panel + top consuming process query.
-- `.gitignore` sanity check + optional patching.
+- System overview + top-consuming programs query.
+- `.gitignore` sanity check + optional patch.
 
 ### Integrations and task workflows
 - Git/GitHub helper command surface.
 - Jira connect/sync support.
 - Workspace Tasks + Consellour tool loop.
+
+---
+
+## Pages at a glance
+
+| Page | Purpose |
+|---|---|
+| Dashboard | Main control surface for active workspace + worktree actions |
+| Worktrees | Focused view of active/runnable worktrees |
+| Diagnostics | Runtime cleanup/control center |
+| Tasks | Task + Consellour workflow, Jira sync surface |
+| Settings | Workspace commands, integrations, global appearance/toggles |
 
 ---
 
@@ -91,17 +155,17 @@ Groove uses a 3-layer model:
 
 1. **UI layer (React + Vite + TypeScript)**
    - Dashboard, Worktrees, Diagnostics, Tasks, Settings
-   - Typed frontend IPC calls from `src/lib/ipc.ts`
+   - Typed frontend IPC from `src/lib/ipc.ts`
 2. **Native command layer (Tauri 2 + Rust)**
    - Input/path validation
    - Command orchestration
-   - Event emission to the UI
+   - Event emission to frontend
 3. **Local runtime layer**
    - Git worktrees
    - Groove sidecar binary
    - Local terminals + process lifecycle
 
-This split keeps the UI responsive while preserving local-first control.
+This split keeps the UI fast while preserving local-first control.
 
 ---
 
@@ -124,7 +188,7 @@ This split keeps the UI responsive while preserving local-first control.
 ### Tooling
 - ESLint
 - Vitest + Testing Library + jsdom
-- `tsc --noEmit`
+- TypeScript typecheck (`tsc --noEmit`)
 - Cargo check
 
 ---
@@ -133,7 +197,7 @@ This split keeps the UI responsive while preserving local-first control.
 
 ```text
 .
-├─ app/                 # Route pages (dashboard, worktrees, diagnostics, settings, tasks)
+├─ app/                 # Route pages (dashboard/worktrees/diagnostics/settings/tasks)
 ├─ components/          # Reusable UI + feature components
 ├─ lib/                 # Frontend helpers
 ├─ src/                 # App entry + shared frontend modules
@@ -155,11 +219,13 @@ Install these manually before setup:
 Platform notes:
 - Linux builds require Tauri system dependencies (scripts can install best-effort via `apt`).
 - macOS setup expects Homebrew availability (script can install/verify).
-- Windows setup uses PowerShell scripts and checks WebView2 presence best-effort.
+- Windows setup uses PowerShell and checks WebView2 presence best-effort.
 
 ---
 
-## Quick start
+## Installation and setup
+
+### Quick local start
 
 ```bash
 npm install
@@ -172,11 +238,7 @@ Frontend-only iteration:
 npm run dev
 ```
 
----
-
-## Setup scripts
-
-Unified entry point:
+### Unified setup entry point
 
 ```bash
 npm run setup
@@ -229,13 +291,13 @@ npm run setup:windows
 
 Groove bundles a platform-specific `groove` sidecar via Tauri `externalBin`.
 
-Expected file examples in `src-tauri/binaries/`:
+Expected files in `src-tauri/binaries/` include:
 
 - Linux: `groove-x86_64-unknown-linux-gnu` or `groove-aarch64-unknown-linux-gnu`
 - macOS: `groove-aarch64-apple-darwin` and `groove-x86_64-apple-darwin`
 - Windows: `groove-x86_64-pc-windows-msvc.exe` (arm64 optional)
 
-Check sidecar readiness:
+Validate sidecars:
 
 ```bash
 npm run sidecar:check:linux
@@ -243,27 +305,27 @@ npm run sidecar:check:macos
 npm run sidecar:check:windows
 ```
 
-At runtime, backend resolution checks `GROOVE_BIN` first, then bundled/resource paths.
+Runtime resolution checks `GROOVE_BIN` first, then bundled/resource paths.
 
 ---
 
 ## How to use Groove
 
-Typical workflow:
+Recommended daily loop:
 
 1. Open Groove.
-2. Select a repository workspace.
-3. Review discovered worktrees (`.worktrees/`).
+2. Select your repository workspace.
+3. Review discovered worktrees.
 4. Pick a worktree and run actions (Play / Stop / Terminal / Details).
-5. Build and iterate in that isolated context.
-6. Use Diagnostics to clean stale runtime processes.
-7. Switch to the next worktree without losing context.
+5. Build/test in that isolated context.
+6. Use Diagnostics to clear stale runtime processes.
+7. Switch to next worktree cleanly.
 
-Recommended habits:
-- one clear task per worktree,
-- branch-aligned worktree naming,
-- prune stale worktrees and processes regularly,
-- prefer context-aware actions over manual tab hopping.
+Good habits:
+- one task per worktree,
+- branch-aligned naming,
+- prune stale worktrees/processes,
+- use context-aware actions instead of manual tab hopping.
 
 ---
 
@@ -379,7 +441,7 @@ Dependabot is configured for npm, cargo, and workflow updates.
 
 Contributions are welcome.
 
-Suggested contribution flow:
+Suggested flow:
 
 1. Fork and create a branch.
 2. Make a focused change.
@@ -389,22 +451,22 @@ Suggested contribution flow:
    - why,
    - validation performed.
 
-If your changes affect setup/runtime behavior, include a quick smoke result from `npm run tauri:dev`.
+If your change affects setup/runtime behavior, include a quick smoke result from `npm run tauri:dev`.
 
 ---
 
 ## Security and privacy
 
 - Groove is local-first.
-- Workspace metadata is stored locally (`.groove/workspace.json`).
+- Workspace metadata is local (`.groove/workspace.json`).
 - Telemetry is configurable in settings.
-- Backend command layer enforces path and payload guardrails.
+- Backend command layer enforces path/payload guardrails.
 
 ---
 
 ## Roadmap
 
-High-value docs and product follow-ups:
+High-value follow-ups:
 - command-by-command invoke reference,
 - workspace JSON schema docs,
 - OS-specific troubleshooting matrix,
@@ -417,4 +479,4 @@ High-value docs and product follow-ups:
 
 A license file is not currently present in this repository.
 
-If you plan to distribute Groove as open source, add a `LICENSE` file (for example MIT, Apache-2.0, or GPL) and update this section accordingly.
+If you plan to distribute Groove as open source, add a `LICENSE` file (MIT, Apache-2.0, GPL, etc.) and update this section accordingly.

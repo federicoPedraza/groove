@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub(crate) fn normalize_dimension(value: Option<u16>, default: u16, min: u16, max: u16) -> u16 {
     let resolved = value.unwrap_or(default);
     resolved.clamp(min, max)

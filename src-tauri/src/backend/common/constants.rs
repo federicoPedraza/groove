@@ -17,7 +17,16 @@ const DEFAULT_RUN_LOCAL_COMMAND: &str = "pnpm run dev";
 const SUPPORTED_DEFAULT_TERMINALS: [&str; 8] = [
     "auto", "ghostty", "warp", "kitty", "gnome", "xterm", "none", "custom",
 ];
-const SUPPORTED_THEME_MODES: [&str; 4] = ["light", "groove", "dark-groove", "dark"];
+const SUPPORTED_THEME_MODES: [&str; 8] = [
+    "light",
+    "groove",
+    "ice",
+    "lava",
+    "earth",
+    "wind",
+    "dark-groove",
+    "dark",
+];
 const GITIGNORE_GROOVE_COMMENT: &str = "# Groove";
 const GITIGNORE_REQUIRED_ENTRIES: [&str; 2] = [".groove/", ".workspace/"];
 const GROOVE_PLAY_COMMAND_SENTINEL: &str = "__groove_terminal__";
@@ -29,4 +38,8 @@ const DEFAULT_GROOVE_TERMINAL_ROWS: u16 = 34;
 const MIN_GROOVE_TERMINAL_DIMENSION: u16 = 10;
 const MAX_GROOVE_TERMINAL_DIMENSION: u16 = 500;
 const MAX_GROOVE_TERMINAL_SNAPSHOT_BYTES: usize = 256 * 1024;
-
+const DEFAULT_CONSELLOUR_MODEL: &str = "gpt-5.3-codex";
+const SUPPORTED_CONSELLOUR_MODELS: [&str; 4] =
+    ["gpt-5.3-codex", "gpt-5.1", "gpt-4.1", "gpt-4o-mini"];
+const DEFAULT_CONSELLOUR_REASONING_LEVEL: &str = "medium";
+const SUPPORTED_CONSELLOUR_REASONING_LEVELS: [&str; 3] = ["low", "medium", "high"];

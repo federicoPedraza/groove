@@ -1,7 +1,7 @@
 "use client";
 
 import { Link, useLocation } from "react-router-dom";
-import { ActivitySquare, CircleHelp, GitBranch, LayoutDashboard, PanelLeft, Settings, TreePalm, TriangleAlert } from "lucide-react";
+import { ActivitySquare, CircleHelp, GitBranch, LayoutDashboard, ListTodo, PanelLeft, Settings, TreePalm, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import {
@@ -362,6 +362,7 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const isHomeActive = pathname === "/";
   const isWorktreesActive = pathname === "/worktrees" || pathname.startsWith("/worktrees/");
   const isDiagnosticsActive = pathname === "/diagnostics";
+  const isTasksActive = pathname === "/tasks";
   const isSettingsActive = pathname === "/settings";
   const isHelpActive = isHelpOpen;
   const homeLabel = hasOpenWorkspace ? "Dashboard" : "Home";
@@ -659,6 +660,21 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                 </Link>
                 {hasOpenWorkspace && (
                   <Link
+                    to="/tasks"
+                    className={sidebarMenuButtonClassName({
+                      isActive: isTasksActive,
+                      collapsed: isSidebarCollapsed,
+                    })}
+                    onClick={() => {
+                      recordNavigationStart("/tasks");
+                    }}
+                  >
+                    <ListTodo aria-hidden="true" className="size-4 shrink-0" />
+                    {!isSidebarCollapsed && <span>Tasks</span>}
+                  </Link>
+                )}
+                {hasOpenWorkspace && (
+                  <Link
                     to="/diagnostics"
                     className={cn(
                       "relative",
@@ -790,6 +806,19 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                 <LayoutDashboard aria-hidden="true" className="size-4 shrink-0" />
                 <span>{homeLabel}</span>
               </Link>
+              {hasOpenWorkspace && (
+                <Link
+                  to="/tasks"
+                  className={sidebarMenuButtonClassName({ isActive: isTasksActive })}
+                  onClick={() => {
+                    recordNavigationStart("/tasks");
+                    setIsMobileSidebarOpen(false);
+                  }}
+                >
+                  <ListTodo aria-hidden="true" className="size-4 shrink-0" />
+                  <span>Tasks</span>
+                </Link>
+              )}
               {hasOpenWorkspace && (
                 <Link
                   to="/diagnostics"

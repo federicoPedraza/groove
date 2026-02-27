@@ -189,6 +189,78 @@ struct WorkspaceMetaContext {
     open_terminal_at_worktree_command: Option<String>,
     run_local_command: Option<String>,
     worktree_symlink_paths: Option<Vec<String>>,
+    consellour_settings: Option<ConsellourSettings>,
+    jira_settings: Option<JiraSettings>,
+    tasks: Option<Vec<WorkspaceTask>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraSettings {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    site_url: String,
+    #[serde(default)]
+    account_email: String,
+    #[serde(default)]
+    default_project_key: Option<String>,
+    #[serde(default)]
+    jql: Option<String>,
+    #[serde(default)]
+    sync_enabled: bool,
+    #[serde(default)]
+    sync_open_issues_only: bool,
+    #[serde(default)]
+    last_sync_at: Option<String>,
+    #[serde(default)]
+    last_sync_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum TaskPriority {
+    Low,
+    Medium,
+    High,
+    Urgent,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum TaskOrigin {
+    ConsellourTool,
+    ExternalSync,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceTask {
+    id: String,
+    title: String,
+    description: String,
+    priority: TaskPriority,
+    consellour_priority: TaskPriority,
+    created_at: String,
+    updated_at: String,
+    last_interacted_at: String,
+    origin: TaskOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    external_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    external_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConsellourSettings {
+    #[serde(default)]
+    openai_api_key: Option<String>,
+    #[serde(default = "default_consellour_model")]
+    model: String,
+    #[serde(default = "default_consellour_reasoning_level")]
+    reasoning_level: String,
+    updated_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -218,6 +290,12 @@ struct WorkspaceMeta {
     run_local_command: Option<String>,
     #[serde(default = "default_worktree_symlink_paths")]
     worktree_symlink_paths: Vec<String>,
+    #[serde(default = "default_consellour_settings")]
+    consellour_settings: ConsellourSettings,
+    #[serde(default = "default_jira_settings")]
+    jira_settings: JiraSettings,
+    #[serde(default)]
+    tasks: Vec<WorkspaceTask>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -372,6 +450,101 @@ struct WorkspaceWorktreeSymlinkPathsPayload {
 #[serde(rename_all = "camelCase")]
 struct WorkspaceBrowseEntriesPayload {
     relative_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConsellourSettingsUpdatePayload {
+    #[serde(default)]
+    openai_api_key: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    reasoning_level: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceTaskQueryPayload {
+    #[serde(default)]
+    title_query: Option<String>,
+    #[serde(default)]
+    description_query: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConsellourToolCreateTaskPayload {
+    title: String,
+    description: String,
+    priority: TaskPriority,
+    consellour_priority: TaskPriority,
+    #[serde(default)]
+    origin: Option<TaskOrigin>,
+    #[serde(default)]
+    external_id: Option<String>,
+    #[serde(default)]
+    external_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConsellourToolEditTaskPayload {
+    id: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    priority: Option<TaskPriority>,
+    #[serde(default)]
+    consellour_priority: Option<TaskPriority>,
+    #[serde(default)]
+    last_interacted_at: Option<String>,
+    #[serde(default)]
+    origin: Option<TaskOrigin>,
+    #[serde(default)]
+    external_id: Option<String>,
+    #[serde(default)]
+    external_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraConnectApiTokenPayload {
+    site_url: String,
+    email: String,
+    api_token: String,
+    #[serde(default)]
+    default_project_key: Option<String>,
+    #[serde(default)]
+    jql: Option<String>,
+    #[serde(default)]
+    sync_enabled: Option<bool>,
+    #[serde(default)]
+    sync_open_issues_only: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraProjectsListPayload {
+    #[serde(default)]
+    include_archived: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraSyncPullPayload {
+    #[serde(default)]
+    jql_override: Option<String>,
+    #[serde(default)]
+    max_results: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraIssueOpenInBrowserPayload {
+    issue_key: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -778,6 +951,226 @@ struct WorkspaceBrowseEntriesResponse {
     entries: Vec<WorkspaceBrowseEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConsellourSettingsResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settings: Option<ConsellourSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceTasksResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(default)]
+    tasks: Vec<WorkspaceTask>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceTaskResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    task: Option<WorkspaceTask>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraApiError {
+    code: String,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry_after_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraConnectionStatusResponse {
+    request_id: String,
+    ok: bool,
+    connected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settings: Option<JiraSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    has_token: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jira_error: Option<JiraApiError>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraConnectResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settings: Option<JiraSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    account_display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jira_error: Option<JiraApiError>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraDisconnectResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settings: Option<JiraSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraProjectSummary {
+    key: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_type_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraProjectsListResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(default)]
+    projects: Vec<JiraProjectSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jira_error: Option<JiraApiError>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraSyncPullResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    imported_count: usize,
+    updated_count: usize,
+    skipped_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settings: Option<JiraSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    jira_error: Option<JiraApiError>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraIssueOpenInBrowserResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct JiraMyselfResponse {
+    #[serde(rename = "displayName")]
+    #[serde(default)]
+    display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct JiraProjectSearchResponse {
+    #[serde(default)]
+    values: Vec<JiraProjectWire>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraProjectWire {
+    key: String,
+    name: String,
+    #[serde(default)]
+    project_type_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraIssueSearchJqlRequest {
+    jql: String,
+    max_results: u32,
+    fields: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_page_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraIssueSearchResponse {
+    #[serde(default)]
+    issues: Vec<JiraIssueWire>,
+    #[serde(default)]
+    next_page_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct JiraIssueWire {
+    key: String,
+    fields: JiraIssueFieldsWire,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct JiraIssueFieldsWire {
+    #[serde(default)]
+    summary: String,
+    #[serde(default)]
+    description: Option<serde_json::Value>,
+    #[serde(default)]
+    status: Option<JiraIssueStatusWire>,
+    #[serde(default)]
+    priority: Option<JiraIssuePriorityWire>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct JiraIssueStatusWire {
+    #[serde(default)]
+    name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct JiraIssuePriorityWire {
+    #[serde(default)]
+    name: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1326,4 +1719,3 @@ struct WorkspaceContextSignature {
     worktrees_dir: SnapshotEntry,
     worktree_execution_state_file: SnapshotEntry,
 }
-

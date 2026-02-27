@@ -37,6 +37,13 @@ pub(crate) fn run() {
             workspace_update_commands_settings,
             workspace_update_worktree_symlink_paths,
             workspace_list_symlink_entries,
+            consellour_get_settings,
+            consellour_update_settings,
+            tasks_list,
+            consellour_get_task,
+            consellour_get_recommended_task,
+            consellour_tool_create_task,
+            consellour_tool_edit_task,
             workspace_open_terminal,
             workspace_open_workspace_terminal,
             groove_terminal_open,
@@ -91,7 +98,13 @@ pub(crate) fn run() {
             diagnostics_clean_all_dev_servers,
             diagnostics_get_msot_consuming_programs,
             diagnostics_get_system_overview,
-            workspace_events
+            workspace_events,
+            jira_connection_status,
+            jira_connect_api_token,
+            jira_disconnect,
+            jira_projects_list,
+            jira_sync_pull,
+            jira_issue_open_in_browser
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

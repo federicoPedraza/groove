@@ -299,6 +299,9 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
                 .collect::<Vec<_>>()
         })
     });
+    let consellour_settings = None;
+    let jira_settings = None;
+    let tasks = None;
 
     if version.is_none()
         && root_name.is_none()
@@ -314,6 +317,9 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         && open_terminal_at_worktree_command.is_none()
         && run_local_command.is_none()
         && worktree_symlink_paths.is_none()
+        && consellour_settings.is_none()
+        && jira_settings.is_none()
+        && tasks.is_none()
     {
         return None;
     }
@@ -333,6 +339,9 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         open_terminal_at_worktree_command,
         run_local_command,
         worktree_symlink_paths,
+        consellour_settings,
+        jira_settings,
+        tasks,
     })
 }
 
@@ -674,4 +683,3 @@ fn first_non_empty_line(value: &str) -> Option<String> {
 fn repository_remote_url(workspace_root: &Path) -> Option<String> {
     resolve_remote_url_with_fallback(workspace_root).map(|(_, remote_url)| remote_url)
 }
-

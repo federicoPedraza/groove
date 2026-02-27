@@ -4,6 +4,7 @@ pub(crate) mod diagnostics_process_control;
 pub(crate) mod event_polling_emission_pipeline;
 pub(crate) mod frontend_command_registry;
 pub(crate) mod git_github_bridge;
+pub(crate) mod jira_integration;
 pub(crate) mod groove_worktree_lifecycle;
 pub(crate) mod pty_terminal_sessions;
 pub(crate) mod runtime_cache_dedupe;

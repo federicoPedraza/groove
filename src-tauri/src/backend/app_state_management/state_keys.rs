@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::path::Path;
 
 pub(crate) const WORKSPACE_EVENT_STATE_KEY: &str = "workspace_events";

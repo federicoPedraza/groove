@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub(crate) fn invalid_bin_warning(configured_path: Option<&str>) -> String {
     format!(
         "[startup-warning] GROOVE_BIN is invalid and may break groove command execution: {}",

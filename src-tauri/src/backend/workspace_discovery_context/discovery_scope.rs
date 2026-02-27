@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::HashSet;
 
 pub(crate) fn normalize_root_name_hint(value: Option<&str>) -> Option<String> {

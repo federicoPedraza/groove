@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::time::{Duration, Instant};
 
 pub(crate) fn is_fresh(created_at: Instant, ttl: Duration) -> bool {

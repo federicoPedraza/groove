@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::HashSet;
 
 pub(crate) fn normalize_ports(ports: &[u16], fallback: &[u16]) -> Vec<u16> {

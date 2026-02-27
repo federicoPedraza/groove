@@ -33,6 +33,138 @@ export type WorkspaceMeta = {
   playGrooveCommand?: string;
   testingPorts?: number[];
   worktreeSymlinkPaths?: string[];
+  consellourSettings?: ConsellourSettings;
+  jiraSettings?: JiraSettings;
+  tasks?: WorkspaceTask[];
+};
+
+export type JiraSettings = {
+  enabled: boolean;
+  siteUrl: string;
+  accountEmail: string;
+  defaultProjectKey?: string | null;
+  jql?: string | null;
+  syncEnabled: boolean;
+  syncOpenIssuesOnly: boolean;
+  lastSyncAt?: string | null;
+  lastSyncError?: string | null;
+};
+
+export type JiraApiError = {
+  code: string;
+  message: string;
+  retryAfterSeconds?: number;
+};
+
+export type JiraConnectionStatusResponse = {
+  requestId?: string;
+  ok: boolean;
+  connected: boolean;
+  workspaceRoot?: string;
+  settings?: JiraSettings;
+  hasToken?: boolean;
+  jiraError?: JiraApiError;
+  error?: string;
+};
+
+export type JiraConnectApiTokenPayload = {
+  siteUrl: string;
+  email: string;
+  apiToken: string;
+  defaultProjectKey?: string;
+  jql?: string;
+  syncEnabled?: boolean;
+  syncOpenIssuesOnly?: boolean;
+};
+
+export type JiraConnectResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  settings?: JiraSettings;
+  accountDisplayName?: string;
+  jiraError?: JiraApiError;
+  error?: string;
+};
+
+export type JiraDisconnectResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  settings?: JiraSettings;
+  error?: string;
+};
+
+export type JiraProjectSummary = {
+  key: string;
+  name: string;
+  projectTypeKey?: string;
+};
+
+export type JiraProjectsListPayload = {
+  includeArchived?: boolean;
+};
+
+export type JiraProjectsListResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  projects: JiraProjectSummary[];
+  jiraError?: JiraApiError;
+  error?: string;
+};
+
+export type JiraSyncPullPayload = {
+  jqlOverride?: string;
+  maxResults?: number;
+};
+
+export type JiraSyncPullResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  importedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  settings?: JiraSettings;
+  jiraError?: JiraApiError;
+  error?: string;
+};
+
+export type JiraIssueOpenInBrowserPayload = {
+  issueKey: string;
+};
+
+export type JiraIssueOpenInBrowserResponse = {
+  requestId?: string;
+  ok: boolean;
+  url?: string;
+  error?: string;
+};
+
+export type TaskPriority = "low" | "medium" | "high" | "urgent";
+
+export type TaskOrigin = "consellourTool" | "externalSync";
+
+export type WorkspaceTask = {
+  id: string;
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  consellourPriority: TaskPriority;
+  createdAt: string;
+  updatedAt: string;
+  lastInteractedAt: string;
+  origin: TaskOrigin;
+  externalId?: string;
+  externalUrl?: string;
+};
+
+export type ConsellourSettings = {
+  openaiApiKey?: string;
+  model: string;
+  reasoningLevel: "low" | "medium" | "high";
+  updatedAt: string;
 };
 
 export type WorkspaceTerminalSettingsPayload = {
@@ -73,6 +205,63 @@ export type WorkspaceBrowseEntriesResponse = {
   workspaceRoot?: string;
   relativePath: string;
   entries: WorkspaceBrowseEntry[];
+  error?: string;
+};
+
+export type ConsellourSettingsUpdatePayload = {
+  openaiApiKey?: string;
+  model?: string;
+  reasoningLevel?: "low" | "medium" | "high";
+};
+
+export type WorkspaceTaskQueryPayload = {
+  titleQuery?: string;
+  descriptionQuery?: string;
+};
+
+export type ConsellourToolCreateTaskPayload = {
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  consellourPriority: TaskPriority;
+  origin?: TaskOrigin;
+  externalId?: string;
+  externalUrl?: string;
+};
+
+export type ConsellourToolEditTaskPayload = {
+  id: string;
+  title?: string;
+  description?: string;
+  priority?: TaskPriority;
+  consellourPriority?: TaskPriority;
+  lastInteractedAt?: string;
+  origin?: TaskOrigin;
+  externalId?: string;
+  externalUrl?: string;
+};
+
+export type ConsellourSettingsResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  settings?: ConsellourSettings;
+  error?: string;
+};
+
+export type WorkspaceTasksResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  tasks: WorkspaceTask[];
+  error?: string;
+};
+
+export type WorkspaceTaskResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  task?: WorkspaceTask;
   error?: string;
 };
 
@@ -806,12 +995,25 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "global_settings_update",
   "diagnostics_get_system_overview",
   "workspace_list_symlink_entries",
+  "consellour_get_settings",
+  "consellour_update_settings",
+  "tasks_list",
+  "consellour_get_task",
+  "consellour_get_recommended_task",
+  "consellour_tool_create_task",
+  "consellour_tool_edit_task",
   "groove_terminal_open",
   "groove_terminal_write",
   "groove_terminal_resize",
   "groove_terminal_close",
   "groove_terminal_get_session",
   "groove_terminal_list_sessions",
+  "jira_connection_status",
+  "jira_connect_api_token",
+  "jira_disconnect",
+  "jira_projects_list",
+  "jira_sync_pull",
+  "jira_issue_open_in_browser",
 ]);
 
 const NON_DEDUPED_COMMANDS = new Set<string>(["groove_terminal_write"]);
@@ -860,7 +1062,16 @@ const globalSettingsListeners = new Set<() => void>();
 const blockingInvokeListeners = new Set<() => void>();
 
 function isThemeMode(value: unknown): value is ThemeMode {
-  return value === "light" || value === "groove" || value === "dark-groove" || value === "dark";
+  return (
+    value === "light" ||
+    value === "groove" ||
+    value === "ice" ||
+    value === "lava" ||
+    value === "earth" ||
+    value === "wind" ||
+    value === "dark-groove" ||
+    value === "dark"
+  );
 }
 
 function normalizeGlobalSettings(value: Partial<GlobalSettings> | null | undefined): GlobalSettings {
@@ -1564,6 +1775,70 @@ export function workspaceListSymlinkEntries(
   return invokeCommand<WorkspaceBrowseEntriesResponse>("workspace_list_symlink_entries", { payload }, {
     intent: "background",
   });
+}
+
+export function consellourGetSettings(): Promise<ConsellourSettingsResponse> {
+  return invokeCommand<ConsellourSettingsResponse>("consellour_get_settings", undefined, {
+    intent: "background",
+  });
+}
+
+export function consellourUpdateSettings(payload: ConsellourSettingsUpdatePayload): Promise<ConsellourSettingsResponse> {
+  return invokeCommand<ConsellourSettingsResponse>("consellour_update_settings", { payload });
+}
+
+export function tasksList(): Promise<WorkspaceTasksResponse> {
+  return invokeCommand<WorkspaceTasksResponse>("tasks_list", undefined, {
+    intent: "background",
+  });
+}
+
+export function consellourGetTask(payload: WorkspaceTaskQueryPayload): Promise<WorkspaceTaskResponse> {
+  return invokeCommand<WorkspaceTaskResponse>("consellour_get_task", { payload }, {
+    intent: "background",
+  });
+}
+
+export function consellourGetRecommendedTask(): Promise<WorkspaceTaskResponse> {
+  return invokeCommand<WorkspaceTaskResponse>("consellour_get_recommended_task", undefined, {
+    intent: "background",
+  });
+}
+
+export function consellourToolCreateTask(payload: ConsellourToolCreateTaskPayload): Promise<WorkspaceTaskResponse> {
+  return invokeCommand<WorkspaceTaskResponse>("consellour_tool_create_task", { payload });
+}
+
+export function consellourToolEditTask(payload: ConsellourToolEditTaskPayload): Promise<WorkspaceTaskResponse> {
+  return invokeCommand<WorkspaceTaskResponse>("consellour_tool_edit_task", { payload });
+}
+
+export function jiraConnectionStatus(): Promise<JiraConnectionStatusResponse> {
+  return invokeCommand<JiraConnectionStatusResponse>("jira_connection_status", undefined, {
+    intent: "background",
+  });
+}
+
+export function jiraConnectApiToken(payload: JiraConnectApiTokenPayload): Promise<JiraConnectResponse> {
+  return invokeCommand<JiraConnectResponse>("jira_connect_api_token", { payload });
+}
+
+export function jiraDisconnect(): Promise<JiraDisconnectResponse> {
+  return invokeCommand<JiraDisconnectResponse>("jira_disconnect");
+}
+
+export function jiraProjectsList(payload: JiraProjectsListPayload = {}): Promise<JiraProjectsListResponse> {
+  return invokeCommand<JiraProjectsListResponse>("jira_projects_list", { payload }, {
+    intent: "background",
+  });
+}
+
+export function jiraSyncPull(payload: JiraSyncPullPayload = {}): Promise<JiraSyncPullResponse> {
+  return invokeCommand<JiraSyncPullResponse>("jira_sync_pull", { payload });
+}
+
+export function jiraIssueOpenInBrowser(payload: JiraIssueOpenInBrowserPayload): Promise<JiraIssueOpenInBrowserResponse> {
+  return invokeCommand<JiraIssueOpenInBrowserResponse>("jira_issue_open_in_browser", { payload });
 }
 
 export function workspaceOpenTerminal(payload: TestingEnvironmentStartPayload): Promise<GrooveRestoreResponse> {

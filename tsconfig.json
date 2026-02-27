@@ -23,10 +23,12 @@
     "src",
     "components",
     "lib",
+    "libs",
     "app/page.tsx",
     "app/worktrees/page.tsx",
     "app/worktrees/worktree-detail-page.tsx",
     "app/diagnostics/page.tsx",
+    "app/tasks/page.tsx",
     "app/settings/page.tsx",
     "app/help/page.tsx",
     "vite.config.ts"

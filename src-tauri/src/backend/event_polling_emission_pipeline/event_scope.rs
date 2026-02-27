@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::time::{Duration, Instant};
 
 pub(crate) fn should_emit(last_emitted_at: Option<Instant>, min_interval: Duration) -> bool {

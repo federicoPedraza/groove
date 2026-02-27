@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::path::{Path, PathBuf};
 
 pub(crate) fn worktree_dir(workspace_root: &Path) -> PathBuf {

@@ -1,9 +1,18 @@
 import { DEFAULT_THEME_MODE, THEME_STORAGE_KEY, type ThemeMode } from "@/src/lib/theme-constants";
 
-const DARK_THEME_MODES: ReadonlySet<ThemeMode> = new Set(["dark", "dark-groove"]);
+const DARK_THEME_MODES: ReadonlySet<ThemeMode> = new Set(["lava", "earth", "dark", "dark-groove"]);
 
 function isThemeMode(value: string): value is ThemeMode {
-  return value === "light" || value === "groove" || value === "dark-groove" || value === "dark";
+  return (
+    value === "light" ||
+    value === "groove" ||
+    value === "ice" ||
+    value === "lava" ||
+    value === "earth" ||
+    value === "wind" ||
+    value === "dark-groove" ||
+    value === "dark"
+  );
 }
 
 function readStoredTheme(): string | null {

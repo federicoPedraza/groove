@@ -5,6 +5,7 @@ import { ChevronDown } from "lucide-react";
 
 import { CommandsSettingsForm } from "@/components/pages/settings/commands-settings-form";
 import { WorktreeSymlinkPathsModal } from "@/components/pages/settings/worktree-symlink-paths-modal";
+import { JiraIntegrationPanel } from "@/components/jira/jira-integration-panel";
 import type { SaveState, WorkspaceMeta } from "@/components/pages/settings/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,10 @@ import {
   globalSettingsGet,
   globalSettingsUpdate,
   isTelemetryEnabled,
+  jiraConnectApiToken,
+  jiraConnectionStatus,
+  jiraDisconnect,
+  jiraSyncPull,
   subscribeToGlobalSettings,
   workspaceGetActive,
   workspaceUpdateCommandsSettings,
@@ -84,6 +89,12 @@ export default function SettingsPage() {
   const [worktreeSymlinkMessage, setWorktreeSymlinkMessage] = useState<string | null>(null);
   const [worktreeSymlinkMessageType, setWorktreeSymlinkMessageType] = useState<"success" | "error" | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [jiraConnected, setJiraConnected] = useState(false);
+  const [jiraStatusMessage, setJiraStatusMessage] = useState<string | null>(null);
+  const [jiraErrorMessage, setJiraErrorMessage] = useState<string | null>(null);
+  const [isJiraConnectPending, setIsJiraConnectPending] = useState(false);
+  const [isJiraDisconnectPending, setIsJiraDisconnectPending] = useState(false);
+  const [isJiraSyncPending, setIsJiraSyncPending] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemeMode());
   const disableGrooveLoadingSectionRequestVersionRef = useRef(0);
   const telemetryEnabledRequestVersionRef = useRef(0);
@@ -325,6 +336,33 @@ export default function SettingsPage() {
     [workspaceMeta],
   );
 
+  const refreshJiraStatus = useCallback(async () => {
+    if (!workspaceRoot) {
+      setJiraConnected(false);
+      setJiraStatusMessage(null);
+      setJiraErrorMessage(null);
+      return;
+    }
+
+    try {
+      const response = await jiraConnectionStatus();
+      if (!response.ok) {
+        setJiraConnected(false);
+        setJiraErrorMessage(response.error ?? response.jiraError?.message ?? "Failed to load Jira status.");
+        return;
+      }
+
+      setJiraConnected(response.connected);
+    } catch {
+      setJiraConnected(false);
+      setJiraErrorMessage("Failed to load Jira status.");
+    }
+  }, [workspaceRoot]);
+
+  useEffect(() => {
+    void refreshJiraStatus();
+  }, [refreshJiraStatus]);
+
   const onThemeModeChange = (nextTheme: ThemeMode): void => {
     const previousThemeMode = themeMode;
     setThemeMode(nextTheme);
@@ -486,6 +524,126 @@ export default function SettingsPage() {
                     )}
                   </CollapsibleContent>
                 </Collapsible>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+
+        <Collapsible defaultOpen>
+          <Card className="my-4 gap-0">
+            <CardHeader className="py-3">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  aria-label="Toggle integrations settings"
+                >
+                  <CardTitle className="text-sm">Integrations</CardTitle>
+                  <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                </button>
+              </CollapsibleTrigger>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent className="space-y-3">
+                <JiraIntegrationPanel
+                  title="Jira"
+                  settings={workspaceMeta?.jiraSettings ?? null}
+                  connected={jiraConnected}
+                  statusMessage={jiraStatusMessage}
+                  errorMessage={jiraErrorMessage}
+                  syncPending={isJiraSyncPending}
+                  connectPending={isJiraConnectPending}
+                  disconnectPending={isJiraDisconnectPending}
+                  disabled={!workspaceMeta}
+                  onConnect={(payload) => {
+                    if (!workspaceMeta) {
+                      setJiraErrorMessage("Connect a repository before configuring Jira.");
+                      return;
+                    }
+
+                    setIsJiraConnectPending(true);
+                    setJiraStatusMessage(null);
+                    setJiraErrorMessage(null);
+
+                    void (async () => {
+                      try {
+                        const response = await jiraConnectApiToken(payload);
+                        if (!response.ok || !response.settings) {
+                          setJiraErrorMessage(response.error ?? response.jiraError?.message ?? "Failed to connect Jira.");
+                          return;
+                        }
+
+                        setWorkspaceMeta((current) => (current ? { ...current, jiraSettings: response.settings } : current));
+                        setJiraConnected(true);
+                        setJiraStatusMessage(
+                          response.accountDisplayName ? `Connected as ${response.accountDisplayName}.` : "Jira connected.",
+                        );
+                      } catch {
+                        setJiraErrorMessage("Failed to connect Jira.");
+                      } finally {
+                        setIsJiraConnectPending(false);
+                      }
+                    })();
+                  }}
+                  onDisconnect={() => {
+                    if (!workspaceMeta) {
+                      return;
+                    }
+
+                    setIsJiraDisconnectPending(true);
+                    setJiraStatusMessage(null);
+                    setJiraErrorMessage(null);
+
+                    void (async () => {
+                      try {
+                        const response = await jiraDisconnect();
+                        if (!response.ok || !response.settings) {
+                          setJiraErrorMessage(response.error ?? "Failed to disconnect Jira.");
+                          return;
+                        }
+
+                        setWorkspaceMeta((current) => (current ? { ...current, jiraSettings: response.settings } : current));
+                        setJiraConnected(false);
+                        setJiraStatusMessage("Jira disconnected.");
+                      } catch {
+                        setJiraErrorMessage("Failed to disconnect Jira.");
+                      } finally {
+                        setIsJiraDisconnectPending(false);
+                      }
+                    })();
+                  }}
+                  onSyncNow={() => {
+                    if (!workspaceMeta) {
+                      return;
+                    }
+
+                    setIsJiraSyncPending(true);
+                    setJiraStatusMessage(null);
+                    setJiraErrorMessage(null);
+
+                    void (async () => {
+                      try {
+                        const response = await jiraSyncPull({});
+                        if (!response.ok) {
+                          setJiraErrorMessage(response.error ?? response.jiraError?.message ?? "Jira sync failed.");
+                          return;
+                        }
+
+                        if (response.settings) {
+                          setWorkspaceMeta((current) => (current ? { ...current, jiraSettings: response.settings } : current));
+                        }
+
+                        setJiraStatusMessage(
+                          `Synced ${response.importedCount + response.updatedCount} issues (${response.importedCount} imported, ${response.updatedCount} updated).`,
+                        );
+                      } catch {
+                        setJiraErrorMessage("Jira sync failed.");
+                      } finally {
+                        setIsJiraSyncPending(false);
+                      }
+                    })();
+                  }}
+                />
               </CardContent>
             </CollapsibleContent>
           </Card>

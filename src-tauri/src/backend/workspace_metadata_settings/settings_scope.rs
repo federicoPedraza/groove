@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub(crate) fn normalize_optional_command(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub(crate) fn summarize_stop_results(
     stopped: usize,
     already_stopped: usize,

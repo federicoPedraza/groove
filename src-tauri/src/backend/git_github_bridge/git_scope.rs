@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub(crate) fn normalize_hostname(hostname: Option<&str>) -> Option<String> {
     hostname
         .map(str::trim)

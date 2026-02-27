@@ -8,6 +8,7 @@ import { isPeriodicRerenderEnabled, subscribeToGlobalSettings } from "@/src/lib/
 
 const DiagnosticsPage = lazy(async () => import("@/app/diagnostics/page"));
 const SettingsPage = lazy(async () => import("@/app/settings/page"));
+const TasksPage = lazy(async () => import("@/app/tasks/page"));
 const WorktreesPage = lazy(async () => import("@/app/worktrees/page"));
 const WorktreeDetailPage = lazy(async () => import("@/app/worktrees/worktree-detail-page"));
 
@@ -81,6 +82,14 @@ export function App() {
             element={
               <Suspense fallback={<RouteFallback pageName="diagnostics" />}>
                 <DiagnosticsPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="tasks"
+            element={
+              <Suspense fallback={<RouteFallback pageName="tasks" />}>
+                <TasksPage />
               </Suspense>
             }
           />

@@ -21,3 +21,8 @@ walkdir = "2"
 rfd = "0.15"
 time = { version = "0.3", features = ["formatting"] }
 portable-pty = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+keyring = "2"
+base64 = "0.22"
+sha2 = "0.10"
+url = "2"

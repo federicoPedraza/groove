@@ -229,9 +229,10 @@ fn workspace_clear_active(
     if let Some(workspace_root) = persisted_workspace_root.as_deref() {
         let workspace_root_key = workspace_root_storage_key(Path::new(workspace_root));
         let sessions_to_close = match terminal_state.inner.lock() {
-            Ok(mut sessions_state) => {
-                drain_groove_terminal_sessions(&mut sessions_state, Some(workspace_root_key.as_str()))
-            }
+            Ok(mut sessions_state) => drain_groove_terminal_sessions(
+                &mut sessions_state,
+                Some(workspace_root_key.as_str()),
+            ),
             Err(_) => Vec::new(),
         };
         close_groove_terminal_sessions_best_effort(sessions_to_close);
@@ -344,7 +345,8 @@ fn workspace_gitignore_sanity_check(app: AppHandle) -> WorkspaceGitignoreSanityR
         }
     };
 
-    let (has_groove_entry, has_workspace_entry, _, missing_entries) = collect_gitignore_sanity(&content);
+    let (has_groove_entry, has_workspace_entry, _, missing_entries) =
+        collect_gitignore_sanity(&content);
 
     WorkspaceGitignoreSanityResponse {
         request_id,
@@ -826,19 +828,19 @@ fn workspace_update_worktree_symlink_paths(
     payload: WorkspaceWorktreeSymlinkPathsPayload,
 ) -> WorkspaceTerminalSettingsResponse {
     let request_id = request_id();
-    let worktree_symlink_paths = match validate_worktree_symlink_paths(&payload.worktree_symlink_paths)
-    {
-        Ok(value) => value,
-        Err(error) => {
-            return WorkspaceTerminalSettingsResponse {
-                request_id,
-                ok: false,
-                workspace_root: None,
-                workspace_meta: None,
-                error: Some(error),
+    let worktree_symlink_paths =
+        match validate_worktree_symlink_paths(&payload.worktree_symlink_paths) {
+            Ok(value) => value,
+            Err(error) => {
+                return WorkspaceTerminalSettingsResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: None,
+                    workspace_meta: None,
+                    error: Some(error),
+                }
             }
-        }
-    };
+        };
 
     let persisted_root = match read_persisted_active_workspace_root(&app) {
         Ok(Some(value)) => value,
@@ -1053,3 +1055,520 @@ fn workspace_list_symlink_entries(
     }
 }
 
+fn active_workspace_meta(app: &AppHandle) -> Result<(PathBuf, WorkspaceMeta), String> {
+    let workspace_root = active_workspace_root_from_state(app)?;
+    let (workspace_meta, _) = ensure_workspace_meta(&workspace_root)?;
+    Ok((workspace_root, workspace_meta))
+}
+
+fn persist_workspace_meta_update(
+    app: &AppHandle,
+    workspace_root: &Path,
+    workspace_meta: &WorkspaceMeta,
+) -> Result<(), String> {
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    write_workspace_meta_file(&workspace_json, workspace_meta)?;
+    invalidate_workspace_context_cache(app, workspace_root);
+    Ok(())
+}
+
+#[tauri::command]
+fn consellour_get_settings(app: AppHandle) -> ConsellourSettingsResponse {
+    let request_id = request_id();
+    let (workspace_root, workspace_meta) = match active_workspace_meta(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return ConsellourSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                settings: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    ConsellourSettingsResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        settings: Some(workspace_meta.consellour_settings),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn consellour_update_settings(
+    app: AppHandle,
+    payload: ConsellourSettingsUpdatePayload,
+) -> ConsellourSettingsResponse {
+    let request_id = request_id();
+    let (workspace_root, mut workspace_meta) = match active_workspace_meta(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return ConsellourSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                settings: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    if let Some(api_key) = payload.openai_api_key.as_deref() {
+        let normalized_api_key = match normalize_openai_api_key(Some(api_key)) {
+            Ok(value) => value,
+            Err(error) => {
+                return ConsellourSettingsResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    settings: Some(workspace_meta.consellour_settings),
+                    error: Some(error),
+                }
+            }
+        };
+        workspace_meta.consellour_settings.openai_api_key = normalized_api_key;
+    }
+
+    if let Some(model) = payload.model.as_deref() {
+        let normalized_model = match normalize_consellour_model(model) {
+            Ok(value) => value,
+            Err(error) => {
+                return ConsellourSettingsResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    settings: Some(workspace_meta.consellour_settings),
+                    error: Some(error),
+                }
+            }
+        };
+        workspace_meta.consellour_settings.model = normalized_model;
+    }
+
+    if let Some(reasoning_level) = payload.reasoning_level.as_deref() {
+        let normalized_reasoning_level = match normalize_consellour_reasoning_level(reasoning_level)
+        {
+            Ok(value) => value,
+            Err(error) => {
+                return ConsellourSettingsResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    settings: Some(workspace_meta.consellour_settings),
+                    error: Some(error),
+                }
+            }
+        };
+        workspace_meta.consellour_settings.reasoning_level = normalized_reasoning_level;
+    }
+
+    workspace_meta.consellour_settings.updated_at = now_iso();
+    workspace_meta.updated_at = now_iso();
+
+    if let Err(error) = persist_workspace_meta_update(&app, &workspace_root, &workspace_meta) {
+        return ConsellourSettingsResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            settings: Some(workspace_meta.consellour_settings),
+            error: Some(error),
+        };
+    }
+
+    ConsellourSettingsResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        settings: Some(workspace_meta.consellour_settings),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn tasks_list(app: AppHandle) -> WorkspaceTasksResponse {
+    let request_id = request_id();
+    let (workspace_root, workspace_meta) = match active_workspace_meta(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTasksResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                tasks: Vec::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    WorkspaceTasksResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        tasks: workspace_meta.tasks,
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn consellour_get_task(
+    app: AppHandle,
+    payload: WorkspaceTaskQueryPayload,
+) -> WorkspaceTaskResponse {
+    let request_id = request_id();
+    let (workspace_root, workspace_meta) = match active_workspace_meta(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                task: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let title_query = normalize_optional_query(payload.title_query.as_deref());
+    let description_query = normalize_optional_query(payload.description_query.as_deref());
+    if title_query.is_none() && description_query.is_none() {
+        return WorkspaceTaskResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            task: None,
+            error: Some("Provide titleQuery and/or descriptionQuery to find a task.".to_string()),
+        };
+    }
+
+    let matched_task = workspace_meta
+        .tasks
+        .iter()
+        .find(|task| task_matches_query(task, title_query.as_deref(), description_query.as_deref()))
+        .cloned();
+
+    WorkspaceTaskResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        task: matched_task,
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn consellour_get_recommended_task(app: AppHandle) -> WorkspaceTaskResponse {
+    let request_id = request_id();
+    let (workspace_root, workspace_meta) = match active_workspace_meta(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                task: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let mut tasks = workspace_meta.tasks;
+    tasks.sort_by(|left, right| {
+        task_priority_rank(&right.consellour_priority)
+            .cmp(&task_priority_rank(&left.consellour_priority))
+            .then_with(|| left.last_interacted_at.cmp(&right.last_interacted_at))
+            .then_with(|| left.created_at.cmp(&right.created_at))
+    });
+
+    WorkspaceTaskResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        task: tasks.into_iter().next(),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn consellour_tool_create_task(
+    app: AppHandle,
+    payload: ConsellourToolCreateTaskPayload,
+) -> WorkspaceTaskResponse {
+    let request_id = request_id();
+    let (workspace_root, mut workspace_meta) = match active_workspace_meta(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                task: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let title = match normalize_task_title(&payload.title) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                task: None,
+                error: Some(error),
+            }
+        }
+    };
+    let description = match normalize_task_description(&payload.description) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                task: None,
+                error: Some(error),
+            }
+        }
+    };
+    let external_id = match normalize_optional_external_id(payload.external_id.as_deref()) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                task: None,
+                error: Some(error),
+            }
+        }
+    };
+    let external_url = match normalize_optional_external_url(payload.external_url.as_deref()) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                task: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let now = now_iso();
+    let task = WorkspaceTask {
+        id: Uuid::new_v4().to_string(),
+        title,
+        description,
+        priority: payload.priority,
+        consellour_priority: payload.consellour_priority,
+        created_at: now.clone(),
+        updated_at: now.clone(),
+        last_interacted_at: now,
+        origin: payload.origin.unwrap_or(TaskOrigin::ConsellourTool),
+        external_id,
+        external_url,
+    };
+
+    workspace_meta.tasks.push(task.clone());
+    workspace_meta.updated_at = now_iso();
+
+    if let Err(error) = persist_workspace_meta_update(&app, &workspace_root, &workspace_meta) {
+        return WorkspaceTaskResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            task: None,
+            error: Some(error),
+        };
+    }
+
+    WorkspaceTaskResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        task: Some(task),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn consellour_tool_edit_task(
+    app: AppHandle,
+    payload: ConsellourToolEditTaskPayload,
+) -> WorkspaceTaskResponse {
+    let request_id = request_id();
+    let (workspace_root, mut workspace_meta) = match active_workspace_meta(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                task: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    if payload.id.trim().is_empty() {
+        return WorkspaceTaskResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            task: None,
+            error: Some("Task id must be a non-empty string.".to_string()),
+        };
+    }
+
+    let task = match task_by_id_mut(&mut workspace_meta.tasks, payload.id.trim()) {
+        Some(value) => value,
+        None => {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                task: None,
+                error: Some("Task not found for the provided id.".to_string()),
+            }
+        }
+    };
+
+    let mut did_change = false;
+
+    if let Some(title) = payload.title.as_deref() {
+        let normalized = match normalize_task_title(title) {
+            Ok(value) => value,
+            Err(error) => {
+                return WorkspaceTaskResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    task: None,
+                    error: Some(error),
+                }
+            }
+        };
+        task.title = normalized;
+        did_change = true;
+    }
+
+    if let Some(description) = payload.description.as_deref() {
+        let normalized = match normalize_task_description(description) {
+            Ok(value) => value,
+            Err(error) => {
+                return WorkspaceTaskResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    task: None,
+                    error: Some(error),
+                }
+            }
+        };
+        task.description = normalized;
+        did_change = true;
+    }
+
+    if let Some(priority) = payload.priority {
+        task.priority = priority;
+        did_change = true;
+    }
+
+    if let Some(consellour_priority) = payload.consellour_priority {
+        task.consellour_priority = consellour_priority;
+        did_change = true;
+    }
+
+    if let Some(last_interacted_at) = payload.last_interacted_at.as_deref() {
+        let normalized_last_interacted_at = last_interacted_at.trim();
+        if normalized_last_interacted_at.is_empty() {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                task: None,
+                error: Some(
+                    "lastInteractedAt must be a non-empty string when provided.".to_string(),
+                ),
+            };
+        }
+        task.last_interacted_at = normalized_last_interacted_at.to_string();
+        did_change = true;
+    }
+
+    if let Some(origin) = payload.origin {
+        task.origin = origin;
+        did_change = true;
+    }
+
+    if let Some(external_id) = payload.external_id.as_deref() {
+        let normalized = match normalize_optional_external_id(Some(external_id)) {
+            Ok(value) => value,
+            Err(error) => {
+                return WorkspaceTaskResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    task: None,
+                    error: Some(error),
+                }
+            }
+        };
+        task.external_id = normalized;
+        did_change = true;
+    }
+
+    if let Some(external_url) = payload.external_url.as_deref() {
+        let normalized = match normalize_optional_external_url(Some(external_url)) {
+            Ok(value) => value,
+            Err(error) => {
+                return WorkspaceTaskResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    task: None,
+                    error: Some(error),
+                }
+            }
+        };
+        task.external_url = normalized;
+        did_change = true;
+    }
+
+    if !did_change {
+        return WorkspaceTaskResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            task: Some(task.clone()),
+            error: Some("No editable task fields were provided.".to_string()),
+        };
+    }
+
+    task.updated_at = now_iso();
+    let task_response = task.clone();
+    workspace_meta.updated_at = now_iso();
+
+    if let Err(error) = persist_workspace_meta_update(&app, &workspace_root, &workspace_meta) {
+        return WorkspaceTaskResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            task: None,
+            error: Some(error),
+        };
+    }
+
+    WorkspaceTaskResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        task: Some(task_response),
+        error: None,
+    }
+}

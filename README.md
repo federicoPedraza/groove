@@ -1,85 +1,215 @@
 # Groove
 
-Groove now runs as a **Tauri 2 + Vite + React** desktop app with a Rust command layer and bundled `groove` sidecar support.
+> A desktop control center for multi-worktree development.
 
-## Current app stack
+[![Build Desktop](https://github.com/federicoPedraza/groove/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/federicoPedraza/groove/actions/workflows/build-desktop.yml)
+[![Release Desktop](https://github.com/federicoPedraza/groove/actions/workflows/release-desktop.yml/badge.svg)](https://github.com/federicoPedraza/groove/actions/workflows/release-desktop.yml)
+[![Publish Sidecars](https://github.com/federicoPedraza/groove/actions/workflows/publish-sidecars.yml/badge.svg)](https://github.com/federicoPedraza/groove/actions/workflows/publish-sidecars.yml)
 
-- Frontend: React + TypeScript + Vite
-- Desktop shell: Tauri 2
-- Native backend: Rust Tauri commands
-- Routing: `react-router-dom`
-- The active dev/build path is Tauri + Vite.
+Groove helps you manage many Git worktrees without terminal-tab chaos.
+
+Instead of constantly switching branches in one folder, Groove gives you one place to:
+- see active worktrees,
+- start/stop workflows in the correct context,
+- open terminals at the right path,
+- clean up noisy local processes,
+- keep workspace behavior consistent via settings.
+
+---
+
+## Table of Contents
+
+- [Why Groove](#why-groove)
+- [What Groove does](#what-groove-does)
+- [Architecture](#architecture)
+- [Stack](#stack)
+- [Repository structure](#repository-structure)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Setup scripts](#setup-scripts)
+- [Sidecars](#sidecars)
+- [How to use Groove](#how-to-use-groove)
+- [Settings model](#settings-model)
+- [Quality checks](#quality-checks)
+- [Build and release](#build-and-release)
+- [CI](#ci)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [Security and privacy](#security-and-privacy)
+- [Roadmap](#roadmap)
+- [License](#license)
+
+---
+
+## Why Groove
+
+When you juggle multiple branches/worktrees, it gets messy fast:
+- wrong-directory commands,
+- hard-to-track local runtimes,
+- stale processes,
+- context switching overhead.
+
+Groove is built to reduce that operational load and keep your flow clean.
+
+**Core promise:** keep multi-worktree development organized, visible, and low-friction.
+
+---
 
 ## What Groove does
 
-- Lets users pick a local folder and maintain `.groove/workspace.json` metadata.
-- Scans `.worktrees`, shows status/runtime state, and offers Restore / Play / Stop / Remove actions.
-- Uses native desktop workspace selection/storage (Rust + Tauri command layer), not browser File System Access APIs.
-- Calls the `groove` CLI through Rust commands:
-  - `groove_list`
-  - `groove_restore`
-  - `groove_rm`
-  - `groove_stop`
-  - `workspace_events` (filesystem polling emitter)
+### Workspace + worktree management
+- Connect a repository directory as an active workspace.
+- Persist workspace metadata in `.groove/workspace.json`.
+- Scan `.worktrees/` and surface actionable state.
+- Provide worktree actions: restore, play, stop, remove.
 
-## Sidecar bundling
+### Context-aware execution
+- Open a terminal in the selected worktree path.
+- Run configurable commands per workspace:
+  - Play Groove command
+  - Open terminal command
+  - Run local command
+  - Testing ports
 
-Tauri is configured to bundle the sidecar from `src-tauri/binaries/groove` via `externalBin`.
+### Diagnostics and cleanup
+- Inspect OpenCode / Node-related runtime processes.
+- Stop individual processes or perform bulk cleanup.
+- Emergency kill for non-worktree OpenCode processes.
+- System overview panel + top consuming process query.
+- `.gitignore` sanity check + optional patching.
 
-Expected sidecar filenames at build time include target triples, for example:
+### Integrations and task workflows
+- Git/GitHub helper command surface.
+- Jira connect/sync support.
+- Workspace Tasks + Consellour tool loop.
 
-- Linux: `groove-x86_64-unknown-linux-gnu`
-- macOS Intel: `groove-x86_64-apple-darwin`
-- macOS Apple Silicon: `groove-aarch64-apple-darwin`
-- Windows: `groove-x86_64-pc-windows-msvc.exe`
+---
 
-At runtime, backend command resolution checks `GROOVE_BIN` first, then bundled/resource paths.
+## Architecture
 
-## Unified setup command
+Groove uses a 3-layer model:
 
-From the repo root, use the cross-platform setup entrypoint:
+1. **UI layer (React + Vite + TypeScript)**
+   - Dashboard, Worktrees, Diagnostics, Tasks, Settings
+   - Typed frontend IPC calls from `src/lib/ipc.ts`
+2. **Native command layer (Tauri 2 + Rust)**
+   - Input/path validation
+   - Command orchestration
+   - Event emission to the UI
+3. **Local runtime layer**
+   - Git worktrees
+   - Groove sidecar binary
+   - Local terminals + process lifecycle
+
+This split keeps the UI responsive while preserving local-first control.
+
+---
+
+## Stack
+
+### Frontend
+- React 19
+- TypeScript 5
+- Vite 7
+- React Router
+- Tailwind CSS 4
+- Radix UI primitives + shadcn-style components
+- Lucide icons
+- Sonner toasts
+
+### Desktop / backend
+- Tauri 2
+- Rust (`src-tauri`)
+
+### Tooling
+- ESLint
+- Vitest + Testing Library + jsdom
+- `tsc --noEmit`
+- Cargo check
+
+---
+
+## Repository structure
+
+```text
+.
+├─ app/                 # Route pages (dashboard, worktrees, diagnostics, settings, tasks)
+├─ components/          # Reusable UI + feature components
+├─ lib/                 # Frontend helpers
+├─ src/                 # App entry + shared frontend modules
+├─ src-tauri/           # Tauri + Rust backend
+├─ bash/                # Setup/check scripts (Linux/macOS)
+├─ powershell/          # Setup/check scripts (Windows)
+└─ .github/workflows/   # CI + release workflows
+```
+
+---
+
+## Requirements
+
+Install these manually before setup:
+
+- **Node.js 22+** (npm included)
+- **Rust toolchain** (`rustc`, `cargo`)
+
+Platform notes:
+- Linux builds require Tauri system dependencies (scripts can install best-effort via `apt`).
+- macOS setup expects Homebrew availability (script can install/verify).
+- Windows setup uses PowerShell scripts and checks WebView2 presence best-effort.
+
+---
+
+## Quick start
+
+```bash
+npm install
+npm run tauri:dev
+```
+
+Frontend-only iteration:
+
+```bash
+npm run dev
+```
+
+---
+
+## Setup scripts
+
+Unified entry point:
 
 ```bash
 npm run setup
 ```
 
-Checker-repair mode runs sidecar checks first, then applies minimal safe repair steps where possible (currently executable-bit fixes on Unix-like systems), and reruns the checks:
+Checker + minimal repair mode:
 
 ```bash
 npm run setup -- --mode=checker-repair
-# optional positional mode form:
+# or
 npm run setup -- checker-repair
 ```
 
-## macOS quick setup
-
-From the repo root, run:
+### Fast setup (per OS)
 
 ```bash
+# macOS
 ./bash/setup-macos-fast
-# or: npm run setup:macos
-```
+# or
+npm run setup:macos
 
-Prerequisites: install Node.js (with npm) and Rust (cargo/rustc) manually before running this.
-
-This script does not install Node.js or Rust; it verifies they are available, then installs/verifies Homebrew, installs `create-dmg`, installs project dependencies, and runs `npm run check:rust`.
-
-## Linux quick setup
-
-From the repo root, run:
-
-```bash
+# Linux
 ./bash/setup-linux-fast
-# or: npm run setup:linux
+# or
+npm run setup:linux
+
+# Windows (PowerShell)
+.\powershell\setup-windows-fast.ps1
+# or
+npm run setup:windows
 ```
 
-Prerequisites: install Node.js (with npm) and Rust (cargo/rustc) manually before running this.
-
-This script does not install Node.js or Rust; it verifies they are available, attempts a best-effort install of minimal Tauri Linux system dependencies via `apt` when available, installs project dependencies, runs `npm run check:rust`, and validates Linux sidecars.
-
-## Guided setup scripts (visual step-by-step)
-
-For a robust, interactive setup flow with numbered steps and PASS/FAIL status output, use:
+### Guided setup (step-by-step UX)
 
 ```bash
 # Linux
@@ -93,84 +223,73 @@ For a robust, interactive setup flow with numbered steps and PASS/FAIL status ou
 ./setup-macos.sh --no-color
 ```
 
-These wrappers are intentionally focused on setup UX and do not modify app/runtime code.
+---
 
-What they do:
-- validate OS compatibility
-- run visible preflight checks (node, npm, rustc, cargo)
-- show detected tool versions
-- run the existing fast setup scripts (`bash/setup-*-fast`)
-- run sidecar checks (`bash/check-*-sidecars`)
-- build distributables (`tauri:build:linux` on Linux, `tauri:build:macos` on macOS)
-- ensure Linux AppImage outputs are executable
-- on Linux, install/update a runnable local app at `~/Applications/Groove.AppImage`
-- on Linux, create/update a desktop launcher at `~/.local/share/applications/groove.desktop`
-- on macOS, install/update a runnable local app at `~/Applications/Groove.app` from the built DMG
-- print a clear summary and artifact location
+## Sidecars
 
-Troubleshooting tips:
-- If preflight fails, install the missing tool and re-run.
-- If sidecar checks fail, place required files in `src-tauri/binaries/` and make them executable.
-- If Homebrew/apt steps fail, run the OS package manager command manually and retry.
+Groove bundles a platform-specific `groove` sidecar via Tauri `externalBin`.
 
-## Windows quick setup
+Expected file examples in `src-tauri/binaries/`:
 
-From the repo root (PowerShell), run:
+- Linux: `groove-x86_64-unknown-linux-gnu` or `groove-aarch64-unknown-linux-gnu`
+- macOS: `groove-aarch64-apple-darwin` and `groove-x86_64-apple-darwin`
+- Windows: `groove-x86_64-pc-windows-msvc.exe` (arm64 optional)
 
-```powershell
-.\powershell\setup-windows-fast.ps1
-# or: npm run setup:windows
-```
-
-Prerequisites: install Node.js (with npm) and Rust (cargo/rustc) manually before running this.
-
-This script does not install Node.js or Rust; it verifies they are available, checks for WebView2 Runtime presence (best effort), installs project dependencies, runs `npm run check:rust`, and validates Windows sidecars.
-
-## Universal macOS sidecars
-
-Groove requires both macOS sidecar binaries so builds and runtime resolution work on Apple Silicon and Intel Macs:
-
-- `src-tauri/binaries/groove-aarch64-apple-darwin`
-- `src-tauri/binaries/groove-x86_64-apple-darwin`
-
-Both files must exist and be executable in `src-tauri/binaries/`.
-Run `npm run sidecar:check:macos` to validate local sidecar readiness.
-
-## Linux sidecars
-
-Groove requires a Linux sidecar in `src-tauri/binaries/` for your host architecture:
-
-- `groove-x86_64-unknown-linux-gnu` (x86_64)
-- `groove-aarch64-unknown-linux-gnu` (arm64)
-
-The checked sidecar must exist and be executable.
-Run `npm run sidecar:check:linux` to validate local sidecar readiness.
-
-## Windows sidecars
-
-Groove requires at least one Windows sidecar in `src-tauri/binaries/`:
-
-- `groove-x86_64-pc-windows-msvc.exe`
-- `groove-aarch64-pc-windows-msvc.exe` (optional, for arm64)
-
-Run `npm run sidecar:check:windows` to validate local sidecar readiness.
-
-## Run locally
+Check sidecar readiness:
 
 ```bash
-npm install
-npm run tauri:dev
+npm run sidecar:check:linux
+npm run sidecar:check:macos
+npm run sidecar:check:windows
 ```
 
-For frontend-only iteration:
+At runtime, backend resolution checks `GROOVE_BIN` first, then bundled/resource paths.
 
-```bash
-npm run dev
-```
+---
 
-## Quality gates
+## How to use Groove
 
-Before opening a PR, run:
+Typical workflow:
+
+1. Open Groove.
+2. Select a repository workspace.
+3. Review discovered worktrees (`.worktrees/`).
+4. Pick a worktree and run actions (Play / Stop / Terminal / Details).
+5. Build and iterate in that isolated context.
+6. Use Diagnostics to clean stale runtime processes.
+7. Switch to the next worktree without losing context.
+
+Recommended habits:
+- one clear task per worktree,
+- branch-aligned worktree naming,
+- prune stale worktrees and processes regularly,
+- prefer context-aware actions over manual tab hopping.
+
+---
+
+## Settings model
+
+### Workspace settings (repo-specific)
+- `playGrooveCommand`
+- testing ports
+- open-terminal-at-worktree command
+- run-local command
+- worktree symlink paths
+- Jira/task-related metadata in workspace config
+
+### Global settings (device-wide)
+- telemetry toggle
+- disable mascot/loading section
+- FPS overlay toggle
+- always show diagnostics sidebar
+- periodic rerender trigger
+- theme mode
+
+---
+
+## Quality checks
+
+Run before opening a PR:
 
 ```bash
 npm run lint
@@ -180,27 +299,19 @@ npm run build
 npm run check:rust
 ```
 
-## Contributor pre-PR checklist
+Useful command list:
 
-- [ ] Run all quality gate commands locally and confirm they pass.
-- [ ] If your change affects desktop/runtime behavior, do a smoke run with `npm run tauri:dev`.
-- [ ] Update relevant docs when behavior, setup, or commands change.
+```bash
+npm run dev
+npm run tauri:dev
+npm run tauri:build
+npm run tauri:build:linux
+npm run tauri:build:macos
+```
 
-## CI builds (Linux + macOS)
+---
 
-A GitHub Actions workflow is included at:
-
-- `.github/workflows/build-desktop.yml`
-
-It builds desktop artifacts on:
-- `ubuntu-latest` → Linux bundles (`AppImage`, `deb`)
-- `macos-latest` → macOS bundle (`dmg`)
-
-It runs the guided setup scripts in CI (`--no-color`) before building, then uploads artifacts from `src-tauri/target/release/bundle/**`.
-
-You can run it manually from GitHub Actions via **workflow_dispatch**, or it runs on push/PR.
-
-## Build
+## Build and release
 
 Frontend build:
 
@@ -208,35 +319,102 @@ Frontend build:
 npm run build
 ```
 
-Rust check:
-
-```bash
-npm run check:rust
-```
-
 Desktop bundles:
 
 ```bash
 npm run tauri:build
-```
-
-Installer-focused packaging:
-
-```bash
-# Linux installers (AppImage + deb)
 npm run tauri:build:linux
-
-# macOS installer (dmg)
 npm run tauri:build:macos
 ```
 
-## Known limitations (0.1.4)
+Current packaging targets:
+- Linux: AppImage + deb
+- macOS: dmg
 
-- RPM and PKG installer outputs are intentionally deferred in 0.1.4.
+Release workflow publishes bundles on version tags (`v*.*.*`).
 
-## Notes
+---
 
-- Workspace root for Groove commands is inferred from the selected active workspace, with metadata-based auto-resolution as fallback.
-- Active workspace is persisted as a path string under Tauri app data (`active-workspace.json`) for restore on reopen.
-- Path-safety and payload validation in Rust mirror the previous API route semantics as closely as possible.
-- Realtime updates are filesystem-driven and emitted as Tauri events.
+## CI
+
+GitHub Actions workflows:
+
+- `build-desktop.yml`
+  - lint, typecheck, tests, rust check
+  - Linux + macOS desktop builds
+  - artifact upload
+- `release-desktop.yml`
+  - tag-triggered release build and publish
+- `publish-sidecars.yml`
+  - rolling sidecar release (`sidecars-latest`)
+
+Dependabot is configured for npm, cargo, and workflow updates.
+
+---
+
+## Troubleshooting
+
+### Setup fails
+- Verify Node.js/npm and Rust are installed.
+- Re-run fast setup script for your OS.
+- Install missing OS-level Tauri dependencies.
+
+### Sidecar checks fail
+- Ensure required files exist in `src-tauri/binaries/`.
+- Ensure Unix sidecars are executable.
+- Run the matching `npm run sidecar:check:*` command.
+
+### Runtime feels stale/noisy
+- Open **Diagnostics**.
+- Refresh process snapshots.
+- Stop stale OpenCode/Node processes.
+- Use clean-all only when needed.
+
+### Wrong-folder command issues
+- Use Groove terminal/worktree actions instead of manual terminal hopping.
+
+---
+
+## Contributing
+
+Contributions are welcome.
+
+Suggested contribution flow:
+
+1. Fork and create a branch.
+2. Make a focused change.
+3. Run quality checks.
+4. Open a PR with:
+   - what changed,
+   - why,
+   - validation performed.
+
+If your changes affect setup/runtime behavior, include a quick smoke result from `npm run tauri:dev`.
+
+---
+
+## Security and privacy
+
+- Groove is local-first.
+- Workspace metadata is stored locally (`.groove/workspace.json`).
+- Telemetry is configurable in settings.
+- Backend command layer enforces path and payload guardrails.
+
+---
+
+## Roadmap
+
+High-value docs and product follow-ups:
+- command-by-command invoke reference,
+- workspace JSON schema docs,
+- OS-specific troubleshooting matrix,
+- deeper onboarding/user journeys,
+- architecture decision log.
+
+---
+
+## License
+
+A license file is not currently present in this repository.
+
+If you plan to distribute Groove as open source, add a `LICENSE` file (for example MIT, Apache-2.0, or GPL) and update this section accordingly.

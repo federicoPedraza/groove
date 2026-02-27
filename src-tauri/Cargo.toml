@@ -20,4 +20,4 @@ uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 rfd = "0.15"
 time = { version = "0.3", features = ["formatting"] }
-portable-pty = "0.8"
+portable-pty = "0.9"

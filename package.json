@@ -24,6 +24,7 @@
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
+    "@sentry/react": "^10.40.0",
     "@tauri-apps/api": "^2.8.0",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",

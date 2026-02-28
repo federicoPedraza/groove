@@ -1213,6 +1213,120 @@ fn tasks_list(app: AppHandle) -> WorkspaceTasksResponse {
 }
 
 #[tauri::command]
+fn workspace_set_worktree_task_assignment(
+    app: AppHandle,
+    payload: WorkspaceSetWorktreeTaskAssignmentPayload,
+) -> WorkspaceContextResponse {
+    let request_id = request_id();
+    let (workspace_root, mut workspace_meta) = match active_workspace_meta(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceContextResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                repository_remote_url: None,
+                workspace_meta: None,
+                workspace_message: None,
+                has_worktrees_directory: None,
+                rows: Vec::new(),
+                cancelled: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let normalized_worktree = payload.worktree.trim();
+    if normalized_worktree.is_empty() {
+        return WorkspaceContextResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            repository_remote_url: None,
+            workspace_meta: Some(workspace_meta),
+            workspace_message: None,
+            has_worktrees_directory: None,
+            rows: Vec::new(),
+            cancelled: None,
+            error: Some("worktree must be a non-empty string.".to_string()),
+        };
+    }
+
+    let normalized_task_id = payload
+        .task_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+
+    if let Some(task_id) = normalized_task_id.as_deref() {
+        let has_task = workspace_meta.tasks.iter().any(|task| task.id == task_id);
+        if !has_task {
+            return WorkspaceContextResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                repository_remote_url: None,
+                workspace_meta: Some(workspace_meta),
+                workspace_message: None,
+                has_worktrees_directory: None,
+                rows: Vec::new(),
+                cancelled: None,
+                error: Some("Task not found for the provided id.".to_string()),
+            };
+        }
+    }
+
+    let previous_task_id = workspace_meta
+        .worktree_task_assignments
+        .get(normalized_worktree)
+        .cloned();
+    if previous_task_id == normalized_task_id {
+        return build_workspace_context(&app, &workspace_root, request_id, false);
+    }
+
+    match normalized_task_id {
+        Some(task_id) => {
+            workspace_meta
+                .worktree_task_assignments
+                .insert(normalized_worktree.to_string(), task_id);
+        }
+        None => {
+            workspace_meta
+                .worktree_task_assignments
+                .remove(normalized_worktree);
+        }
+    }
+
+    workspace_meta.updated_at = now_iso();
+    if let Err(error) = persist_workspace_meta_update(&app, &workspace_root, &workspace_meta) {
+        return WorkspaceContextResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            repository_remote_url: None,
+            workspace_meta: Some(workspace_meta),
+            workspace_message: None,
+            has_worktrees_directory: None,
+            rows: Vec::new(),
+            cancelled: None,
+            error: Some(error),
+        };
+    }
+
+    let _ = app.emit(
+        "workspace-change",
+        serde_json::json!({
+            "workspaceRoot": workspace_root.display().to_string(),
+            "kind": "metadata",
+            "source": ".groove/workspace.json"
+        }),
+    );
+
+    build_workspace_context(&app, &workspace_root, request_id, false)
+}
+
+#[tauri::command]
 fn consellour_get_task(
     app: AppHandle,
     payload: WorkspaceTaskQueryPayload,
@@ -1372,6 +1486,7 @@ fn consellour_tool_create_task(
         origin: payload.origin.unwrap_or(TaskOrigin::ConsellourTool),
         external_id,
         external_url,
+        pr: Vec::new(),
     };
 
     workspace_meta.tasks.push(task.clone());
@@ -1537,6 +1652,58 @@ fn consellour_tool_edit_task(
             }
         };
         task.external_url = normalized;
+        did_change = true;
+    }
+
+    if let Some(pr_entries) = payload.pr.as_ref() {
+        let mut normalized_pr = Vec::with_capacity(pr_entries.len());
+        for entry in pr_entries {
+            let normalized_url = entry.url.trim();
+            if normalized_url.is_empty() {
+                return WorkspaceTaskResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    task: None,
+                    error: Some("PR entry url must be a non-empty string.".to_string()),
+                };
+            }
+
+            if !(normalized_url.starts_with("http://") || normalized_url.starts_with("https://")) {
+                return WorkspaceTaskResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    task: None,
+                    error: Some("PR entry url must start with http:// or https://.".to_string()),
+                };
+            }
+
+            let normalized_timestamp = entry.timestamp.trim();
+            if normalized_timestamp.is_empty() {
+                return WorkspaceTaskResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: Some(workspace_root.display().to_string()),
+                    task: None,
+                    error: Some("PR entry timestamp must be a non-empty string.".to_string()),
+                };
+            }
+
+            normalized_pr.push(WorkspaceTaskPrEntry {
+                url: normalized_url.to_string(),
+                title: entry
+                    .title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.to_string()),
+                number: entry.number,
+                timestamp: normalized_timestamp.to_string(),
+            });
+        }
+
+        task.pr = normalized_pr;
         did_change = true;
     }
 

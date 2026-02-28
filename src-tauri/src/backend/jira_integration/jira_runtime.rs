@@ -407,6 +407,7 @@ fn sync_jira_issues_into_workspace_meta(
                 origin: TaskOrigin::ExternalSync,
                 external_id: Some(issue_key.to_string()),
                 external_url: Some(external_url),
+                pr: Vec::new(),
             });
             imported_count += 1;
         }

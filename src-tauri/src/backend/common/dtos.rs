@@ -192,6 +192,7 @@ struct WorkspaceMetaContext {
     consellour_settings: Option<ConsellourSettings>,
     jira_settings: Option<JiraSettings>,
     tasks: Option<Vec<WorkspaceTask>>,
+    worktree_task_assignments: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -233,6 +234,17 @@ enum TaskOrigin {
     ExternalSync,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceTaskPrEntry {
+    url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    number: Option<i64>,
+    timestamp: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceTask {
@@ -249,6 +261,13 @@ struct WorkspaceTask {
     external_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     external_url: Option<String>,
+    #[serde(
+        default,
+        rename = "PR",
+        alias = "pr",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pr: Vec<WorkspaceTaskPrEntry>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -296,6 +315,8 @@ struct WorkspaceMeta {
     jira_settings: JiraSettings,
     #[serde(default)]
     tasks: Vec<WorkspaceTask>,
+    #[serde(default)]
+    worktree_task_assignments: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -307,6 +328,8 @@ struct WorkspaceScanRow {
     status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_executed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    task_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -448,6 +471,14 @@ struct WorkspaceWorktreeSymlinkPathsPayload {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkspaceSetWorktreeTaskAssignmentPayload {
+    worktree: String,
+    #[serde(default)]
+    task_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkspaceBrowseEntriesPayload {
     relative_path: Option<String>,
 }
@@ -507,6 +538,8 @@ struct ConsellourToolEditTaskPayload {
     external_id: Option<String>,
     #[serde(default)]
     external_url: Option<String>,
+    #[serde(default, rename = "PR", alias = "pr")]
+    pr: Option<Vec<WorkspaceTaskPrEntry>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

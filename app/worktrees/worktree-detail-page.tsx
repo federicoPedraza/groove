@@ -12,13 +12,11 @@ import { GrooveWorktreeTerminal } from "@/components/pages/worktrees/groove-work
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { toast } from "@/lib/toast";
 import { deriveWorktreeStatus } from "@/lib/utils/worktree/status";
 import type { RuntimeStateRow, WorktreeRow } from "@/components/pages/dashboard/types";
 import {
   GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
   GROOVE_PLAY_COMMAND_SENTINEL,
-  grooveTerminalOpen,
 } from "@/src/lib/ipc";
 
 export default function WorktreeDetailPage() {
@@ -41,6 +39,7 @@ export default function WorktreeDetailPage() {
     cutConfirmRow,
     forceCutConfirmRow,
     runtimeStateByWorktree,
+    workspaceTasks,
     isCreateModalOpen,
     createBranch,
     createBase,
@@ -63,15 +62,13 @@ export default function WorktreeDetailPage() {
     runPlayGrooveAction,
     runCreateWorktreeAction,
     copyBranchName,
-    runStartTestingInstanceAction,
     runOpenTestingTerminalAction,
+    setWorktreeTaskAssignment,
+    assignTaskPr,
     isTestingInstancePending,
     closeCurrentWorkspace,
   } = useDashboardState();
   const [isClosingWorktree, setIsClosingWorktree] = useState(false);
-  const [isStartingInAppTerminal, setIsStartingInAppTerminal] = useState(false);
-  const [isStartingNewSplit, setIsStartingNewSplit] = useState(false);
-  const [runningTerminalSessionIds, setRunningTerminalSessionIds] = useState<string[]>([]);
   const [pauseConfirmRow, setPauseConfirmRow] = useState<WorktreeRow | null>(null);
 
   const selectedWorktreeName = useMemo(() => {
@@ -134,7 +131,6 @@ export default function WorktreeDetailPage() {
           return false;
         }
 
-        setRunningTerminalSessionIds([]);
         navigate("/");
         return true;
       } finally {
@@ -142,88 +138,6 @@ export default function WorktreeDetailPage() {
       }
     },
     [isClosingWorktree, navigate, runStopAction],
-  );
-
-  const handleOpenInAppSplit = useCallback(
-    async (worktree: string, openMode: "opencode" | "runLocal", shouldMarkAsRunningTerminal: boolean): Promise<void> => {
-      if (!workspaceMeta || !row) {
-        toast.error("Open a workspace and worktree before starting a terminal.");
-        return;
-      }
-
-      setIsStartingInAppTerminal(true);
-      try {
-        const result = await grooveTerminalOpen({
-          rootName: workspaceMeta.rootName,
-          knownWorktrees,
-          workspaceMeta,
-          worktree,
-          target: row.branchGuess,
-          openMode,
-          forceRestart: false,
-          openNew: true,
-        });
-
-        if (!result.ok || !result.session) {
-          toast.error(result.error ?? "Failed to open in-app terminal split.");
-          return;
-        }
-
-        const sessionId = result.session.sessionId;
-
-        if (shouldMarkAsRunningTerminal) {
-          setRunningTerminalSessionIds((previous) => {
-            if (previous.includes(sessionId)) {
-              return previous;
-            }
-            return [...previous, sessionId];
-          });
-          toast.success("Opened running terminal split.");
-          return;
-        }
-
-        toast.success("Opened in-app terminal split.");
-      } catch {
-        toast.error("Failed to open in-app terminal split.");
-      } finally {
-        setIsStartingInAppTerminal(false);
-      }
-    },
-    [knownWorktrees, row, workspaceMeta],
-  );
-
-  const handleOpenNewSplit = useCallback(
-    async (worktree: string): Promise<void> => {
-      if (!workspaceMeta || !row) {
-        toast.error("Open a workspace and worktree before starting a terminal.");
-        return;
-      }
-
-      setIsStartingNewSplit(true);
-      try {
-        const result = await grooveTerminalOpen({
-          rootName: workspaceMeta.rootName,
-          knownWorktrees,
-          workspaceMeta,
-          worktree,
-          target: row.branchGuess,
-          forceRestart: false,
-          openNew: true,
-        });
-
-        if (!result.ok || !result.session) {
-          toast.error(result.error ?? "Failed to start Groove terminal session.");
-          return;
-        }
-
-        toast.success("Started new split terminal session.");
-      } catch {
-        toast.error("Failed to start Groove terminal session.");
-      } finally {
-        setIsStartingNewSplit(false);
-      }
-    },
-    [knownWorktrees, row, workspaceMeta],
   );
 
   return (
@@ -283,22 +197,17 @@ export default function WorktreeDetailPage() {
                     }}
                     onCutConfirm={setCutConfirmRow}
                     variant="worktree-detail"
-                    isTestingInstancePending={isTestingInstancePending || isStartingInAppTerminal}
-                    isNewSplitPending={isStartingNewSplit}
-                    onRunLocal={(worktree) => {
-                      if (isGrooveMode) {
-                        void handleOpenInAppSplit(worktree, "runLocal", true);
-                        return;
-                      }
-
-                      void runStartTestingInstanceAction(worktree);
-                    }}
+                    isTestingInstancePending={isTestingInstancePending}
                     onOpenTerminal={(worktree) => {
                       void runOpenTestingTerminalAction(worktree);
                     }}
-                    onNewSplitTerminal={isGrooveMode ? (worktree) => {
-                      void handleOpenNewSplit(worktree);
-                    } : undefined}
+                    workspaceTasks={workspaceTasks}
+                    selectedTaskId={row.taskId ?? null}
+                    onSetTaskAssignment={(worktree, taskId) => {
+                      setWorktreeTaskAssignment(worktree, taskId);
+                    }}
+                    onAssignTaskPr={assignTaskPr}
+                    isTaskAssignmentDisabled={false}
                     closeWorktreePending={isClosingWorktree}
                   />
                 </TooltipProvider>
@@ -311,7 +220,7 @@ export default function WorktreeDetailPage() {
                     workspaceMeta={workspaceMeta}
                     knownWorktrees={knownWorktrees}
                     worktree={row.worktree}
-                    runningSessionIds={runningTerminalSessionIds}
+                    runningSessionIds={[]}
                   />
                 ) : null
               ) : null}

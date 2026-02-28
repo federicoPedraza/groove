@@ -40,6 +40,7 @@ pub(crate) fn run() {
             consellour_get_settings,
             consellour_update_settings,
             tasks_list,
+            workspace_set_worktree_task_assignment,
             consellour_get_task,
             consellour_get_recommended_task,
             consellour_tool_create_task,

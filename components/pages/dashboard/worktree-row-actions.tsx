@@ -30,6 +30,7 @@ import {
   SOFT_ORANGE_BUTTON_CLASSES,
   SOFT_RED_BUTTON_CLASSES,
 } from "@/components/pages/dashboard/constants";
+import { TaskBadge } from "@/components/ui/task-badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -54,6 +55,7 @@ import {
   gitStatus,
   gitUnstageFiles,
 } from "@/src/lib/ipc";
+import type { WorkspaceTask } from "@/src/lib/ipc";
 import type { RuntimeStateRow, WorktreeRow, WorktreeStatus } from "@/components/pages/dashboard/types";
 
 type WorktreeRowActionsProps = {
@@ -78,10 +80,12 @@ type WorktreeRowActionsProps = {
   onCutConfirm: (row: WorktreeRow) => void;
   variant?: "dashboard" | "worktree-detail";
   isTestingInstancePending?: boolean;
-  isNewSplitPending?: boolean;
-  onRunLocal?: (worktree: string) => void;
   onOpenTerminal?: (worktree: string) => void;
-  onNewSplitTerminal?: (worktree: string) => void;
+  workspaceTasks?: WorkspaceTask[];
+  selectedTaskId?: string | null;
+  onSetTaskAssignment?: (worktree: string, taskId: string | null) => void;
+  onAssignTaskPr?: (taskId: string, url: string) => Promise<void>;
+  isTaskAssignmentDisabled?: boolean;
   closeWorktreePending?: boolean;
 };
 
@@ -119,10 +123,12 @@ export function WorktreeRowActions({
   onCutConfirm,
   variant = "dashboard",
   isTestingInstancePending = false,
-  isNewSplitPending = false,
-  onRunLocal,
   onOpenTerminal,
-  onNewSplitTerminal,
+  workspaceTasks = [],
+  selectedTaskId = null,
+  onSetTaskAssignment,
+  onAssignTaskPr,
+  isTaskAssignmentDisabled = false,
   closeWorktreePending = false,
 }: WorktreeRowActionsProps) {
   const [isTestingToggleHovered, setIsTestingToggleHovered] = useState(false);
@@ -670,23 +676,31 @@ export function WorktreeRowActions({
       <div className="flex items-center justify-end gap-1">
       {variant === "worktree-detail" ? (
         <>
+          {onSetTaskAssignment ? (
+            <>
+              <TaskBadge
+                worktree={row.worktree}
+                tasks={workspaceTasks}
+                selectedTaskId={selectedTaskId}
+                onTaskChange={(taskId) => {
+                  onSetTaskAssignment(row.worktree, taskId);
+                }}
+                onAssignPr={async (taskId, url) => {
+                  if (!onAssignTaskPr) {
+                    throw new Error("Task PR assignment is unavailable.");
+                  }
+
+                  await onAssignTaskPr(taskId, url);
+                }}
+                disabled={isTaskAssignmentDisabled}
+                className="h-8"
+              />
+              <div aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
+            </>
+          ) : null}
           <Button
             type="button"
             variant="default"
-            size="sm"
-            onClick={() => {
-              if (onRunLocal) {
-                onRunLocal(row.worktree);
-              }
-            }}
-            disabled={isTestingInstancePending}
-          >
-            {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Play aria-hidden="true" className="size-4" />}
-            <span>Run local</span>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
             size="sm"
             className="h-8"
             onClick={() => {
@@ -700,22 +714,6 @@ export function WorktreeRowActions({
             {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Terminal aria-hidden="true" className="size-4" />}
             <span>Open terminal</span>
           </Button>
-          {onNewSplitTerminal ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8"
-              onClick={() => {
-                onNewSplitTerminal(row.worktree);
-              }}
-              disabled={isNewSplitPending}
-              aria-label={`Open new terminal split for ${row.worktree}`}
-            >
-              {isNewSplitPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Plus aria-hidden="true" className="size-4" />}
-              <span>New split</span>
-            </Button>
-          ) : null}
           {gitAction}
           <Tooltip>
             <TooltipTrigger asChild>

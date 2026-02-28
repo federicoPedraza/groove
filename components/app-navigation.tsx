@@ -129,6 +129,7 @@ type RuntimeStatusRow = {
 };
 
 let cachedNavigationWorktrees: WorkspaceRow[] = [];
+let cachedNavigationTaskTitlesById: Record<string, string> = {};
 let hasCachedNavigationWorktrees = false;
 
 function isWorkspaceRow(value: unknown): value is WorkspaceRow {
@@ -348,6 +349,9 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const [navigationWorktrees, setNavigationWorktrees] = useState<WorkspaceRow[]>(() =>
     hasCachedNavigationWorktrees ? cachedNavigationWorktrees : [],
   );
+  const [navigationTaskTitlesById, setNavigationTaskTitlesById] = useState<Record<string, string>>(() =>
+    hasCachedNavigationWorktrees ? cachedNavigationTaskTitlesById : {},
+  );
   const shouldShowFps = useSyncExternalStore(
     subscribeToGlobalSettings,
     getIsShowFpsEnabledSnapshot,
@@ -368,6 +372,45 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const homeLabel = hasOpenWorkspace ? "Dashboard" : "Home";
   const appNameLabel = "GROOVE";
   const hasActiveNavigationWorktrees = navigationWorktrees.length > 0;
+  const navigationWorktreeItems = useMemo(() => {
+    const worktreeItems = navigationWorktrees.map((workspaceRow) => {
+      const assignedTaskTitle = workspaceRow.taskId ? navigationTaskTitlesById[workspaceRow.taskId] : undefined;
+      const baseLabel = assignedTaskTitle?.trim() || workspaceRow.worktree;
+      return {
+        workspaceRow,
+        baseLabel,
+        usesTaskTitle: Boolean(assignedTaskTitle?.trim()),
+      };
+    });
+
+    const labelCounts = worktreeItems.reduce<Record<string, number>>((counts, item) => {
+      counts[item.baseLabel] = (counts[item.baseLabel] ?? 0) + 1;
+      return counts;
+    }, {});
+
+    const duplicateIndexesByLabel: Record<string, number> = {};
+
+    return worktreeItems.map((item) => {
+      const duplicateCount = labelCounts[item.baseLabel] ?? 0;
+      if (duplicateCount <= 1) {
+        return {
+          workspaceRow: item.workspaceRow,
+          displayLabel: item.baseLabel,
+          titleLabel: item.usesTaskTitle ? `${item.baseLabel} (${item.workspaceRow.worktree})` : item.baseLabel,
+        };
+      }
+
+      duplicateIndexesByLabel[item.baseLabel] = (duplicateIndexesByLabel[item.baseLabel] ?? 0) + 1;
+      const indexedLabel = `[${String(duplicateIndexesByLabel[item.baseLabel])}] ${item.baseLabel}`;
+      return {
+        workspaceRow: item.workspaceRow,
+        displayLabel: indexedLabel,
+        titleLabel: item.usesTaskTitle
+          ? `${indexedLabel} (${item.workspaceRow.worktree})`
+          : indexedLabel,
+      };
+    });
+  }, [navigationTaskTitlesById, navigationWorktrees]);
   const inspectedWorktree = useMemo(() => {
     const worktreeFromRoute = getDecodedWorktreeFromPathname(pathname);
     if (!worktreeFromRoute) {
@@ -393,7 +436,9 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const refreshNavigationWorktrees = useCallback(async () => {
     if (!hasOpenWorkspace) {
       setNavigationWorktrees([]);
+      setNavigationTaskTitlesById({});
       cachedNavigationWorktrees = [];
+      cachedNavigationTaskTitlesById = {};
       hasCachedNavigationWorktrees = false;
       return;
     }
@@ -402,13 +447,21 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
       const workspaceResult = await workspaceGetActive();
       if (!workspaceResult.ok) {
         setNavigationWorktrees([]);
+        setNavigationTaskTitlesById({});
         return;
       }
+
+      const taskTitlesById = (workspaceResult.workspaceMeta?.tasks ?? []).reduce<Record<string, string>>((titlesById, task) => {
+        titlesById[task.id] = task.title;
+        return titlesById;
+      }, {});
 
       const workspaceRows = normalizeWorkspaceRows((workspaceResult as { rows?: unknown }).rows);
       if (workspaceRows.length === 0) {
         setNavigationWorktrees([]);
+        setNavigationTaskTitlesById(taskTitlesById);
         cachedNavigationWorktrees = [];
+        cachedNavigationTaskTitlesById = taskTitlesById;
         hasCachedNavigationWorktrees = true;
         return;
       }
@@ -449,11 +502,15 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
 
       const activeRows = getActiveWorktreeRows(workspaceRows, runtimeRowsByWorktree, testingRunningWorktrees);
       setNavigationWorktrees(activeRows);
+      setNavigationTaskTitlesById(taskTitlesById);
       cachedNavigationWorktrees = activeRows;
+      cachedNavigationTaskTitlesById = taskTitlesById;
       hasCachedNavigationWorktrees = true;
     } catch {
       setNavigationWorktrees([]);
+      setNavigationTaskTitlesById({});
       cachedNavigationWorktrees = [];
+      cachedNavigationTaskTitlesById = {};
       hasCachedNavigationWorktrees = true;
     }
   }, [hasOpenWorkspace]);
@@ -465,11 +522,13 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   useEffect(() => {
     if (!hasOpenWorkspace) {
       setNavigationWorktrees([]);
+      setNavigationTaskTitlesById({});
       return;
     }
 
     if (hasCachedNavigationWorktrees) {
       setNavigationWorktrees(cachedNavigationWorktrees);
+      setNavigationTaskTitlesById(cachedNavigationTaskTitlesById);
       return;
     }
 
@@ -617,14 +676,14 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                     </Link>
                     {!isSidebarCollapsed ? (
                       <div className="ml-2 grid gap-1 border-l border-border/70 pl-2">
-                        {navigationWorktrees.map((worktreeRow) => {
-                          const worktreeRoute = `/worktrees/${encodeURIComponent(worktreeRow.worktree)}`;
-                          const mascotAssignment = getWorktreeMascotAssignment(worktreeRow.worktree);
+                        {navigationWorktreeItems.map(({ workspaceRow, displayLabel, titleLabel }) => {
+                          const worktreeRoute = `/worktrees/${encodeURIComponent(workspaceRow.worktree)}`;
+                          const mascotAssignment = getWorktreeMascotAssignment(workspaceRow.worktree);
                           const worktreeColorClassName = getMascotColorClassNames(mascotAssignment.color);
 
                           return (
                             <Link
-                              key={worktreeRow.path}
+                              key={workspaceRow.path}
                               to={worktreeRoute}
                               className={sidebarMenuButtonClassName({
                                 isActive: pathname === worktreeRoute,
@@ -634,10 +693,10 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                               onClick={() => {
                                 recordNavigationStart(worktreeRoute);
                               }}
-                              title={worktreeRow.worktree}
+                              title={titleLabel}
                             >
                               <TreePalm aria-hidden="true" className={cn("size-3.5 shrink-0", worktreeColorClassName)} />
-                              <span className="truncate">{worktreeRow.worktree}</span>
+                              <span className="truncate">{displayLabel}</span>
                             </Link>
                           );
                         })}
@@ -768,14 +827,14 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                     <span>Worktrees</span>
                   </Link>
                   <div className="ml-2 grid gap-1 border-l border-border/70 pl-2">
-                    {navigationWorktrees.map((worktreeRow) => {
-                      const worktreeRoute = `/worktrees/${encodeURIComponent(worktreeRow.worktree)}`;
-                      const mascotAssignment = getWorktreeMascotAssignment(worktreeRow.worktree);
+                    {navigationWorktreeItems.map(({ workspaceRow, displayLabel, titleLabel }) => {
+                      const worktreeRoute = `/worktrees/${encodeURIComponent(workspaceRow.worktree)}`;
+                      const mascotAssignment = getWorktreeMascotAssignment(workspaceRow.worktree);
                       const worktreeColorClassName = getMascotColorClassNames(mascotAssignment.color);
 
                       return (
                         <Link
-                          key={worktreeRow.path}
+                          key={workspaceRow.path}
                           to={worktreeRoute}
                           className={sidebarMenuButtonClassName({
                             isActive: pathname === worktreeRoute,
@@ -785,10 +844,10 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                             recordNavigationStart(worktreeRoute);
                             setIsMobileSidebarOpen(false);
                           }}
-                          title={worktreeRow.worktree}
+                          title={titleLabel}
                         >
                           <TreePalm aria-hidden="true" className={cn("size-3.5 shrink-0", worktreeColorClassName)} />
-                          <span className="truncate">{worktreeRow.worktree}</span>
+                          <span className="truncate">{displayLabel}</span>
                         </Link>
                       );
                     })}

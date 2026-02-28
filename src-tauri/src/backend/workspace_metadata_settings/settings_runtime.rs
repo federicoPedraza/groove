@@ -694,6 +694,37 @@ fn normalize_optional_external_url(value: Option<&str>) -> Result<Option<String>
     Ok(Some(trimmed.to_string()))
 }
 
+fn normalize_task_pr_entries(entries: &[WorkspaceTaskPrEntry]) -> Vec<WorkspaceTaskPrEntry> {
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let normalized_url = entry.url.trim();
+            let normalized_timestamp = entry.timestamp.trim();
+            if normalized_url.is_empty() || normalized_timestamp.is_empty() {
+                return None;
+            }
+
+            if !(normalized_url.starts_with("http://") || normalized_url.starts_with("https://")) {
+                return None;
+            }
+
+            let normalized_title = entry
+                .title
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string());
+
+            Some(WorkspaceTaskPrEntry {
+                url: normalized_url.to_string(),
+                title: normalized_title,
+                number: entry.number,
+                timestamp: normalized_timestamp.to_string(),
+            })
+        })
+        .collect::<Vec<_>>()
+}
+
 fn normalize_optional_query(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -727,6 +758,37 @@ fn task_priority_rank(priority: &TaskPriority) -> u8 {
 
 fn task_by_id_mut<'a>(tasks: &'a mut [WorkspaceTask], id: &str) -> Option<&'a mut WorkspaceTask> {
     tasks.iter_mut().find(|task| task.id == id)
+}
+
+fn normalize_worktree_task_assignments(
+    assignments: &HashMap<String, String>,
+    tasks: &[WorkspaceTask],
+) -> HashMap<String, String> {
+    let valid_task_ids = tasks
+        .iter()
+        .map(|task| task.id.as_str())
+        .collect::<HashSet<_>>();
+
+    assignments
+        .iter()
+        .filter_map(|(worktree, task_id)| {
+            let normalized_worktree = worktree.trim();
+            let normalized_task_id = task_id.trim();
+
+            if normalized_worktree.is_empty() || normalized_task_id.is_empty() {
+                return None;
+            }
+
+            if !valid_task_ids.contains(normalized_task_id) {
+                return None;
+            }
+
+            Some((
+                normalized_worktree.to_string(),
+                normalized_task_id.to_string(),
+            ))
+        })
+        .collect::<HashMap<_, _>>()
 }
 
 fn normalize_browse_relative_path(value: Option<&str>) -> Result<String, String> {
@@ -1279,6 +1341,7 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         consellour_settings: default_consellour_settings(),
         jira_settings: default_jira_settings(),
         tasks: Vec::new(),
+        worktree_task_assignments: HashMap::new(),
     }
 }
 
@@ -1373,6 +1436,11 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 .as_ref()
                 .and_then(|parsed| parsed.as_object())
                 .map(|obj| obj.contains_key("tasks"))
+                .unwrap_or(true);
+            let has_worktree_task_assignments = parsed_workspace_json
+                .as_ref()
+                .and_then(|parsed| parsed.as_object())
+                .map(|obj| obj.contains_key("worktreeTaskAssignments"))
                 .unwrap_or(true);
             if workspace_meta.root_name != expected_root_name {
                 workspace_meta.root_name = expected_root_name;
@@ -1553,9 +1621,24 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                     task.external_url = normalized_external_url;
                     normalized_any_task = true;
                 }
+
+                let normalized_pr = normalize_task_pr_entries(&task.pr);
+                if task.pr != normalized_pr {
+                    task.pr = normalized_pr;
+                    normalized_any_task = true;
+                }
             }
             if normalized_any_task {
                 workspace_meta.tasks = normalized_tasks;
+                did_update = true;
+            }
+
+            let normalized_worktree_task_assignments = normalize_worktree_task_assignments(
+                &workspace_meta.worktree_task_assignments,
+                &workspace_meta.tasks,
+            );
+            if workspace_meta.worktree_task_assignments != normalized_worktree_task_assignments {
+                workspace_meta.worktree_task_assignments = normalized_worktree_task_assignments;
                 did_update = true;
             }
 
@@ -1591,6 +1674,11 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
 
             if !has_tasks {
                 workspace_meta.tasks = Vec::new();
+                did_update = true;
+            }
+
+            if !has_worktree_task_assignments {
+                workspace_meta.worktree_task_assignments = HashMap::new();
                 did_update = true;
             }
 

@@ -1,6 +1,7 @@
 fn scan_workspace_worktrees(
     app: &AppHandle,
     workspace_root: &Path,
+    worktree_task_assignments: &HashMap<String, String>,
 ) -> Result<(bool, Vec<WorkspaceScanRow>), String> {
     let worktrees_dir = workspace_root.join(".worktrees");
     if !path_is_directory(&worktrees_dir) {
@@ -47,6 +48,7 @@ fn scan_workspace_worktrees(
             last_executed_at: last_executed_by_worktree
                 .and_then(|entries| entries.get(&worktree))
                 .cloned(),
+            task_id: worktree_task_assignments.get(&worktree).cloned(),
             worktree,
         });
     }
@@ -81,6 +83,7 @@ fn scan_workspace_worktrees(
                 path: tombstone.worktree_path.clone(),
                 status: "deleted".to_string(),
                 last_executed_at: None,
+                task_id: worktree_task_assignments.get(worktree).cloned(),
             });
         }
 
@@ -157,7 +160,11 @@ fn build_workspace_context(
     let meta_elapsed = meta_started_at.elapsed();
 
     let scan_started_at = Instant::now();
-    let (has_worktrees_directory, rows) = match scan_workspace_worktrees(app, workspace_root) {
+    let (has_worktrees_directory, rows) = match scan_workspace_worktrees(
+        app,
+        workspace_root,
+        &workspace_meta.worktree_task_assignments,
+    ) {
         Ok(result) => result,
         Err(error) => {
             let scan_elapsed = scan_started_at.elapsed();
@@ -302,6 +309,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
     let consellour_settings = None;
     let jira_settings = None;
     let tasks = None;
+    let worktree_task_assignments = None;
 
     if version.is_none()
         && root_name.is_none()
@@ -320,6 +328,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         && consellour_settings.is_none()
         && jira_settings.is_none()
         && tasks.is_none()
+        && worktree_task_assignments.is_none()
     {
         return None;
     }
@@ -342,6 +351,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         consellour_settings,
         jira_settings,
         tasks,
+        worktree_task_assignments,
     })
 }
 

@@ -43,6 +43,8 @@ export default function Home() {
     isCreatePending,
     workspaceRoot,
     recentDirectories,
+    workspaceTasks,
+    isWorkspaceTasksLoading,
     forceCutConfirmLoading,
     groupedWorktreeItems,
     setIsCloseWorkspaceConfirmOpen,
@@ -61,6 +63,8 @@ export default function Home() {
     runStopAction,
     runPlayGrooveAction,
     onSelectTestingTarget,
+    setWorktreeTaskAssignment,
+    assignTaskPr,
     runOpenWorkspaceTerminalAction,
     closeCurrentWorkspace,
   } = useDashboardState();
@@ -208,6 +212,8 @@ export default function Home() {
                   pendingPlayActions={pendingPlayActions}
                   pendingTestActions={pendingTestActions}
                   runtimeStateByWorktree={runtimeStateByWorktree}
+                  workspaceTasks={workspaceTasks}
+                  isWorkspaceTasksLoading={isWorkspaceTasksLoading}
                   testingTargetWorktrees={testingTargetWorktrees}
                   testingRunningWorktrees={testingRunningWorktrees}
                   hasConnectedRepository={Boolean(activeWorkspace?.workspaceRoot)}
@@ -230,6 +236,10 @@ export default function Home() {
                   onSetTestingTargetAction={(row) => {
                     onSelectTestingTarget(row);
                   }}
+                  onSetWorktreeTaskAssignment={(worktree, taskId) => {
+                    setWorktreeTaskAssignment(worktree, taskId);
+                  }}
+                  onAssignTaskPr={assignTaskPr}
                 />
               )}
 

@@ -33,6 +33,7 @@ import {
   testingEnvironmentStart,
   testingEnvironmentStartSeparateTerminal,
   testingEnvironmentStop,
+  consellourToolEditTask,
   workspaceClearActive,
   workspaceEvents,
   workspaceGetActive,
@@ -42,8 +43,10 @@ import {
   workspaceOpenWorkspaceTerminal,
   workspaceOpenTerminal,
   workspacePickAndOpen,
+  workspaceSetWorktreeTaskAssignment,
   GROOVE_PLAY_COMMAND_SENTINEL,
   isTelemetryEnabled,
+  type WorkspaceTaskPrEntry,
   type WorkspaceContextResponse,
   type WorkspaceGitignoreSanityResponse,
   type TestingEnvironmentEntry,
@@ -149,7 +152,8 @@ function areWorktreeRowsEqual(left: WorktreeRow[], right: WorktreeRow[]): boolea
       row.branchGuess === candidate.branchGuess &&
       row.path === candidate.path &&
       row.status === candidate.status &&
-      row.lastExecutedAt === candidate.lastExecutedAt
+      row.lastExecutedAt === candidate.lastExecutedAt &&
+      row.taskId === candidate.taskId
     );
   });
 }
@@ -221,6 +225,7 @@ export function useDashboardState() {
 
   const workspaceMeta = activeWorkspace?.workspaceMeta ?? null;
   const workspaceRoot = activeWorkspace?.workspaceRoot ?? null;
+  const workspaceTasks = workspaceMeta?.tasks ?? [];
   const forceCutActionKey = forceCutConfirmRow ? `${forceCutConfirmRow.path}:cut` : null;
   const forceCutConfirmLoading = forceCutActionKey !== null && pendingCutGrooveActions.includes(forceCutActionKey);
   const testingEnvironments = useMemo<TestingEnvironmentEntry[]>(() => {
@@ -1333,6 +1338,165 @@ export function useDashboardState() {
     }
   }, [fetchTestingEnvironmentState, knownWorktrees, workspaceMeta]);
 
+  const setWorktreeTaskAssignment = useCallback((worktree: string, taskId: string | null): void => {
+    const normalizedTaskId = taskId?.trim() || null;
+
+    const applyTaskAssignment = (rows: WorktreeRow[]): WorktreeRow[] => {
+      let hasChanges = false;
+      const nextRows = rows.map((row) => {
+        if (row.worktree !== worktree) {
+          return row;
+        }
+
+        const currentTaskId = row.taskId?.trim() || null;
+        if (currentTaskId === normalizedTaskId) {
+          return row;
+        }
+
+        hasChanges = true;
+        return {
+          ...row,
+          taskId: normalizedTaskId,
+        };
+      });
+
+      return hasChanges ? nextRows : rows;
+    };
+
+    setWorktreeRows((previous) => applyTaskAssignment(previous));
+    setActiveWorkspace((previous) => {
+      if (!previous) {
+        return previous;
+      }
+
+      const nextRows = applyTaskAssignment(previous.rows);
+      if (nextRows === previous.rows) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        rows: nextRows,
+      };
+    });
+
+    void (async () => {
+      try {
+        const result = await workspaceSetWorktreeTaskAssignment({
+          worktree,
+          taskId: normalizedTaskId,
+        });
+
+        if (!result.ok) {
+          toast.error(result.error ?? "Failed to persist task assignment.");
+          await rescanWorktrees({ force: true });
+          return;
+        }
+
+        applyWorkspaceContext(result);
+      } catch {
+        toast.error("Task assignment request failed.");
+        await rescanWorktrees({ force: true });
+      }
+    })();
+  }, [applyWorkspaceContext, rescanWorktrees]);
+
+  const assignTaskPr = useCallback(async (taskId: string, url: string): Promise<void> => {
+    const normalizedTaskId = taskId.trim();
+    const normalizedUrl = url.trim();
+
+    if (!normalizedTaskId) {
+      throw new Error("Task id is required.");
+    }
+
+    if (!normalizedUrl) {
+      throw new Error("Pull request URL is required.");
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(normalizedUrl);
+    } catch {
+      throw new Error("Pull request URL must be valid.");
+    }
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      throw new Error("Pull request URL must start with http:// or https://.");
+    }
+
+    const nextEntry: WorkspaceTaskPrEntry = {
+      url: normalizedUrl,
+      timestamp: new Date().toISOString(),
+    };
+
+    let nextPrEntries: WorkspaceTaskPrEntry[] | null = null;
+    setActiveWorkspace((previous) => {
+      if (!previous) {
+        return previous;
+      }
+
+      const nextTasks = (previous.workspaceMeta.tasks ?? []).map((task) => {
+        if (task.id !== normalizedTaskId) {
+          return task;
+        }
+
+        nextPrEntries = [...(task.PR ?? []), nextEntry];
+        return {
+          ...task,
+          PR: nextPrEntries,
+        };
+      });
+
+      if (!nextPrEntries) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        workspaceMeta: {
+          ...previous.workspaceMeta,
+          tasks: nextTasks,
+        },
+      };
+    });
+
+    if (!nextPrEntries) {
+      throw new Error("Task not found for PR assignment.");
+    }
+
+    try {
+      const result = await consellourToolEditTask({
+        id: normalizedTaskId,
+        PR: nextPrEntries,
+      });
+
+      if (!result.ok || !result.task) {
+        throw new Error(result.error ?? "Failed to persist PR assignment.");
+      }
+
+      const persistedTask = result.task;
+
+      setActiveWorkspace((previous) => {
+        if (!previous) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          workspaceMeta: {
+            ...previous.workspaceMeta,
+            tasks: (previous.workspaceMeta.tasks ?? []).map((task) => {
+              return task.id === normalizedTaskId ? persistedTask : task;
+            }),
+          },
+        };
+      });
+    } catch (error) {
+      await rescanWorktrees({ force: true });
+      throw error;
+    }
+  }, [rescanWorktrees]);
+
   const closeCurrentWorkspace = useCallback(async (): Promise<void> => {
     try {
       setIsBusy(true);
@@ -1383,6 +1547,7 @@ export function useDashboardState() {
     cutConfirmRow,
     forceCutConfirmRow,
     runtimeStateByWorktree,
+    workspaceTasks,
     testingEnvironment,
     testingEnvironments,
     unsetTestingEnvironmentConfirm,
@@ -1402,6 +1567,7 @@ export function useDashboardState() {
     gitignoreSanityErrorMessage,
     isGitignoreSanityChecking,
     isGitignoreSanityApplyPending,
+    isWorkspaceTasksLoading: false,
     forceCutConfirmLoading,
     groupedWorktreeItems,
     setIsCloseWorkspaceConfirmOpen,
@@ -1429,6 +1595,8 @@ export function useDashboardState() {
     runOpenTestingTerminalAction,
     runOpenWorkspaceTerminalAction,
     runStopTestingInstanceAction,
+    setWorktreeTaskAssignment,
+    assignTaskPr,
     closeCurrentWorkspace,
   };
 }

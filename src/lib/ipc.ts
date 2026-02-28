@@ -36,6 +36,7 @@ export type WorkspaceMeta = {
   consellourSettings?: ConsellourSettings;
   jiraSettings?: JiraSettings;
   tasks?: WorkspaceTask[];
+  worktreeTaskAssignments?: Record<string, string>;
 };
 
 export type JiraSettings = {
@@ -158,6 +159,14 @@ export type WorkspaceTask = {
   origin: TaskOrigin;
   externalId?: string;
   externalUrl?: string;
+  PR?: WorkspaceTaskPrEntry[];
+};
+
+export type WorkspaceTaskPrEntry = {
+  url: string;
+  title?: string;
+  number?: number;
+  timestamp: string;
 };
 
 export type ConsellourSettings = {
@@ -187,6 +196,11 @@ export type WorkspaceCommandSettingsResponse = WorkspaceTerminalSettingsResponse
 
 export type WorkspaceWorktreeSymlinkPathsPayload = {
   worktreeSymlinkPaths: string[];
+};
+
+export type WorkspaceSetWorktreeTaskAssignmentPayload = {
+  worktree: string;
+  taskId?: string | null;
 };
 
 export type WorkspaceBrowseEntriesPayload = {
@@ -239,6 +253,7 @@ export type ConsellourToolEditTaskPayload = {
   origin?: TaskOrigin;
   externalId?: string;
   externalUrl?: string;
+  PR?: WorkspaceTaskPrEntry[];
 };
 
 export type ConsellourSettingsResponse = {
@@ -303,6 +318,7 @@ export type WorkspaceRow = {
   path: string;
   status: "paused" | "closing" | "ready" | "corrupted" | "deleted";
   lastExecutedAt?: string;
+  taskId?: string | null;
 };
 
 export type WorkspaceContextResponse = {
@@ -1767,6 +1783,12 @@ export function workspaceUpdateWorktreeSymlinkPaths(
   payload: WorkspaceWorktreeSymlinkPathsPayload,
 ): Promise<WorkspaceCommandSettingsResponse> {
   return invokeCommand<WorkspaceCommandSettingsResponse>("workspace_update_worktree_symlink_paths", { payload });
+}
+
+export function workspaceSetWorktreeTaskAssignment(
+  payload: WorkspaceSetWorktreeTaskAssignmentPayload,
+): Promise<WorkspaceContextResponse> {
+  return invokeCommand<WorkspaceContextResponse>("workspace_set_worktree_task_assignment", { payload });
 }
 
 export function workspaceListSymlinkEntries(

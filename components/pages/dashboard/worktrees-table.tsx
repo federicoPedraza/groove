@@ -1,6 +1,7 @@
 import { Check, CircleHelp, Copy } from "lucide-react";
 
 import { WorktreeRowActions } from "@/components/pages/dashboard/worktree-row-actions";
+import { WorktreeTaskSelector } from "@/components/pages/dashboard/worktree-task-selector";
 import { getWorktreeStatusBadgeClasses, getWorktreeStatusIcon, getWorktreeStatusTitle } from "@/components/pages/dashboard/worktree-status";
 import type { RuntimeStateRow, WorktreeRow } from "@/components/pages/dashboard/types";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { deriveWorktreeStatus } from "@/lib/utils/worktree/status";
 import type { GroupedWorktreeItem } from "@/lib/utils/time/grouping";
+import type { WorkspaceTask } from "@/src/lib/ipc";
 
 type WorktreesTableProps = {
   groupedWorktreeItems: GroupedWorktreeItem[];
@@ -19,6 +21,8 @@ type WorktreesTableProps = {
   pendingPlayActions: string[];
   pendingTestActions: string[];
   runtimeStateByWorktree: Record<string, RuntimeStateRow>;
+  workspaceTasks: WorkspaceTask[];
+  isWorkspaceTasksLoading: boolean;
   testingTargetWorktrees: string[];
   testingRunningWorktrees: string[];
   hasConnectedRepository: boolean;
@@ -29,6 +33,8 @@ type WorktreesTableProps = {
   onStopAction: (row: WorktreeRow, runtimeRow: RuntimeStateRow | undefined) => void;
   onPlayAction: (row: WorktreeRow) => void;
   onSetTestingTargetAction: (row: WorktreeRow) => void;
+  onSetWorktreeTaskAssignment: (worktree: string, taskId: string | null) => void;
+  onAssignTaskPr: (taskId: string, url: string) => Promise<void>;
 };
 
 export function WorktreesTable({
@@ -40,6 +46,8 @@ export function WorktreesTable({
   pendingPlayActions,
   pendingTestActions,
   runtimeStateByWorktree,
+  workspaceTasks,
+  isWorkspaceTasksLoading,
   testingTargetWorktrees,
   testingRunningWorktrees,
   hasConnectedRepository,
@@ -50,13 +58,16 @@ export function WorktreesTable({
   onStopAction,
   onPlayAction,
   onSetTestingTargetAction,
+  onSetWorktreeTaskAssignment,
+  onAssignTaskPr,
 }: WorktreesTableProps) {
   return (
     <div role="region" aria-label="Groove worktrees table" className="rounded-lg border">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="w-[34%] md:w-[26%]">Branch</TableHead>
+            <TableHead className="w-[30%] md:w-[24%]">Branch</TableHead>
+            <TableHead className="w-[280px]">Task</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -68,7 +79,7 @@ export function WorktreesTable({
 
               return (
                 <TableRow key={item.key} className="bg-muted/25 hover:bg-muted/25">
-                  <TableCell colSpan={3} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <TableCell colSpan={4} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">
                       <span>{item.label}</span>
                       {isDeletedWorktreesSection ? (
@@ -113,7 +124,7 @@ export function WorktreesTable({
 
             return (
               <TableRow key={item.key}>
-                <TableCell className="w-[34%] md:w-[26%]">
+                <TableCell className="w-[30%] md:w-[24%]">
                   <div className="flex items-center gap-2 px-2 py-1">
                     <span className="min-w-0 flex-1 truncate select-text">{row.branchGuess}</span>
                     <Button
@@ -129,6 +140,17 @@ export function WorktreesTable({
                       {branchCopied ? <Check aria-hidden="true" className="size-3.5 text-emerald-700" /> : <Copy aria-hidden="true" className="size-3.5" />}
                     </Button>
                   </div>
+                </TableCell>
+                <TableCell className="w-[280px]">
+                  <WorktreeTaskSelector
+                    worktree={row.worktree}
+                    tasks={workspaceTasks}
+                    selectedTaskId={row.taskId ?? null}
+                    onTaskChange={onSetWorktreeTaskAssignment}
+                    onAssignPr={onAssignTaskPr}
+                    disabled={isWorkspaceTasksLoading}
+                    triggerClassName="h-8"
+                  />
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline" className={getWorktreeStatusBadgeClasses(status)} title={getWorktreeStatusTitle(status)}>

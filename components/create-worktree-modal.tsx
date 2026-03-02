@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { GitBranch, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,9 +13,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { gitListBranches } from "@/src/lib/ipc";
-
-type BaseMode = "manual" | "branch";
+import { SearchDropdown } from "@/components/ui/search-dropdown";
+import { gitCurrentBranch, gitListBranches } from "@/src/lib/ipc";
 
 type CreateWorktreeModalProps = {
   open: boolean;
@@ -42,23 +41,27 @@ function CreateWorktreeModal({
   onSubmit,
   onCancel,
 }: CreateWorktreeModalProps) {
-  const [baseMode, setBaseMode] = useState<BaseMode>("manual");
   const [existingBranches, setExistingBranches] = useState<string[]>([]);
   const [isExistingBranchesLoading, setIsExistingBranchesLoading] = useState(false);
   const [existingBranchesError, setExistingBranchesError] = useState<string | null>(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
-  const branchListId = useId();
+  const existingBranchOptions = useMemo(() => {
+    return existingBranches.map((branchName) => ({
+      value: branchName,
+      label: branchName,
+      icon: <GitBranch aria-hidden="true" className="size-4" />,
+    }));
+  }, [existingBranches]);
 
   useEffect(() => {
     if (!open) {
-      setBaseMode("manual");
       setExistingBranchesError(null);
       setSelectionError(null);
     }
   }, [open]);
 
   useEffect(() => {
-    if (!open || baseMode !== "branch" || !workspaceRoot) {
+    if (!open || !workspaceRoot) {
       return;
     }
 
@@ -67,20 +70,41 @@ function CreateWorktreeModal({
       setIsExistingBranchesLoading(true);
       setExistingBranchesError(null);
       try {
-        const result = await gitListBranches({ path: workspaceRoot });
+        const [branchesResult, currentBranchResult] = await Promise.all([
+          gitListBranches({ path: workspaceRoot }),
+          gitCurrentBranch({ path: workspaceRoot }),
+        ]);
         if (cancelled) {
           return;
         }
-        if (!result.ok) {
+
+        if (!branchesResult.ok) {
           setExistingBranches([]);
-          setExistingBranchesError(result.error ?? "Failed to load branches.");
+          setExistingBranchesError(branchesResult.error ?? "Failed to load branches.");
+          onBaseChange("");
           return;
         }
-        setExistingBranches(result.branches);
+
+        const availableBranches = branchesResult.branches;
+        setExistingBranches(availableBranches);
+
+        if (availableBranches.length === 0) {
+          onBaseChange("");
+          return;
+        }
+
+        const currentBranch = currentBranchResult.ok ? currentBranchResult.branch?.trim() : "";
+        if (currentBranch && availableBranches.includes(currentBranch)) {
+          onBaseChange(currentBranch);
+          return;
+        }
+
+        onBaseChange(availableBranches[0]);
       } catch {
         if (!cancelled) {
           setExistingBranches([]);
           setExistingBranchesError("Failed to load branches.");
+          onBaseChange("");
         }
       } finally {
         if (!cancelled) {
@@ -92,7 +116,7 @@ function CreateWorktreeModal({
     return () => {
       cancelled = true;
     };
-  }, [baseMode, open, workspaceRoot]);
+  }, [onBaseChange, open, workspaceRoot]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -102,97 +126,63 @@ function CreateWorktreeModal({
           onSubmit={(event) => {
             event.preventDefault();
             if (!loading) {
-              if (baseMode === "branch") {
-                const selectedBranch = base.trim();
-                if (!selectedBranch) {
-                  setSelectionError("Select an existing branch.");
-                  return;
-                }
-                setSelectionError(null);
-                onSubmit({ branchOverride: selectedBranch, baseOverride: "" });
+              const selectedBranch = base.trim();
+              if (!selectedBranch) {
+                setSelectionError("Select an existing base branch.");
                 return;
               }
-              onSubmit();
+
+              if (!existingBranches.includes(selectedBranch)) {
+                setSelectionError("Select a branch from the existing branch list.");
+                return;
+              }
+
+              setSelectionError(null);
+              onSubmit({ baseOverride: selectedBranch });
             }
           }}
         >
           <DialogHeader>
             <DialogTitle>Create worktree</DialogTitle>
-            <DialogDescription>
-              Enter a branch name and an optional base ref (defaults to HEAD).
-            </DialogDescription>
+            <DialogDescription>Enter a branch name and choose the base branch.</DialogDescription>
           </DialogHeader>
 
-          {baseMode === "manual" ? (
-            <div className="space-y-2">
-              <label htmlFor="create-worktree-branch" className="text-sm font-medium">
-                Branch name
-              </label>
-              <Input
-                id="create-worktree-branch"
-                type="text"
-                value={branch}
-                onChange={(event) => {
-                  onBranchChange(event.target.value);
-                }}
-                placeholder="feature/my-branch"
-                required
-                autoFocus
-                disabled={loading}
-              />
-            </div>
-          ) : null}
-
           <div className="space-y-2">
-            <label className="text-sm font-medium">Base ref mode</label>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant={baseMode === "manual" ? "default" : "outline"}
-                onClick={() => {
-                  setBaseMode("manual");
-                  setSelectionError(null);
-                }}
-                disabled={loading}
-              >
-                Manual ref
-              </Button>
-              <Button
-                type="button"
-                variant={baseMode === "branch" ? "default" : "outline"}
-                onClick={() => {
-                  setBaseMode("branch");
-                  setSelectionError(null);
-                }}
-                disabled={loading}
-              >
-                Existing branch
-              </Button>
-            </div>
+            <label htmlFor="create-worktree-branch" className="text-sm font-medium">
+              Branch name
+            </label>
+            <Input
+              id="create-worktree-branch"
+              type="text"
+              value={branch}
+              onChange={(event) => {
+                onBranchChange(event.target.value);
+              }}
+              placeholder="feature/my-branch"
+              required
+              autoFocus
+              disabled={loading}
+            />
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="create-worktree-base" className="text-sm font-medium">
-              {baseMode === "branch" ? "Existing branch (optional)" : "Base ref (optional)"}
-            </label>
-            <Input
-              id="create-worktree-base"
-              type="text"
+            <label className="text-sm font-medium">Base branch</label>
+            <SearchDropdown
+              ariaLabel="Select base branch"
+              searchAriaLabel="Search existing branches"
+              options={existingBranchOptions}
               value={base}
-              list={baseMode === "branch" ? branchListId : undefined}
-              onChange={(event) => {
-                if (baseMode === "branch") {
-                  setSelectionError(null);
-                }
-                onBaseChange(event.target.value);
+              placeholder={isExistingBranchesLoading ? "Loading branches..." : "Select an existing branch"}
+              searchPlaceholder="Filter branches"
+              onValueChange={(nextValue) => {
+                setSelectionError(null);
+                onBaseChange(nextValue);
               }}
-              placeholder={baseMode === "branch" ? "Search and pick a branch" : "HEAD"}
-              disabled={loading || (baseMode === "branch" && isExistingBranchesLoading)}
+              disabled={loading || isExistingBranchesLoading || existingBranches.length === 0}
             />
-            {baseMode === "branch" ? <datalist id={branchListId}>{existingBranches.map((branchName) => <option key={branchName} value={branchName} />)}</datalist> : null}
-            {baseMode === "branch" && existingBranchesError ? <p className="text-xs text-destructive">{existingBranchesError}</p> : null}
-            {baseMode === "branch" && !existingBranchesError && selectionError ? <p className="text-xs text-destructive">{selectionError}</p> : null}
-            {baseMode === "branch" && !isExistingBranchesLoading && !existingBranchesError && existingBranches.length === 0 ? (
+            {existingBranchesError ? <p className="text-xs text-destructive">{existingBranchesError}</p> : null}
+            {!existingBranchesError && selectionError ? <p className="text-xs text-destructive">{selectionError}</p> : null}
+            {!isExistingBranchesLoading && !existingBranchesError && existingBranches.length === 0 ? (
               <p className="text-xs text-muted-foreground">No branches were found in this repository.</p>
             ) : null}
           </div>
@@ -201,7 +191,7 @@ function CreateWorktreeModal({
             <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading || isExistingBranchesLoading || existingBranches.length === 0 || !base.trim()}>
               {loading ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
               <span>Create</span>
             </Button>

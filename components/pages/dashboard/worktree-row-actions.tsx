@@ -23,14 +23,16 @@ import {
 import { useState } from "react";
 
 import {
-  ACTIVE_GREEN_BUTTON_CLASSES,
+  ACTIVE_AMBER_BUTTON_CLASSES,
   ACTIVE_TESTING_BUTTON_CLASSES,
+  SOFT_AMBER_BUTTON_CLASSES,
   SOFT_GREEN_BUTTON_CLASSES,
   SOFT_ORANGE_BUTTON_CLASSES,
   SOFT_RED_BUTTON_CLASSES,
-  SOFT_YELLOW_BUTTON_CLASSES,
 } from "@/components/pages/dashboard/constants";
+import { TaskBadge } from "@/components/ui/task-badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -53,6 +55,7 @@ import {
   gitStatus,
   gitUnstageFiles,
 } from "@/src/lib/ipc";
+import type { WorkspaceTask } from "@/src/lib/ipc";
 import type { RuntimeStateRow, WorktreeRow, WorktreeStatus } from "@/components/pages/dashboard/types";
 
 type WorktreeRowActionsProps = {
@@ -77,8 +80,12 @@ type WorktreeRowActionsProps = {
   onCutConfirm: (row: WorktreeRow) => void;
   variant?: "dashboard" | "worktree-detail";
   isTestingInstancePending?: boolean;
-  onRunLocal?: (worktree: string) => void;
   onOpenTerminal?: (worktree: string) => void;
+  workspaceTasks?: WorkspaceTask[];
+  selectedTaskId?: string | null;
+  onSetTaskAssignment?: (worktree: string, taskId: string | null) => void;
+  onAssignTaskPr?: (taskId: string, url: string) => Promise<void>;
+  isTaskAssignmentDisabled?: boolean;
   closeWorktreePending?: boolean;
 };
 
@@ -116,8 +123,12 @@ export function WorktreeRowActions({
   onCutConfirm,
   variant = "dashboard",
   isTestingInstancePending = false,
-  onRunLocal,
   onOpenTerminal,
+  workspaceTasks = [],
+  selectedTaskId = null,
+  onSetTaskAssignment,
+  onAssignTaskPr,
+  isTaskAssignmentDisabled = false,
   closeWorktreePending = false,
 }: WorktreeRowActionsProps) {
   const [isTestingToggleHovered, setIsTestingToggleHovered] = useState(false);
@@ -137,14 +148,6 @@ export function WorktreeRowActions({
   const [selectedStagedFiles, setSelectedStagedFiles] = useState<string[]>([]);
   const [commitMessage, setCommitMessage] = useState("");
 
-  const opencodeState = runtimeRow?.opencodeState ?? "unknown";
-  const opencodeInstanceId = runtimeRow?.opencodeInstanceId;
-  const hasRunningOpencodeInstance =
-    status !== "corrupted" &&
-    status !== "deleted" &&
-    opencodeState === "running" &&
-    typeof opencodeInstanceId === "string" &&
-    opencodeInstanceId.trim().length > 0;
   const showUnsetTestingPreview = isTestingTarget && isTestingToggleHovered;
   const testingTooltipLabel = isTestingTarget
     ? showUnsetTestingPreview
@@ -673,23 +676,31 @@ export function WorktreeRowActions({
       <div className="flex items-center justify-end gap-1">
       {variant === "worktree-detail" ? (
         <>
+          {onSetTaskAssignment ? (
+            <>
+              <TaskBadge
+                worktree={row.worktree}
+                tasks={workspaceTasks}
+                selectedTaskId={selectedTaskId}
+                onTaskChange={(taskId) => {
+                  onSetTaskAssignment(row.worktree, taskId);
+                }}
+                onAssignPr={async (taskId, url) => {
+                  if (!onAssignTaskPr) {
+                    throw new Error("Task PR assignment is unavailable.");
+                  }
+
+                  await onAssignTaskPr(taskId, url);
+                }}
+                disabled={isTaskAssignmentDisabled}
+                className="h-8"
+              />
+              <div aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
+            </>
+          ) : null}
           <Button
             type="button"
             variant="default"
-            size="sm"
-            onClick={() => {
-              if (onRunLocal) {
-                onRunLocal(row.worktree);
-              }
-            }}
-            disabled={isTestingInstancePending}
-          >
-            {isTestingInstancePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Play aria-hidden="true" className="size-4" />}
-            <span>Run local</span>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
             size="sm"
             className="h-8"
             onClick={() => {
@@ -710,7 +721,7 @@ export function WorktreeRowActions({
                 type="button"
                 variant="outline"
                 size="sm"
-                className={`h-8 ${SOFT_YELLOW_BUTTON_CLASSES}`}
+                className={`h-8 ${SOFT_AMBER_BUTTON_CLASSES}`}
                 onClick={() => {
                   onStop(row, runtimeRow);
                 }}
@@ -886,12 +897,12 @@ export function WorktreeRowActions({
                 type="button"
                 variant="outline"
                 size="sm"
-                className={`h-8 w-8 p-0 ${ACTIVE_GREEN_BUTTON_CLASSES}`}
+                className={`h-8 w-8 p-0 ${ACTIVE_AMBER_BUTTON_CLASSES}`}
                 onClick={() => {
                   onStop(row, runtimeRow);
                 }}
                 aria-label={`Pause Groove for ${row.worktree}`}
-                disabled={rowPending || !hasRunningOpencodeInstance}
+                disabled={rowPending}
               >
                 {stopPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Pause aria-hidden="true" className="size-4" />}
               </Button>
@@ -994,10 +1005,9 @@ export function WorktreeRowActions({
                       {commitingState.unstaged.length ? (
                         commitingState.unstaged.map((file) => (
                           <label key={`unstaged-${file}`} className="flex items-center gap-2 py-1">
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={selectedUnstagedFiles.includes(file)}
-                              onChange={() => {
+                              onCheckedChange={() => {
                                 toggleSelection(file, selectedUnstagedFiles, setSelectedUnstagedFiles);
                               }}
                               disabled={isCommitingMutationPending || isCommitingStatePending}
@@ -1060,10 +1070,9 @@ export function WorktreeRowActions({
                       {commitingState.staged.length ? (
                         commitingState.staged.map((file) => (
                           <label key={`staged-${file}`} className="flex items-center gap-2 py-1">
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={selectedStagedFiles.includes(file)}
-                              onChange={() => {
+                              onCheckedChange={() => {
                                 toggleSelection(file, selectedStagedFiles, setSelectedStagedFiles);
                               }}
                               disabled={isCommitingMutationPending || isCommitingStatePending}
@@ -1111,10 +1120,9 @@ export function WorktreeRowActions({
                       {commitingState.untracked.length ? (
                         commitingState.untracked.map((file) => (
                           <label key={`untracked-${file}`} className="flex items-center gap-2 py-1">
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={selectedUntrackedFiles.includes(file)}
-                              onChange={() => {
+                              onCheckedChange={() => {
                                 toggleSelection(file, selectedUntrackedFiles, setSelectedUntrackedFiles);
                               }}
                               disabled={isCommitingMutationPending || isCommitingStatePending}

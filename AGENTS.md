@@ -1,25 +1,27 @@
 # AGENTS.md
 
 ## Purpose
-This file defines how autonomous coding agents should operate in this repository.
-Follow these rules for planning, editing, validating, and reporting changes.
+This document is the operating guide for coding agents working in this repository.
+It defines how to implement changes, validate them, and report results in a way that matches the current toolchain.
 
 ## Repository Snapshot
-- Frontend: npm + Vite + React + TypeScript.
-- Desktop shell/backend: Tauri + Rust.
-- TypeScript is configured in strict mode.
-- Path alias: `@/* -> ./*`.
-- Frontend tests use Vitest.
+- Stack: React + TypeScript + Vite frontend, Tauri + Rust backend shell.
+- Package manager and task runner: npm scripts from `package.json`.
+- TypeScript is strict; frontend tests run with Vitest.
+- Path alias in frontend code: `@/* -> ./*`.
 
-## Source of Truth
-When there is a conflict, use this order:
-1. Explicit user instruction.
+## Source of Truth Precedence
+When instructions conflict, use this order:
+1. Direct user instruction.
 2. This `AGENTS.md`.
-3. Existing code patterns in the touched area.
-4. Tool defaults and language ecosystem conventions.
+3. Existing patterns in the files being edited.
+4. Language/framework defaults.
 
-## Available Project Scripts
-Use npm scripts as the primary interface:
+If a higher-priority source is incomplete, use the next source and note assumptions in your final report.
+
+## Current Commands (from package.json)
+Use scripts as the primary interface for routine work:
+
 ```bash
 npm run dev
 npm run build
@@ -35,88 +37,65 @@ npm run tauri:build:macos
 npm run check:rust
 ```
 
-## Build / Lint / Test Commands
+## Build, Lint, and Test Guidance
 
-### Core validation commands
-- Frontend dev: `npm run dev`
-- Frontend production build: `npm run build`
-- Frontend preview build: `npm run preview`
+### Core commands
+- Local frontend dev: `npm run dev`
+- Production frontend build: `npm run build`
+- Local build preview: `npm run preview`
 - Frontend lint: `npm run lint`
-- Frontend typecheck: `npm run typecheck`
+- Frontend type checks: `npm run typecheck`
 - Frontend tests: `npm run test`
-- Rust checks: `npm run check:rust`
-- Tauri full dev (frontend + Rust): `npm run tauri:dev`
-- Tauri full build: `npm run tauri:build`
+- Frontend tests in watch mode: `npm run test:watch`
+- Rust checks (via npm): `npm run check:rust`
+- Tauri integration dev loop: `npm run tauri:dev`
 
-### Tests (current status)
-- JavaScript/TypeScript tests: `npm run test` (Vitest).
-- JavaScript/TypeScript watch mode: `npm run test:watch`.
-- Rust tests via workspace npm script: currently unavailable.
+### Single-test commands (Vitest)
+- Single test file: `npx vitest run src/path/to/file.test.ts`
+- Single test by name: `npx vitest run -t "test name"`
+- Single file + single test name: `npx vitest run src/path/to/file.test.ts -t "test name"`
 
-### Running a single test (Vitest)
-- Single file: `npx vitest run src/path/to/file.test.ts`
-- Single test name: `npx vitest run -t "test name"`
+Notes:
+- There is no dedicated npm script for a single test; use `npx vitest run ...`.
+- Rust validation in this repo is exposed through `npm run check:rust`.
 
-### Future patterns (if adopted later)
-- Future (Jest):
-  - All tests: `npx jest`
-  - Single file: `npx jest src/path/to/file.test.ts`
-  - Single test name: `npx jest -t "test name"`
-- Future (Rust):
-  - All tests: `cargo test`
-  - Single crate/package: `cargo test -p <crate_name>`
-  - Single test target/name: `cargo test <test_name>`
+## Code Style Guidelines
 
-## Code Style Conventions
+### Imports
+- Keep imports grouped: external packages first, then internal alias (`@/...`), then relative imports.
+- Separate import groups with one blank line.
+- Prefer type-only imports when possible: `import type { Foo } from "...";`.
+- Avoid unused imports; remove them while editing nearby code.
 
-### Formatting
-- TypeScript/TSX formatting in this repo uses double quotes, semicolons, and 2-space indentation.
-- Match surrounding style exactly in edited files.
-- Keep diffs minimal and focused.
+### Formatting and structure
+- Match existing file style; do not reformat unrelated code.
+- Maintain concise modules and focused functions.
+- Prefer small diffs that solve the task directly.
+- Keep JSX/TSX readable with consistent prop and conditional layout.
 
-### Import ordering
-- Order imports as external packages, then one blank line, then internal alias (`@/...`) and relative imports.
-- Prefer type-only imports where applicable: `import type { Foo } from "...";`.
-
-### Types and strictness
-- Respect strict mode; do not suppress errors without strong reason.
-- Avoid `any`; prefer specific types, unions, and generics.
-- Narrow unknown values safely.
-- Keep component props and return types clear when beneficial.
-- Encode domain constraints in types, not comments.
+### Types and API boundaries
+- Respect strict TypeScript settings; do not bypass type errors casually.
+- Avoid `any`; prefer concrete types, unions, generics, and narrowing.
+- Validate and narrow unknown external data at boundaries.
+- Keep public function/component contracts explicit when it improves clarity.
 
 ### Naming
-- Components and exported types/interfaces: `PascalCase`.
+- React components, exported types/interfaces, and enums: `PascalCase`.
 - Functions, variables, hooks: `camelCase`.
-- Constants and immutable globals: `UPPER_SNAKE_CASE`.
-- Boolean variables should read as predicates (`is`, `has`, `should`).
+- Constants: `UPPER_SNAKE_CASE` only when truly constant across scope.
+- Boolean names should read as predicates (`isReady`, `hasError`, `shouldRetry`).
 
-### Error handling (TypeScript)
-- Use `try/catch` around fallible async boundaries where user impact exists.
-- Provide actionable and concise user-facing error messages.
-- Preserve technical context for logs/debugging.
+### Error handling
 - Do not swallow errors silently.
+- TypeScript: catch at meaningful boundaries, return actionable user messages, and log technical context.
+- Rust: use `Result`-based flows and attach context to propagated errors.
+- Avoid `panic!` for normal runtime failures.
 
-### Error handling (Rust)
-- Use `Result`-based flows.
-- Prefer `map_err` (or equivalent) to attach context.
-- Return meaningful errors instead of panicking in normal paths.
-- Keep error context close to the failing operation.
+## Validation Matrix by Change Scope
 
-## Agent Workflow by Change Scope
-
-### 1) Plan before edits
-- Identify whether scope is frontend-only, Rust-only, or cross-stack.
-- Read nearby files to match local patterns before implementing.
-
-### 2) Implement minimally
-- Make the smallest change that fully resolves the task.
-- Avoid broad refactors unless requested or required for correctness.
-
-### 3) Validate by scope
-
-#### Frontend-only change
+### Frontend-only changes
 Run:
+
 ```bash
 npm run lint
 npm run typecheck
@@ -124,48 +103,70 @@ npm run test
 npm run build
 ```
 
-#### Rust-only change
+### Rust-only changes
 Run:
+
 ```bash
 npm run check:rust
 ```
-If runtime integration is affected, also run:
+
+If Rust changes affect Tauri runtime behavior, also run:
+
 ```bash
 npm run tauri:dev
 ```
 
-#### Cross-stack (frontend + Rust bridge/Tauri)
+### Cross-stack changes (frontend + Rust/Tauri bridge)
 Run:
+
 ```bash
 npm run lint
+npm run typecheck
+npm run test
 npm run build
 npm run check:rust
 npm run tauri:dev
 ```
-Use `npm run tauri:build` when release/build behavior is part of the task.
 
-### 4) Report clearly
-Final agent output should:
-- State what changed and why.
-- List validation commands actually run.
-- Note commands not run and why.
-- Highlight risks/follow-ups if validation is partial.
+Use packaging builds only when relevant to the task:
+- `npm run tauri:build`
+- `npm run tauri:build:linux`
+- `npm run tauri:build:macos`
 
-## Cursor / Copilot Rules Status
-- `.cursor/rules`: not found.
+## Definition of Done
+A task is done when all of the following are true:
+- The requested behavior/code change is implemented.
+- Validation commands for the change scope were run and passed, or failures are documented.
+- Code follows local style, naming, and typing expectations.
+- No unrelated refactors or speculative tooling changes were introduced.
+- Final report clearly states results, risks, and any follow-up work.
+
+## Reporting Expectations for Agents
+Keep final reporting concise and factual.
+
+Always include:
+- What changed and why (1-3 short bullets).
+- Files touched.
+- Commands actually run and outcome.
+- Commands not run (if any) with a reason.
+- Known risks, assumptions, or follow-up checks.
+
+Avoid:
+- Long execution logs.
+- Claiming a command passed if it was not run.
+- Broad recommendations unrelated to the requested task.
+
+## Cursor/Copilot Rules Status
+Status checked for these paths:
+- `.cursor/rules/`
+- `.cursorrules`
+- `.github/copilot-instructions.md`
+
+Current status in this repository:
+- `.cursor/rules/`: not found.
 - `.cursorrules`: not found.
 - `.github/copilot-instructions.md`: not found.
 
-## Behavior in Absence of Cursor/Copilot Rules
-- Follow this `AGENTS.md` and existing code patterns as primary guidance.
-- Be conservative and prefer consistency over novelty.
-- Do not invent hidden policy files or undocumented constraints.
-- If conventions are unclear, infer from adjacent files and keep changes minimal.
-- Document assumptions when they materially affect implementation choices.
-
-## Definition of Done
-A task is done when:
-- Requested behavior/code change is implemented.
-- Relevant lint/build/check commands pass for the affected scope.
-- Changes follow repository style and naming conventions.
-- Final report is concise, accurate, and explicit about validation status.
+Operational implication:
+- This `AGENTS.md` is the primary local agent policy document.
+- Use existing code patterns in touched files as secondary guidance.

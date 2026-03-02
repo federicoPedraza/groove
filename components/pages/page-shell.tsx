@@ -64,7 +64,7 @@ function isTauriRuntimeAvailable(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-type PageShellProps = {
+export type PageShellProps = {
   children: ReactNode;
   pageSidebar?: ReactNode | ((args: { collapsed: boolean }) => ReactNode);
   noDirectoryOpenState?: {

@@ -1,24 +1,22 @@
 "use client";
 
 import { Check, Copy, GitBranch } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { DashboardModals } from "@/components/pages/dashboard/dashboard-modals";
 import { useDashboardState } from "@/components/pages/dashboard/hooks/use-dashboard-state";
 import { WorktreeRowActions } from "@/components/pages/dashboard/worktree-row-actions";
-import { PageShell } from "@/components/pages/page-shell";
+import { useAppLayout } from "@/components/pages/use-app-layout";
 import { GrooveWorktreeTerminal } from "@/components/pages/worktrees/groove-worktree-terminal";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { toast } from "@/lib/toast";
 import { deriveWorktreeStatus } from "@/lib/utils/worktree/status";
 import type { RuntimeStateRow, WorktreeRow } from "@/components/pages/dashboard/types";
 import {
   GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
   GROOVE_PLAY_COMMAND_SENTINEL,
-  grooveTerminalOpen,
 } from "@/src/lib/ipc";
 
 export default function WorktreeDetailPage() {
@@ -41,6 +39,7 @@ export default function WorktreeDetailPage() {
     cutConfirmRow,
     forceCutConfirmRow,
     runtimeStateByWorktree,
+    workspaceTasks,
     isCreateModalOpen,
     createBranch,
     createBase,
@@ -63,16 +62,16 @@ export default function WorktreeDetailPage() {
     runPlayGrooveAction,
     runCreateWorktreeAction,
     copyBranchName,
-    runStartTestingInstanceAction,
     runOpenTestingTerminalAction,
+    setWorktreeTaskAssignment,
+    assignTaskPr,
     isTestingInstancePending,
     closeCurrentWorkspace,
   } = useDashboardState();
   const [isClosingWorktree, setIsClosingWorktree] = useState(false);
-  const [isStartingInAppTerminal, setIsStartingInAppTerminal] = useState(false);
-  const [runningTerminalSessionIds, setRunningTerminalSessionIds] = useState<string[]>([]);
+  const [pauseConfirmRow, setPauseConfirmRow] = useState<WorktreeRow | null>(null);
 
-  const selectedWorktreeName = (() => {
+  const selectedWorktreeName = useMemo(() => {
     if (!worktreeParam) {
       return "";
     }
@@ -82,7 +81,7 @@ export default function WorktreeDetailPage() {
     } catch {
       return worktreeParam;
     }
-  })();
+  }, [worktreeParam]);
   const row = worktreeRows.find((candidateRow) => candidateRow.worktree === selectedWorktreeName);
   const runtimeRow = row ? runtimeStateByWorktree[row.worktree] : undefined;
   const status = row ? deriveWorktreeStatus(row.status, runtimeRow) : null;
@@ -96,27 +95,44 @@ export default function WorktreeDetailPage() {
   const playPending = pendingPlayActions.includes(playActionKey);
   const rowPending = restorePending || cutPending || stopPending || playPending;
   const hasConnectedRepository = Boolean(activeWorkspace?.workspaceRoot);
-  const knownWorktrees = worktreeRows.filter((candidateRow) => candidateRow.status !== "deleted").map((candidateRow) => candidateRow.worktree);
+  const knownWorktrees = useMemo(
+    () => worktreeRows.filter((candidateRow) => candidateRow.status !== "deleted").map((candidateRow) => candidateRow.worktree),
+    [worktreeRows],
+  );
   const isGrooveMode =
     workspaceMeta?.playGrooveCommand?.trim() === GROOVE_PLAY_COMMAND_SENTINEL ||
     workspaceMeta?.openTerminalAtWorktreeCommand?.trim() === GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL;
   const branchCopied = row ? copiedBranchPath === row.path : false;
+  const pauseConfirmActionKey = pauseConfirmRow ? `${pauseConfirmRow.path}:stop` : null;
+  const pauseConfirmLoading = pauseConfirmActionKey !== null && pendingStopActions.includes(pauseConfirmActionKey);
+
+  useAppLayout({
+    pageSidebar: () => null,
+    noDirectoryOpenState: {
+      isVisible: !isWorkspaceHydrating && !activeWorkspace,
+      isBusy,
+      statusMessage,
+      errorMessage,
+      onSelectDirectory: pickDirectory,
+      onOpenRecentDirectory: openRecentDirectory,
+    },
+  });
 
   const handlePauseGroove = useCallback(
-    async (targetRow: WorktreeRow, targetRuntimeRow: RuntimeStateRow | undefined): Promise<void> => {
+    async (targetRow: WorktreeRow, targetRuntimeRow: RuntimeStateRow | undefined): Promise<boolean> => {
       if (isClosingWorktree) {
-        return;
+        return false;
       }
 
       setIsClosingWorktree(true);
       try {
         const didPause = await runStopAction(targetRow, targetRuntimeRow);
         if (!didPause) {
-          return;
+          return false;
         }
 
-        setRunningTerminalSessionIds([]);
         navigate("/");
+        return true;
       } finally {
         setIsClosingWorktree(false);
       }
@@ -124,69 +140,12 @@ export default function WorktreeDetailPage() {
     [isClosingWorktree, navigate, runStopAction],
   );
 
-  const handleOpenInAppSplit = useCallback(
-    async (worktree: string, openMode: "opencode" | "runLocal", shouldMarkAsRunningTerminal: boolean): Promise<void> => {
-      if (!workspaceMeta || !row) {
-        toast.error("Open a workspace and worktree before starting a terminal.");
-        return;
-      }
-
-      setIsStartingInAppTerminal(true);
-      try {
-        const result = await grooveTerminalOpen({
-          rootName: workspaceMeta.rootName,
-          knownWorktrees,
-          workspaceMeta,
-          worktree,
-          target: row.branchGuess,
-          openMode,
-          forceRestart: false,
-          openNew: true,
-        });
-
-        if (!result.ok || !result.session) {
-          toast.error(result.error ?? "Failed to open in-app terminal split.");
-          return;
-        }
-
-        const sessionId = result.session.sessionId;
-
-        if (shouldMarkAsRunningTerminal) {
-          setRunningTerminalSessionIds((previous) => {
-            if (previous.includes(sessionId)) {
-              return previous;
-            }
-            return [...previous, sessionId];
-          });
-          toast.success("Opened running terminal split.");
-          return;
-        }
-
-        toast.success("Opened in-app terminal split.");
-      } catch {
-        toast.error("Failed to open in-app terminal split.");
-      } finally {
-        setIsStartingInAppTerminal(false);
-      }
-    },
-    [knownWorktrees, row, workspaceMeta],
-  );
-
   return (
-    <PageShell
-      noDirectoryOpenState={{
-        isVisible: !isWorkspaceHydrating && !activeWorkspace,
-        isBusy,
-        statusMessage,
-        errorMessage,
-        onSelectDirectory: pickDirectory,
-        onOpenRecentDirectory: openRecentDirectory,
-      }}
-    >
+    <>
       {!activeWorkspace ? null : (
         <div className="space-y-3">
-          <header className="flex flex-wrap items-start justify-between gap-3 rounded-xl border bg-card p-4 shadow-xs">
-            <h1 className="text-xl font-semibold tracking-tight">Worktree: {selectedWorktreeName || "Worktree"}</h1>
+          <header className="flex items-center justify-between gap-3 rounded-xl border bg-card p-4 shadow-xs">
+            <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">Worktree: {selectedWorktreeName || "Worktree"}</h1>
             <Link to="/worktrees" className={buttonVariants({ size: "sm", variant: "outline" })}>
               Back to Worktrees
             </Link>
@@ -233,23 +192,22 @@ export default function WorktreeDetailPage() {
                     onPlay={(targetRow) => {
                       void runPlayGrooveAction(targetRow);
                     }}
-                    onStop={(targetRow, targetRuntimeRow) => {
-                      void handlePauseGroove(targetRow, targetRuntimeRow);
+                    onStop={(targetRow) => {
+                      setPauseConfirmRow(targetRow);
                     }}
                     onCutConfirm={setCutConfirmRow}
                     variant="worktree-detail"
-                    isTestingInstancePending={isTestingInstancePending || isStartingInAppTerminal}
-                    onRunLocal={(worktree) => {
-                      if (isGrooveMode) {
-                        void handleOpenInAppSplit(worktree, "runLocal", true);
-                        return;
-                      }
-
-                      void runStartTestingInstanceAction(worktree);
-                    }}
+                    isTestingInstancePending={isTestingInstancePending}
                     onOpenTerminal={(worktree) => {
                       void runOpenTestingTerminalAction(worktree);
                     }}
+                    workspaceTasks={workspaceTasks}
+                    selectedTaskId={row.taskId ?? null}
+                    onSetTaskAssignment={(worktree, taskId) => {
+                      setWorktreeTaskAssignment(worktree, taskId);
+                    }}
+                    onAssignTaskPr={assignTaskPr}
+                    isTaskAssignmentDisabled={false}
                     closeWorktreePending={isClosingWorktree}
                   />
                 </TooltipProvider>
@@ -262,8 +220,7 @@ export default function WorktreeDetailPage() {
                     workspaceMeta={workspaceMeta}
                     knownWorktrees={knownWorktrees}
                     worktree={row.worktree}
-                    target={row.branchGuess}
-                    runningSessionIds={runningTerminalSessionIds}
+                    runningSessionIds={[]}
                   />
                 ) : null
               ) : null}
@@ -292,6 +249,9 @@ export default function WorktreeDetailPage() {
             workspaceRoot={workspaceRoot}
             cutConfirmRow={cutConfirmRow}
             setCutConfirmRow={setCutConfirmRow}
+            pauseConfirmRow={pauseConfirmRow}
+            setPauseConfirmRow={setPauseConfirmRow}
+            pauseConfirmLoading={pauseConfirmLoading}
             forceCutConfirmRow={forceCutConfirmRow}
             setForceCutConfirmRow={setForceCutConfirmRow}
             forceCutConfirmLoading={forceCutConfirmLoading}
@@ -308,6 +268,9 @@ export default function WorktreeDetailPage() {
             onRunCutGrooveAction={(targetRow, force) => {
               void runCutGrooveAction(targetRow, force);
             }}
+            onRunPauseGrooveAction={(targetRow) => {
+              return handlePauseGroove(targetRow, runtimeStateByWorktree[targetRow.worktree]);
+            }}
             onCloseCurrentWorkspace={() => {
               void closeCurrentWorkspace();
             }}
@@ -317,6 +280,6 @@ export default function WorktreeDetailPage() {
           />
         </div>
       )}
-    </PageShell>
+    </>
   );
 }

@@ -1,9 +1,11 @@
 import "@xterm/xterm/css/xterm.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Terminal as TerminalIcon, X } from "lucide-react";
+import { X } from "lucide-react";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 
 import { Button } from "@/components/ui/button";
@@ -12,7 +14,6 @@ import {
   grooveTerminalClose,
   grooveTerminalGetSession,
   grooveTerminalListSessions,
-  grooveTerminalOpen,
   grooveTerminalResize,
   grooveTerminalWrite,
   listenGrooveTerminalLifecycle,
@@ -26,7 +27,6 @@ type GrooveWorktreeTerminalProps = {
   workspaceMeta: WorkspaceMeta;
   knownWorktrees: string[];
   worktree: string;
-  target: string;
   runningSessionIds?: string[];
 };
 
@@ -107,6 +107,7 @@ function GrooveTerminalPane({
 
   useEffect(() => {
     const terminal = new Terminal({
+      allowProposedApi: true,
       convertEol: false,
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace",
@@ -119,8 +120,23 @@ function GrooveTerminalPane({
     });
     const clipboardAddon = new ClipboardAddon();
     const fitAddon = new FitAddon();
+    const unicode11Addon = new Unicode11Addon();
     terminal.loadAddon(clipboardAddon);
     terminal.loadAddon(fitAddon);
+    terminal.loadAddon(unicode11Addon);
+    let webglAddon: WebglAddon | null = null;
+    try {
+      webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => {
+        webglAddon?.dispose();
+        webglAddon = null;
+      });
+      terminal.loadAddon(webglAddon);
+    } catch (error) {
+      webglAddon?.dispose();
+      console.warn("Failed to initialize xterm WebGL addon; falling back to default renderer.", error);
+    }
+    terminal.unicode.activeVersion = "11";
     terminalRef.current = terminal;
     clipboardAddonRef.current = clipboardAddon;
     fitAddonRef.current = fitAddon;
@@ -288,37 +304,36 @@ export function GrooveWorktreeTerminal({
   workspaceMeta,
   knownWorktrees,
   worktree,
-  target,
   runningSessionIds = [],
 }: GrooveWorktreeTerminalProps) {
   const [sessions, setSessions] = useState<GrooveTerminalSession[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isStarting, setIsStarting] = useState(false);
   const [closingSessionIds, setClosingSessionIds] = useState<string[]>([]);
+  const stableKnownWorktreesRef = useRef<string[]>(knownWorktrees);
+  const knownWorktreesKey = knownWorktrees.join("\0");
+  const stableKnownWorktreesKey = stableKnownWorktreesRef.current.join("\0");
+  if (knownWorktreesKey !== stableKnownWorktreesKey) {
+    stableKnownWorktreesRef.current = knownWorktrees;
+  }
+  const stableKnownWorktrees = stableKnownWorktreesRef.current;
 
   const terminalPayloadBase = useMemo(
     () => ({
       rootName: workspaceMeta.rootName,
-      knownWorktrees,
+      knownWorktrees: stableKnownWorktrees,
       workspaceMeta,
       worktree,
     }),
-    [knownWorktrees, worktree, workspaceMeta],
+    [stableKnownWorktrees, worktree, workspaceMeta],
   );
   const runningSessionIdSet = useMemo(() => new Set(runningSessionIds), [runningSessionIds]);
 
   const syncSessions = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const result = await grooveTerminalListSessions(terminalPayloadBase);
-      if (!result.ok) {
-        setSessions([]);
-        return;
-      }
-      setSessions(result.sessions);
-    } finally {
-      setIsLoading(false);
+    const result = await grooveTerminalListSessions(terminalPayloadBase);
+    if (!result.ok) {
+      setSessions([]);
+      return;
     }
+    setSessions(result.sessions);
   }, [terminalPayloadBase]);
 
   useEffect(() => {
@@ -346,30 +361,6 @@ export function GrooveWorktreeTerminal({
     };
   }, [syncSessions, workspaceRoot, worktree]);
 
-  const handleNewSplit = useCallback(async () => {
-    setIsStarting(true);
-    try {
-      const result = await grooveTerminalOpen({
-        ...terminalPayloadBase,
-        target,
-        forceRestart: false,
-        openNew: true,
-      });
-
-      if (!result.ok || !result.session) {
-        toast.error(result.error ?? "Failed to start Groove terminal session.");
-        return;
-      }
-
-      await syncSessions();
-      toast.success("Started new split terminal session.");
-    } catch {
-      toast.error("Failed to start Groove terminal session.");
-    } finally {
-      setIsStarting(false);
-    }
-  }, [syncSessions, target, terminalPayloadBase]);
-
   const handleCloseSplit = useCallback(
     async (sessionId: string) => {
       setClosingSessionIds((previous) => (previous.includes(sessionId) ? previous : [...previous, sessionId]));
@@ -394,27 +385,19 @@ export function GrooveWorktreeTerminal({
     [syncSessions, terminalPayloadBase],
   );
 
-  const hasSessions = sessions.length > 0;
-
   return (
     <div className="groove-worktree-terminal space-y-2">
-      <div className="flex items-center justify-end gap-2">
-        <Button type="button" variant={hasSessions ? "outline" : "default"} size="sm" onClick={handleNewSplit} disabled={isStarting || isLoading}>
-          {hasSessions ? <Plus className="mr-1 size-4" /> : <TerminalIcon className="mr-1 size-4" />}
-          {isStarting ? "Starting..." : hasSessions ? "New split" : "Start"}
-        </Button>
-      </div>
-
       {sessions.length === 0 ? (
         <div className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">No active in-app sessions for this worktree.</div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {sessions.map((session) => {
+          {sessions.map((session, index) => {
             const isClosing = closingSessionIds.includes(session.sessionId);
             const isRunningTerminal = runningSessionIdSet.has(session.sessionId);
+            const shouldSpanFullWidthOnMd = sessions.length % 2 === 1 && index === sessions.length - 1;
 
             return (
-              <div key={session.sessionId} className="overflow-hidden rounded-lg border">
+              <div key={session.sessionId} className={`overflow-hidden rounded-lg border${shouldSpanFullWidthOnMd ? " md:col-span-2" : ""}`}>
                 <div className="flex items-center justify-between border-b bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
                   <span className="truncate">
                     {isRunningTerminal ? "Running terminal" : "Terminal"} {session.sessionId.slice(0, 8)}
@@ -435,12 +418,12 @@ export function GrooveWorktreeTerminal({
                 </div>
                 <div className="h-[75vh] min-h-[280px]">
                   <GrooveTerminalPane
-                    workspaceRoot={workspaceRoot}
-                    workspaceMeta={workspaceMeta}
-                    knownWorktrees={knownWorktrees}
-                    worktree={worktree}
-                    sessionId={session.sessionId}
-                  />
+                     workspaceRoot={workspaceRoot}
+                     workspaceMeta={workspaceMeta}
+                     knownWorktrees={stableKnownWorktrees}
+                     worktree={worktree}
+                     sessionId={session.sessionId}
+                   />
                 </div>
               </div>
             );

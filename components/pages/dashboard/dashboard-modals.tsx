@@ -6,6 +6,9 @@ type DashboardModalsProps = {
   workspaceRoot: string | null;
   cutConfirmRow: WorktreeRow | null;
   setCutConfirmRow: (row: WorktreeRow | null) => void;
+  pauseConfirmRow: WorktreeRow | null;
+  setPauseConfirmRow: (row: WorktreeRow | null) => void;
+  pauseConfirmLoading: boolean;
   forceCutConfirmRow: WorktreeRow | null;
   setForceCutConfirmRow: (row: WorktreeRow | null) => void;
   forceCutConfirmLoading: boolean;
@@ -20,6 +23,7 @@ type DashboardModalsProps = {
   setCreateBranch: (value: string) => void;
   setCreateBase: (value: string) => void;
   onRunCutGrooveAction: (row: WorktreeRow, force?: boolean) => void;
+  onRunPauseGrooveAction: (row: WorktreeRow) => Promise<boolean>;
   onCloseCurrentWorkspace: () => void;
   onRunCreateWorktreeAction: (options?: { branchOverride?: string; baseOverride?: string }) => void;
 };
@@ -28,6 +32,9 @@ export function DashboardModals({
   workspaceRoot,
   cutConfirmRow,
   setCutConfirmRow,
+  pauseConfirmRow,
+  setPauseConfirmRow,
+  pauseConfirmLoading,
   forceCutConfirmRow,
   setForceCutConfirmRow,
   forceCutConfirmLoading,
@@ -42,6 +49,7 @@ export function DashboardModals({
   setCreateBranch,
   setCreateBase,
   onRunCutGrooveAction,
+  onRunPauseGrooveAction,
   onCloseCurrentWorkspace,
   onRunCreateWorktreeAction,
 }: DashboardModalsProps) {
@@ -77,6 +85,42 @@ export function DashboardModals({
         }}
         onCancel={() => {
           setCutConfirmRow(null);
+        }}
+      />
+
+      <ConfirmModal
+        open={pauseConfirmRow !== null}
+        onOpenChange={(open) => {
+          if (!open && !pauseConfirmLoading) {
+            setPauseConfirmRow(null);
+          }
+        }}
+        title="Pause Groove for this worktree?"
+        description={
+          pauseConfirmRow
+            ? `This pauses Groove for "${pauseConfirmRow.worktree}" and closes ALL in-app terminal sessions tied to this worktree.`
+            : "This pauses Groove and closes all in-app terminal sessions tied to the selected worktree."
+        }
+        confirmLabel="Pause Groove"
+        cancelLabel="Keep running"
+        loading={pauseConfirmLoading}
+        onConfirm={() => {
+          if (!pauseConfirmRow) {
+            return;
+          }
+          const selectedRow = pauseConfirmRow;
+          void (async () => {
+            const didPause = await onRunPauseGrooveAction(selectedRow);
+            if (didPause) {
+              setPauseConfirmRow(null);
+            }
+          })();
+        }}
+        onCancel={() => {
+          if (pauseConfirmLoading) {
+            return;
+          }
+          setPauseConfirmRow(null);
         }}
       />
 

@@ -38,7 +38,7 @@ pub(crate) fn validate_groove_terminal_open_mode(
         .map(str::trim)
         .filter(|candidate| !candidate.is_empty())
     else {
-        return Ok(GrooveTerminalOpenMode::Opencode);
+        return Ok(GrooveTerminalOpenMode::Plain);
     };
 
     match mode {
@@ -131,6 +131,18 @@ mod tests {
     fn rejects_invalid_open_mode() {
         let result = validate_groove_terminal_open_mode(Some("bad"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn defaults_open_mode_to_plain_shell() {
+        assert!(matches!(
+            validate_groove_terminal_open_mode(None),
+            Ok(GrooveTerminalOpenMode::Plain)
+        ));
+        assert!(matches!(
+            validate_groove_terminal_open_mode(Some("   ")),
+            Ok(GrooveTerminalOpenMode::Plain)
+        ));
     }
 
     #[test]

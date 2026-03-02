@@ -1,11 +1,14 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import Home from "@/app/page";
+import { AppLayout } from "@/components/pages/app-layout";
 import { CommandHistoryPanel } from "@/components/command-history-panel";
+import { isPeriodicRerenderEnabled, subscribeToGlobalSettings } from "@/src/lib/ipc";
 
 const DiagnosticsPage = lazy(async () => import("@/app/diagnostics/page"));
 const SettingsPage = lazy(async () => import("@/app/settings/page"));
+const TasksPage = lazy(async () => import("@/app/tasks/page"));
 const WorktreesPage = lazy(async () => import("@/app/worktrees/page"));
 const WorktreeDetailPage = lazy(async () => import("@/app/worktrees/worktree-detail-page"));
 
@@ -21,44 +24,85 @@ function RouteFallback({ pageName }: RouteFallbackProps) {
   );
 }
 
+function getIsPeriodicRerenderEnabledSnapshot(): boolean {
+  return isPeriodicRerenderEnabled();
+}
+
 export function App() {
+  const shouldTriggerPeriodicRerenders = useSyncExternalStore(
+    subscribeToGlobalSettings,
+    getIsPeriodicRerenderEnabledSnapshot,
+    getIsPeriodicRerenderEnabledSnapshot,
+  );
+  const [, setPeriodicRerenderTick] = useState(0);
+
+  useEffect(() => {
+    if (!shouldTriggerPeriodicRerenders) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setPeriodicRerenderTick((previous) => {
+        const next = previous + 1;
+        if (import.meta.env.DEV) {
+          console.info("[ui-telemetry] periodic-rerender.tick", { tick: next });
+        }
+        return next;
+      });
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [shouldTriggerPeriodicRerenders]);
+
   return (
     <>
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route
-          path="/worktrees"
-          element={
-            <Suspense fallback={<RouteFallback pageName="worktrees" />}>
-              <WorktreesPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/worktrees/:worktree"
-          element={
-            <Suspense fallback={<RouteFallback pageName="worktree details" />}>
-              <WorktreeDetailPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/diagnostics"
-          element={
-            <Suspense fallback={<RouteFallback pageName="diagnostics" />}>
-              <DiagnosticsPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <Suspense fallback={<RouteFallback pageName="settings" />}>
-              <SettingsPage />
-            </Suspense>
-          }
-        />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/" element={<AppLayout />}>
+          <Route index element={<Home />} />
+          <Route
+            path="worktrees"
+            element={
+              <Suspense fallback={<RouteFallback pageName="worktrees" />}>
+                <WorktreesPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="worktrees/:worktree"
+            element={
+              <Suspense fallback={<RouteFallback pageName="worktree details" />}>
+                <WorktreeDetailPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="diagnostics"
+            element={
+              <Suspense fallback={<RouteFallback pageName="diagnostics" />}>
+                <DiagnosticsPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="tasks"
+            element={
+              <Suspense fallback={<RouteFallback pageName="tasks" />}>
+                <TasksPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="settings"
+            element={
+              <Suspense fallback={<RouteFallback pageName="settings" />}>
+                <SettingsPage />
+              </Suspense>
+            }
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
       </Routes>
       <CommandHistoryPanel />
     </>

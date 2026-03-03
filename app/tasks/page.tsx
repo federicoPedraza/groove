@@ -1,21 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, Settings2, Sparkles } from "lucide-react";
+import { Pencil, RefreshCw, Settings2, Sparkles, Trash2, X } from "lucide-react";
 
 import { runConsellourToolLoop } from "@/libs/ai";
+import { EditTaskModal } from "@/components/edit-task-modal";
 import { JiraIntegrationPanel } from "@/components/jira/jira-integration-panel";
 import { useDashboardState } from "@/components/pages/dashboard/hooks/use-dashboard-state";
 import { useAppLayout } from "@/components/pages/use-app-layout";
 import { ConsellourSettingsModal } from "@/components/consellour-settings-modal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { Input } from "@/components/ui/input";
 import {
   consellourGetRecommendedTask,
   consellourGetSettings,
   consellourGetTask,
   consellourToolCreateTask,
+  consellourToolDeleteTask,
   consellourToolEditTask,
   consellourUpdateSettings,
   jiraConnectApiToken,
@@ -129,6 +132,7 @@ export default function TasksPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatRows, setChatRows] = useState<ChatRow[]>(() => [{ role: "assistant", text: getInitialGreeting() }]);
+  const [isConsellourVisible, setIsConsellourVisible] = useState(false);
   const [isConsellourRunning, setIsConsellourRunning] = useState(false);
   const [consellourSettings, setConsellourSettings] = useState<ConsellourSettings | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -142,6 +146,13 @@ export default function TasksPage() {
   const [isJiraConnectPending, setIsJiraConnectPending] = useState(false);
   const [isJiraDisconnectPending, setIsJiraDisconnectPending] = useState(false);
   const [isJiraSyncPending, setIsJiraSyncPending] = useState(false);
+  const [editingTask, setEditingTask] = useState<WorkspaceTask | null>(null);
+  const [isEditTaskModalOpen, setIsEditTaskModalOpen] = useState(false);
+  const [isEditingTask, setIsEditingTask] = useState(false);
+  const [editTaskError, setEditTaskError] = useState<string | null>(null);
+  const [removeTaskTarget, setRemoveTaskTarget] = useState<WorkspaceTask | null>(null);
+  const [isRemovingTask, setIsRemovingTask] = useState(false);
+  const [removeTaskError, setRemoveTaskError] = useState<string | null>(null);
 
   useAppLayout({
     noDirectoryOpenState: {
@@ -377,65 +388,85 @@ export default function TasksPage() {
               }}
             />
 
-            <div className="space-y-0">
-              <div className="mx-auto w-full max-w-[1600px] rounded-t-xl border border-border border-b-0 bg-card p-4">
-                <div
-                  role="img"
-                  aria-label="Consellour mascot"
-                  className="h-56 w-full text-foreground md:h-72"
-                  style={{
-                    backgroundColor: "currentColor",
-                    WebkitMaskImage: 'url("/consellour/consellour.svg")',
-                    WebkitMaskRepeat: "no-repeat",
-                    WebkitMaskPosition: "center",
-                    WebkitMaskSize: "contain",
-                    maskImage: 'url("/consellour/consellour.svg")',
-                    maskRepeat: "no-repeat",
-                    maskPosition: "center",
-                    maskSize: "contain",
-                  }}
-                />
-              </div>
+            {!isConsellourVisible ? (
+              <Card className="py-2">
+                <CardContent className="flex justify-center p-4">
+                  <Button type="button" size="sm" onClick={() => setIsConsellourVisible(true)}>
+                    Call Consellour
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-0">
+                <div className="relative mx-auto w-full max-w-[1600px] rounded-t-xl border border-border border-b-0 bg-card p-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-4 top-4 z-10 h-8 w-8 p-0"
+                    aria-label="Collapse Consellour"
+                    onClick={() => setIsConsellourVisible(false)}
+                  >
+                    <X aria-hidden="true" className="size-4" />
+                  </Button>
+                  <div
+                    role="img"
+                    aria-label="Consellour mascot"
+                    className="pointer-events-none h-56 w-full text-foreground md:h-72"
+                    style={{
+                      backgroundColor: "currentColor",
+                      WebkitMaskImage: 'url("/consellour/consellour.svg")',
+                      WebkitMaskRepeat: "no-repeat",
+                      WebkitMaskPosition: "center",
+                      WebkitMaskSize: "contain",
+                      maskImage: 'url("/consellour/consellour.svg")',
+                      maskRepeat: "no-repeat",
+                      maskPosition: "center",
+                      maskSize: "contain",
+                    }}
+                  />
+                </div>
 
-              <div className="rounded-b-xl border border-border border-t-0 bg-card p-4">
-                <div className="space-y-3">
-                  {chatRows.length === 0 ? null : (
-                    <div
-                      ref={chatHistoryRef}
-                      className={`space-y-2 overflow-y-auto p-2 transition-[max-height] duration-300 ease-in-out ${chatRows.length > 1 ? "max-h-[48rem]" : "max-h-48"}`}
-                    >
-                      {chatRows.map((row, index) => (
-                        <div key={`${row.role}-${String(index)}`} className={`px-2 py-1 text-base ${row.role === "user" ? "text-right" : "text-left"}`}>
-                          <TypewriterText text={row.text} animate={row.role === "assistant"} onProgress={scrollChatToBottom} />
-                        </div>
-                      ))}
+                <div className="rounded-b-xl border border-border border-t-0 bg-card p-4">
+                  <div className="space-y-3">
+                    {chatRows.length === 0 ? null : (
+                      <div
+                        ref={chatHistoryRef}
+                        className={`space-y-2 overflow-y-auto p-2 transition-[max-height] duration-300 ease-in-out ${chatRows.length > 1 ? "max-h-[48rem]" : "max-h-48"}`}
+                      >
+                        {chatRows.map((row, index) => (
+                          <div key={`${row.role}-${String(index)}`} className={`px-2 py-1 text-base ${row.role === "user" ? "text-right" : "text-left"}`}>
+                            <TypewriterText text={row.text} animate={row.role === "assistant"} onProgress={scrollChatToBottom} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <Input
+                        value={chatInput}
+                        onChange={(event) => {
+                          setChatInput(event.target.value);
+                        }}
+                        placeholder="Ask Consellour to create/update/recommend tasks"
+                        disabled={isConsellourRunning}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void runConsellour();
+                          }
+                        }}
+                      />
+                      <Button type="button" onClick={() => void runConsellour()} disabled={isConsellourRunning || chatInput.trim().length === 0}>
+                        {isConsellourRunning ? "Thinking..." : "Send"}
+                      </Button>
                     </div>
-                  )}
-
-                  <div className="flex gap-2">
-                    <Input
-                      value={chatInput}
-                      onChange={(event) => {
-                        setChatInput(event.target.value);
-                      }}
-                      placeholder="Ask Consellour to create/update/recommend tasks"
-                      disabled={isConsellourRunning}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          void runConsellour();
-                        }
-                      }}
-                    />
-                    <Button type="button" onClick={() => void runConsellour()} disabled={isConsellourRunning || chatInput.trim().length === 0}>
-                      {isConsellourRunning ? "Thinking..." : "Send"}
-                    </Button>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            <Card>
+            <Card className="gap-2 py-4">
               <CardHeader>
                 <CardTitle className="text-base">Tasks</CardTitle>
               </CardHeader>
@@ -445,26 +476,65 @@ export default function TasksPage() {
                   <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">No tasks yet. Ask Consellour to create one.</p>
                 ) : null}
                 {tasks.map((task) => (
-                  <button
+                  <div
                     key={task.id}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedTaskId(task.id)}
-                    className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelectedTaskId(task.id);
+                      }
+                    }}
+                    className={`w-full cursor-pointer rounded-md border px-3 py-2 text-left text-sm transition-colors ${
                       selectedTaskId === task.id ? "border-foreground/40 bg-muted" : "border-border"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate font-medium">{task.title}</span>
-                      {recommendedTaskId === task.id ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-amber-700">
-                          <Sparkles aria-hidden="true" className="size-3" />
-                          recommended
-                        </span>
-                      ) : null}
+                      <div className="flex items-center gap-1">
+                        {recommendedTaskId === task.id ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-amber-700">
+                            <Sparkles aria-hidden="true" className="size-3" />
+                            recommended
+                          </span>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0"
+                          aria-label={`Edit task ${task.title}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setEditingTask(task);
+                            setEditTaskError(null);
+                            setIsEditTaskModalOpen(true);
+                          }}
+                        >
+                          <Pencil aria-hidden="true" className="size-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                          aria-label={`Remove task ${task.title}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setRemoveTaskTarget(task);
+                            setRemoveTaskError(null);
+                          }}
+                        >
+                          <Trash2 aria-hidden="true" className="size-3.5" />
+                        </Button>
+                      </div>
                     </div>
                     <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.description}</p>
-                  </button>
+                  </div>
                 ))}
+                {removeTaskError ? <p className="text-xs text-destructive">{removeTaskError}</p> : null}
               </CardContent>
             </Card>
 
@@ -498,6 +568,90 @@ export default function TasksPage() {
               setIsSavingSettings(false);
             }
           })();
+        }}
+      />
+
+      <EditTaskModal
+        open={isEditTaskModalOpen}
+        task={editingTask}
+        savePending={isEditingTask}
+        errorMessage={editTaskError}
+        onOpenChange={(open) => {
+          setIsEditTaskModalOpen(open);
+          if (!open && !isEditingTask) {
+            setEditingTask(null);
+            setEditTaskError(null);
+          }
+        }}
+        onSave={(payload) => {
+          void (async () => {
+            setIsEditingTask(true);
+            setEditTaskError(null);
+            try {
+              const result = await consellourToolEditTask(payload);
+              if (!result.ok || !result.task) {
+                setEditTaskError(result.error ?? "Failed to edit task.");
+                return;
+              }
+
+              setIsEditTaskModalOpen(false);
+              setEditingTask(null);
+              await refreshData();
+            } catch {
+              setEditTaskError("Failed to edit task.");
+            } finally {
+              setIsEditingTask(false);
+            }
+          })();
+        }}
+      />
+
+      <ConfirmModal
+        open={removeTaskTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !isRemovingTask) {
+            setRemoveTaskTarget(null);
+          }
+        }}
+        title="Remove task?"
+        description={
+          removeTaskTarget
+            ? `This permanently removes "${removeTaskTarget.title}" from this workspace.`
+            : "This permanently removes this task from this workspace."
+        }
+        confirmLabel="Remove task"
+        cancelLabel="Keep task"
+        destructive
+        loading={isRemovingTask}
+        onConfirm={() => {
+          if (!removeTaskTarget) {
+            return;
+          }
+
+          void (async () => {
+            setIsRemovingTask(true);
+            setRemoveTaskError(null);
+            try {
+              const result = await consellourToolDeleteTask({ id: removeTaskTarget.id });
+              if (!result.ok) {
+                setRemoveTaskError(result.error ?? "Failed to remove task.");
+                return;
+              }
+
+              setRemoveTaskTarget(null);
+              await refreshData();
+            } catch {
+              setRemoveTaskError("Failed to remove task.");
+            } finally {
+              setIsRemovingTask(false);
+            }
+          })();
+        }}
+        onCancel={() => {
+          if (isRemovingTask) {
+            return;
+          }
+          setRemoveTaskTarget(null);
         }}
       />
     </>

@@ -45,6 +45,7 @@ pub(crate) fn run() {
             consellour_get_recommended_task,
             consellour_tool_create_task,
             consellour_tool_edit_task,
+            consellour_tool_delete_task,
             workspace_open_terminal,
             workspace_open_workspace_terminal,
             groove_terminal_open,
@@ -105,7 +106,10 @@ pub(crate) fn run() {
             jira_disconnect,
             jira_projects_list,
             jira_sync_pull,
-            jira_issue_open_in_browser
+            jira_issue_open_in_browser,
+            opencode_integration_status,
+            opencode_update_workspace_settings,
+            opencode_update_global_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

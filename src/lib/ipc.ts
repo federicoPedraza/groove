@@ -2,13 +2,19 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { trackCommandExecution } from "@/lib/command-history";
+import {
+  DEFAULT_KEYBOARD_LEADER_BINDINGS,
+  DEFAULT_KEYBOARD_SHORTCUT_LEADER,
+  normalizeKeyboardLeaderBindings,
+  normalizeShortcutKey,
+} from "@/src/lib/shortcuts";
 import { DEFAULT_THEME_MODE, type ThemeMode } from "@/src/lib/theme-constants";
 
 export type DefaultTerminal = "auto" | "ghostty" | "warp" | "kitty" | "gnome" | "xterm" | "none" | "custom";
 
 export type CommandIntent = "blocking" | "background";
 
-export const DEFAULT_PLAY_GROOVE_COMMAND = "ghostty --working-directory={worktree} -e opencode";
+export const DEFAULT_PLAY_GROOVE_COMMAND = "x-terminal-emulator -e bash -lc \"cd \\\"{worktree}\\\" && opencode\"";
 export const GROOVE_PLAY_COMMAND_SENTINEL = "__groove_terminal__";
 export const GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL = "__groove_terminal_open__";
 export const DEFAULT_RUN_LOCAL_COMMAND = "pnpm run dev";
@@ -35,8 +41,53 @@ export type WorkspaceMeta = {
   worktreeSymlinkPaths?: string[];
   consellourSettings?: ConsellourSettings;
   jiraSettings?: JiraSettings;
+  opencodeSettings?: OpencodeSettings;
   tasks?: WorkspaceTask[];
   worktreeTaskAssignments?: Record<string, string>;
+};
+
+export type OpencodeSettings = {
+  enabled: boolean;
+  defaultModel?: string | null;
+};
+
+export type OpencodeEffectiveScope = "workspace" | "global" | "none";
+
+export type OpencodeIntegrationStatusResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  workspaceScopeAvailable: boolean;
+  globalScopeAvailable: boolean;
+  effectiveScope: OpencodeEffectiveScope;
+  workspaceSettings?: OpencodeSettings;
+  globalSettings?: OpencodeSettings;
+  error?: string;
+};
+
+export type OpencodeUpdateWorkspaceSettingsPayload = {
+  enabled: boolean;
+  defaultModel?: string | null;
+};
+
+export type OpencodeUpdateGlobalSettingsPayload = {
+  enabled: boolean;
+  defaultModel?: string | null;
+};
+
+export type OpencodeWorkspaceSettingsResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  settings?: OpencodeSettings;
+  error?: string;
+};
+
+export type OpencodeGlobalSettingsResponse = {
+  requestId?: string;
+  ok: boolean;
+  settings?: OpencodeSettings;
+  error?: string;
 };
 
 export type JiraSettings = {
@@ -256,6 +307,10 @@ export type ConsellourToolEditTaskPayload = {
   PR?: WorkspaceTaskPrEntry[];
 };
 
+export type ConsellourToolDeleteTaskPayload = {
+  id: string;
+};
+
 export type ConsellourSettingsResponse = {
   requestId?: string;
   ok: boolean;
@@ -287,6 +342,9 @@ export type GlobalSettings = {
   alwaysShowDiagnosticsSidebar: boolean;
   periodicRerenderEnabled: boolean;
   themeMode: ThemeMode;
+  keyboardShortcutLeader: string;
+  keyboardLeaderBindings: Record<string, string>;
+  opencodeSettings: OpencodeSettings;
 };
 
 export type GlobalSettingsUpdatePayload = {
@@ -296,6 +354,9 @@ export type GlobalSettingsUpdatePayload = {
   alwaysShowDiagnosticsSidebar?: boolean;
   periodicRerenderEnabled?: boolean;
   themeMode?: ThemeMode;
+  keyboardShortcutLeader?: string;
+  keyboardLeaderBindings?: Record<string, string>;
+  opencodeSettings?: OpencodeUpdateGlobalSettingsPayload;
 };
 
 export type WorkspaceCommandSettingsPayload = {
@@ -343,6 +404,8 @@ export type WorkspaceGitignoreSanityResponse = {
   hasWorkspaceEntry: boolean;
   missingEntries: string[];
   patched?: boolean;
+  patchedWorktree?: string;
+  playStarted?: boolean;
   error?: string;
 };
 
@@ -1018,6 +1081,7 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "consellour_get_recommended_task",
   "consellour_tool_create_task",
   "consellour_tool_edit_task",
+  "consellour_tool_delete_task",
   "groove_terminal_open",
   "groove_terminal_write",
   "groove_terminal_resize",
@@ -1030,9 +1094,14 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "jira_projects_list",
   "jira_sync_pull",
   "jira_issue_open_in_browser",
+  "opencode_integration_status",
+  "opencode_update_workspace_settings",
+  "opencode_update_global_settings",
 ]);
 
 const NON_DEDUPED_COMMANDS = new Set<string>(["groove_terminal_write"]);
+
+const GLOBAL_SETTINGS_SYNC_COMMANDS = new Set<string>(["global_settings_get", "global_settings_update"]);
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 const MAX_ARGS_SUMMARY_LENGTH = 180;
@@ -1066,6 +1135,10 @@ declare global {
 let inflightInvokeCount = 0;
 const inflightInvokes = new Map<string, { promise: Promise<unknown>; joinedCalls: number }>();
 let blockingInvokeCount = 0;
+const DEFAULT_OPENCODE_SETTINGS: OpencodeSettings = {
+  enabled: false,
+  defaultModel: null,
+};
 let latestGlobalSettings: GlobalSettings = {
   telemetryEnabled: true,
   disableGrooveLoadingSection: false,
@@ -1073,9 +1146,20 @@ let latestGlobalSettings: GlobalSettings = {
   alwaysShowDiagnosticsSidebar: false,
   periodicRerenderEnabled: false,
   themeMode: DEFAULT_THEME_MODE,
+  keyboardShortcutLeader: DEFAULT_KEYBOARD_SHORTCUT_LEADER,
+  keyboardLeaderBindings: { ...DEFAULT_KEYBOARD_LEADER_BINDINGS },
+  opencodeSettings: { ...DEFAULT_OPENCODE_SETTINGS },
 };
 const globalSettingsListeners = new Set<() => void>();
 const blockingInvokeListeners = new Set<() => void>();
+
+function normalizeOpencodeSettings(value: Partial<OpencodeSettings> | null | undefined): OpencodeSettings {
+  const defaultModel = value?.defaultModel;
+  return {
+    enabled: value?.enabled === true,
+    defaultModel: typeof defaultModel === "string" && defaultModel.trim().length > 0 ? defaultModel.trim() : null,
+  };
+}
 
 function isThemeMode(value: unknown): value is ThemeMode {
   return (
@@ -1098,6 +1182,9 @@ function normalizeGlobalSettings(value: Partial<GlobalSettings> | null | undefin
     alwaysShowDiagnosticsSidebar: value?.alwaysShowDiagnosticsSidebar === true,
     periodicRerenderEnabled: value?.periodicRerenderEnabled === true,
     themeMode: isThemeMode(value?.themeMode) ? value.themeMode : DEFAULT_THEME_MODE,
+    keyboardShortcutLeader: normalizeShortcutKey(value?.keyboardShortcutLeader, DEFAULT_KEYBOARD_SHORTCUT_LEADER),
+    keyboardLeaderBindings: normalizeKeyboardLeaderBindings(value?.keyboardLeaderBindings, DEFAULT_KEYBOARD_LEADER_BINDINGS),
+    opencodeSettings: normalizeOpencodeSettings(value?.opencodeSettings),
   };
 }
 
@@ -1122,27 +1209,43 @@ function updateBlockingInvokeCount(delta: number): void {
   emitBlockingInvokeChanged();
 }
 
-function syncGlobalSettingsFromResult(result: unknown): void {
+function syncGlobalSettingsFromResult(command: string, result: unknown): void {
+  if (!GLOBAL_SETTINGS_SYNC_COMMANDS.has(command)) {
+    return;
+  }
+
   if (!result || typeof result !== "object") {
     return;
   }
 
   const response = result as {
+    ok?: boolean;
     globalSettings?: Partial<GlobalSettings> | null;
   };
+
+  if (response.ok !== true) {
+    return;
+  }
 
   if (!response.globalSettings || typeof response.globalSettings !== "object") {
     return;
   }
 
   const nextGlobalSettings = normalizeGlobalSettings(response.globalSettings);
+  const didBindingsChange = Object.keys(DEFAULT_KEYBOARD_LEADER_BINDINGS).some((commandId) => {
+    return nextGlobalSettings.keyboardLeaderBindings[commandId] !== latestGlobalSettings.keyboardLeaderBindings[commandId];
+  });
   const didChange =
     nextGlobalSettings.telemetryEnabled !== latestGlobalSettings.telemetryEnabled ||
     nextGlobalSettings.disableGrooveLoadingSection !== latestGlobalSettings.disableGrooveLoadingSection ||
     nextGlobalSettings.showFps !== latestGlobalSettings.showFps ||
     nextGlobalSettings.alwaysShowDiagnosticsSidebar !== latestGlobalSettings.alwaysShowDiagnosticsSidebar ||
     nextGlobalSettings.periodicRerenderEnabled !== latestGlobalSettings.periodicRerenderEnabled ||
-    nextGlobalSettings.themeMode !== latestGlobalSettings.themeMode;
+    nextGlobalSettings.themeMode !== latestGlobalSettings.themeMode ||
+    nextGlobalSettings.keyboardShortcutLeader !== latestGlobalSettings.keyboardShortcutLeader ||
+    nextGlobalSettings.opencodeSettings.enabled !== latestGlobalSettings.opencodeSettings.enabled ||
+    nextGlobalSettings.opencodeSettings.defaultModel !== latestGlobalSettings.opencodeSettings.defaultModel ||
+    didBindingsChange;
 
   latestGlobalSettings = nextGlobalSettings;
 
@@ -1404,7 +1507,7 @@ async function invokeCommand<T>(command: string, args?: Record<string, unknown>,
       const result = (await existingInvoke.promise) as T;
       const durationMs = Math.max(0, (globalThis.performance?.now() ?? Date.now()) - startedAtMs);
       const outcome = resolveTelemetryOutcome(result);
-      syncGlobalSettingsFromResult(result);
+      syncGlobalSettingsFromResult(command, result);
 
       if (isTelemetryEnabled()) {
         recordIpcTelemetryDuration(command, durationMs);
@@ -1465,7 +1568,7 @@ async function invokeCommand<T>(command: string, args?: Record<string, unknown>,
 
     const durationMs = Math.max(0, (globalThis.performance?.now() ?? Date.now()) - startedAtMs);
     const outcome = resolveTelemetryOutcome(result);
-    syncGlobalSettingsFromResult(result);
+    syncGlobalSettingsFromResult(command, result);
 
     if (isTelemetryEnabled()) {
       recordIpcTelemetryDuration(command, durationMs);
@@ -1835,6 +1938,10 @@ export function consellourToolEditTask(payload: ConsellourToolEditTaskPayload): 
   return invokeCommand<WorkspaceTaskResponse>("consellour_tool_edit_task", { payload });
 }
 
+export function consellourToolDeleteTask(payload: ConsellourToolDeleteTaskPayload): Promise<WorkspaceTaskResponse> {
+  return invokeCommand<WorkspaceTaskResponse>("consellour_tool_delete_task", { payload });
+}
+
 export function jiraConnectionStatus(): Promise<JiraConnectionStatusResponse> {
   return invokeCommand<JiraConnectionStatusResponse>("jira_connection_status", undefined, {
     intent: "background",
@@ -1861,6 +1968,24 @@ export function jiraSyncPull(payload: JiraSyncPullPayload = {}): Promise<JiraSyn
 
 export function jiraIssueOpenInBrowser(payload: JiraIssueOpenInBrowserPayload): Promise<JiraIssueOpenInBrowserResponse> {
   return invokeCommand<JiraIssueOpenInBrowserResponse>("jira_issue_open_in_browser", { payload });
+}
+
+export function opencodeIntegrationStatus(): Promise<OpencodeIntegrationStatusResponse> {
+  return invokeCommand<OpencodeIntegrationStatusResponse>("opencode_integration_status", undefined, {
+    intent: "background",
+  });
+}
+
+export function opencodeUpdateWorkspaceSettings(
+  payload: OpencodeUpdateWorkspaceSettingsPayload,
+): Promise<OpencodeWorkspaceSettingsResponse> {
+  return invokeCommand<OpencodeWorkspaceSettingsResponse>("opencode_update_workspace_settings", { payload });
+}
+
+export function opencodeUpdateGlobalSettings(
+  payload: OpencodeUpdateGlobalSettingsPayload,
+): Promise<OpencodeGlobalSettingsResponse> {
+  return invokeCommand<OpencodeGlobalSettingsResponse>("opencode_update_global_settings", { payload });
 }
 
 export function workspaceOpenTerminal(payload: TestingEnvironmentStartPayload): Promise<GrooveRestoreResponse> {

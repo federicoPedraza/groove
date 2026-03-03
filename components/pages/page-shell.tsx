@@ -25,9 +25,12 @@ import {
   type GrooveBinCheckStatus,
 } from "@/src/lib/ipc";
 
+import packageJson from "../../package.json";
+
 const RECENT_DIRECTORIES_STORAGE_KEY = "groove:recent-directories";
 const MAX_RECENT_DIRECTORIES = 5;
 const APP_TITLE_BASE = "Groove";
+const APP_VERSION = packageJson.version;
 
 function getDirectoryNameFromPath(path: string): string | null {
   const normalizedPath = path.trim();
@@ -688,11 +691,14 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
           FPS {currentFps ?? "--"}
         </div>
       )}
-      {shouldShowDevelopmentModeLabel && (
-        <div className="pointer-events-none fixed bottom-4 right-4 z-40 rounded border border-border/80 bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
-          Development mode
-        </div>
-      )}
+      <div className="pointer-events-none fixed bottom-4 right-4 z-40 flex flex-col items-end gap-1">
+        {shouldShowDevelopmentModeLabel && (
+          <div className="rounded border border-border/80 bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
+            Development mode
+          </div>
+        )}
+        <div className="text-xs text-muted-foreground/60">v{APP_VERSION}</div>
+      </div>
       <HelpModal open={isHelpModalOpen} onOpenChange={setIsHelpModalOpen} />
     </main>
   );

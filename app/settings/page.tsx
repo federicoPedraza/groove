@@ -6,13 +6,23 @@ import { ChevronDown } from "lucide-react";
 import { CommandsSettingsForm } from "@/components/pages/settings/commands-settings-form";
 import { WorktreeSymlinkPathsModal } from "@/components/pages/settings/worktree-symlink-paths-modal";
 import { JiraIntegrationPanel } from "@/components/jira/jira-integration-panel";
+import { OpencodeIntegrationPanel } from "@/components/opencode/opencode-integration-panel";
 import type { SaveState, WorkspaceMeta } from "@/components/pages/settings/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { SearchDropdown } from "@/components/ui/search-dropdown";
 import { THEME_MODE_OPTIONS, type ThemeMode } from "@/src/lib/theme-constants";
 import { applyThemeToDom } from "@/src/lib/theme";
+import {
+  DEFAULT_KEYBOARD_LEADER_BINDINGS,
+  DEFAULT_KEYBOARD_SHORTCUT_LEADER,
+  OPEN_ACTION_LAUNCHER_COMMAND_ID,
+  OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID,
+  SHORTCUT_KEY_OPTIONS,
+  toShortcutDisplayLabel,
+} from "@/src/lib/shortcuts";
 import {
   DEFAULT_PLAY_GROOVE_COMMAND,
   DEFAULT_TESTING_PORTS,
@@ -79,6 +89,15 @@ export default function SettingsPage() {
   const [showFps, setShowFps] = useState(globalSettingsSnapshot.showFps);
   const [alwaysShowDiagnosticsSidebar, setAlwaysShowDiagnosticsSidebar] = useState(globalSettingsSnapshot.alwaysShowDiagnosticsSidebar);
   const [periodicRerenderEnabled, setPeriodicRerenderEnabled] = useState(globalSettingsSnapshot.periodicRerenderEnabled);
+  const [keyboardShortcutLeader, setKeyboardShortcutLeader] = useState(globalSettingsSnapshot.keyboardShortcutLeader);
+  const [openActionLauncherBinding, setOpenActionLauncherBinding] = useState(
+    globalSettingsSnapshot.keyboardLeaderBindings[OPEN_ACTION_LAUNCHER_COMMAND_ID] ??
+      DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_ACTION_LAUNCHER_COMMAND_ID],
+  );
+  const [openWorktreeDetailsBinding, setOpenWorktreeDetailsBinding] = useState(
+    globalSettingsSnapshot.keyboardLeaderBindings[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID] ??
+      DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID],
+  );
   const [playGrooveCommand, setPlayGrooveCommand] = useState(DEFAULT_PLAY_GROOVE_COMMAND);
   const [testingPorts, setTestingPorts] = useState<number[]>([...DEFAULT_TESTING_PORTS]);
   const [openTerminalAtWorktreeCommand, setOpenTerminalAtWorktreeCommand] = useState("");
@@ -101,6 +120,8 @@ export default function SettingsPage() {
   const showFpsRequestVersionRef = useRef(0);
   const alwaysShowDiagnosticsSidebarRequestVersionRef = useRef(0);
   const periodicRerenderEnabledRequestVersionRef = useRef(0);
+  const keyboardShortcutLeaderRequestVersionRef = useRef(0);
+  const keyboardLeaderBindingsRequestVersionRef = useRef(0);
   const themeModeRequestVersionRef = useRef(0);
 
   useEffect(() => {
@@ -109,6 +130,15 @@ export default function SettingsPage() {
     setShowFps(globalSettingsSnapshot.showFps);
     setAlwaysShowDiagnosticsSidebar(globalSettingsSnapshot.alwaysShowDiagnosticsSidebar);
     setPeriodicRerenderEnabled(globalSettingsSnapshot.periodicRerenderEnabled);
+    setKeyboardShortcutLeader(globalSettingsSnapshot.keyboardShortcutLeader);
+    setOpenActionLauncherBinding(
+      globalSettingsSnapshot.keyboardLeaderBindings[OPEN_ACTION_LAUNCHER_COMMAND_ID] ??
+        DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_ACTION_LAUNCHER_COMMAND_ID],
+    );
+    setOpenWorktreeDetailsBinding(
+      globalSettingsSnapshot.keyboardLeaderBindings[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID] ??
+        DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID],
+    );
     setThemeMode(globalSettingsSnapshot.themeMode);
   }, [globalSettingsSnapshot]);
 
@@ -398,6 +428,139 @@ export default function SettingsPage() {
     })();
   };
 
+  const onKeyboardLeaderChange = (nextLeader: string): void => {
+    const normalizedLeader = nextLeader || DEFAULT_KEYBOARD_SHORTCUT_LEADER;
+    const previousLeader = keyboardShortcutLeader;
+    setKeyboardShortcutLeader(normalizedLeader);
+    setErrorMessage(null);
+
+    const requestVersion = ++keyboardShortcutLeaderRequestVersionRef.current;
+
+    void (async () => {
+      try {
+        const result = await globalSettingsUpdate({ keyboardShortcutLeader: normalizedLeader });
+
+        if (requestVersion !== keyboardShortcutLeaderRequestVersionRef.current) {
+          return;
+        }
+
+        if (!result.ok || !result.globalSettings) {
+          setKeyboardShortcutLeader(previousLeader);
+          setErrorMessage(result.error ?? "Failed to update keyboard shortcut leader key.");
+          return;
+        }
+
+        setKeyboardShortcutLeader(result.globalSettings.keyboardShortcutLeader);
+      } catch {
+        if (requestVersion !== keyboardShortcutLeaderRequestVersionRef.current) {
+          return;
+        }
+
+        setKeyboardShortcutLeader(previousLeader);
+        setErrorMessage("Failed to update keyboard shortcut leader key.");
+      }
+    })();
+  };
+
+  const onActionLauncherBindingChange = (nextBinding: string): void => {
+    const normalizedBinding = nextBinding || DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_ACTION_LAUNCHER_COMMAND_ID];
+    const previousBinding = openActionLauncherBinding;
+    const previousWorktreeDetailsBinding = openWorktreeDetailsBinding;
+    setOpenActionLauncherBinding(normalizedBinding);
+    setErrorMessage(null);
+
+    const requestVersion = ++keyboardLeaderBindingsRequestVersionRef.current;
+
+    void (async () => {
+      try {
+        const result = await globalSettingsUpdate({
+          keyboardLeaderBindings: {
+            [OPEN_ACTION_LAUNCHER_COMMAND_ID]: normalizedBinding,
+            [OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID]: previousWorktreeDetailsBinding,
+          },
+        });
+
+        if (requestVersion !== keyboardLeaderBindingsRequestVersionRef.current) {
+          return;
+        }
+
+        if (!result.ok || !result.globalSettings) {
+          setOpenActionLauncherBinding(previousBinding);
+          setErrorMessage(result.error ?? "Failed to update open actions shortcut.");
+          return;
+        }
+
+        setOpenActionLauncherBinding(
+          result.globalSettings.keyboardLeaderBindings[OPEN_ACTION_LAUNCHER_COMMAND_ID] ??
+            DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_ACTION_LAUNCHER_COMMAND_ID],
+        );
+        setOpenWorktreeDetailsBinding(
+          result.globalSettings.keyboardLeaderBindings[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID] ??
+            DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID],
+        );
+      } catch {
+        if (requestVersion !== keyboardLeaderBindingsRequestVersionRef.current) {
+          return;
+        }
+
+        setOpenActionLauncherBinding(previousBinding);
+        setErrorMessage("Failed to update open actions shortcut.");
+      }
+    })();
+  };
+
+  const onWorktreeDetailsBindingChange = (nextBinding: string): void => {
+    const normalizedBinding = nextBinding || DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID];
+    const previousBinding = openWorktreeDetailsBinding;
+    const previousActionLauncherBinding = openActionLauncherBinding;
+    setOpenWorktreeDetailsBinding(normalizedBinding);
+    setErrorMessage(null);
+
+    const requestVersion = ++keyboardLeaderBindingsRequestVersionRef.current;
+
+    void (async () => {
+      try {
+        const result = await globalSettingsUpdate({
+          keyboardLeaderBindings: {
+            [OPEN_ACTION_LAUNCHER_COMMAND_ID]: previousActionLauncherBinding,
+            [OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID]: normalizedBinding,
+          },
+        });
+
+        if (requestVersion !== keyboardLeaderBindingsRequestVersionRef.current) {
+          return;
+        }
+
+        if (!result.ok || !result.globalSettings) {
+          setOpenWorktreeDetailsBinding(previousBinding);
+          setErrorMessage(result.error ?? "Failed to update worktree details shortcut.");
+          return;
+        }
+
+        setOpenActionLauncherBinding(
+          result.globalSettings.keyboardLeaderBindings[OPEN_ACTION_LAUNCHER_COMMAND_ID] ??
+            DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_ACTION_LAUNCHER_COMMAND_ID],
+        );
+        setOpenWorktreeDetailsBinding(
+          result.globalSettings.keyboardLeaderBindings[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID] ??
+            DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID],
+        );
+      } catch {
+        if (requestVersion !== keyboardLeaderBindingsRequestVersionRef.current) {
+          return;
+        }
+
+        setOpenWorktreeDetailsBinding(previousBinding);
+        setErrorMessage("Failed to update worktree details shortcut.");
+      }
+    })();
+  };
+
+  const shortcutKeyOptions = SHORTCUT_KEY_OPTIONS.map((option) => ({
+    value: option,
+    label: toShortcutDisplayLabel(option),
+  }));
+
   return (
     <>
       <div className="space-y-3">
@@ -411,8 +574,8 @@ export default function SettingsPage() {
         {isLoading && <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">Loading active workspace...</p>}
 
         <Collapsible defaultOpen>
-          <Card className="my-4 gap-0">
-            <CardHeader className="py-3">
+          <Card className="gap-0 py-2">
+            <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
@@ -530,8 +693,88 @@ export default function SettingsPage() {
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <Card className="my-4 gap-0">
-            <CardHeader className="py-3">
+          <Card className="gap-0 py-2">
+            <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  aria-label="Toggle keyboard shortcuts settings"
+                >
+                  <CardTitle className="text-sm">Keyboard shortcuts</CardTitle>
+                  <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                </button>
+              </CollapsibleTrigger>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent className="space-y-3 text-sm text-foreground">
+                <p className="text-xs text-muted-foreground">
+                  Customize leader-based shortcuts. Open actions defaults to <code>&lt;leader&gt; + k</code> and Open worktree details defaults to <code>&lt;leader&gt; + p</code>.
+                </p>
+
+                <div className="mt-3 space-y-2">
+                    <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between md:gap-3">
+                      <p className="text-xs text-muted-foreground">Leader key</p>
+                      <div className="w-full md:w-56">
+                        <SearchDropdown
+                          ariaLabel="Keyboard shortcut leader key"
+                          searchAriaLabel="Search keyboard shortcut leader keys"
+                          options={shortcutKeyOptions}
+                          value={keyboardShortcutLeader}
+                          placeholder={toShortcutDisplayLabel(DEFAULT_KEYBOARD_SHORTCUT_LEADER)}
+                          onValueChange={onKeyboardLeaderChange}
+                          disabled={saveState === "saving"}
+                          maxResults={5}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between md:gap-3">
+                      <p className="text-xs text-muted-foreground">Open actions key</p>
+                      <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:items-center md:justify-end">
+                        <code className="text-xs text-muted-foreground md:text-right">{`<${toShortcutDisplayLabel(keyboardShortcutLeader)}> + ${toShortcutDisplayLabel(openActionLauncherBinding)}`}</code>
+                        <div className="w-full md:w-56">
+                          <SearchDropdown
+                            ariaLabel="Open actions key"
+                            searchAriaLabel="Search open actions keys"
+                            options={shortcutKeyOptions.filter((option) => option.value !== "Space")}
+                            value={openActionLauncherBinding}
+                            placeholder={toShortcutDisplayLabel(DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_ACTION_LAUNCHER_COMMAND_ID])}
+                            onValueChange={onActionLauncherBindingChange}
+                            disabled={saveState === "saving"}
+                            maxResults={5}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between md:gap-3">
+                      <p className="text-xs text-muted-foreground">Open worktree details key</p>
+                      <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:items-center md:justify-end">
+                        <code className="text-xs text-muted-foreground md:text-right">{`<${toShortcutDisplayLabel(keyboardShortcutLeader)}> + ${toShortcutDisplayLabel(openWorktreeDetailsBinding)}`}</code>
+                        <div className="w-full md:w-56">
+                          <SearchDropdown
+                            ariaLabel="Open worktree details key"
+                            searchAriaLabel="Search open worktree details keys"
+                            options={shortcutKeyOptions.filter((option) => option.value !== "Space")}
+                            value={openWorktreeDetailsBinding}
+                            placeholder={toShortcutDisplayLabel(DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID])}
+                            onValueChange={onWorktreeDetailsBindingChange}
+                            disabled={saveState === "saving"}
+                            maxResults={5}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+
+        <Collapsible defaultOpen>
+          <Card className="gap-0 py-2">
+            <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
@@ -644,14 +887,15 @@ export default function SettingsPage() {
                     })();
                   }}
                 />
+                <OpencodeIntegrationPanel title="Opencode" workspaceRoot={workspaceRoot} />
               </CardContent>
             </CollapsibleContent>
           </Card>
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <Card className="my-4 gap-0">
-            <CardHeader className="py-3">
+          <Card className="gap-0 py-2">
+            <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
@@ -728,8 +972,8 @@ export default function SettingsPage() {
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <Card className="my-4 gap-0">
-            <CardHeader className="py-3">
+          <Card className="gap-0 py-2">
+            <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
@@ -743,7 +987,6 @@ export default function SettingsPage() {
             </CardHeader>
             <CollapsibleContent>
               <CardContent className="space-y-3">
-
               <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
                 <span className="inline-flex min-w-0 items-center gap-2">
                   <Checkbox

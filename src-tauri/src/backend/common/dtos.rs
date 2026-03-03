@@ -191,8 +191,18 @@ struct WorkspaceMetaContext {
     worktree_symlink_paths: Option<Vec<String>>,
     consellour_settings: Option<ConsellourSettings>,
     jira_settings: Option<JiraSettings>,
+    opencode_settings: Option<OpencodeSettings>,
     tasks: Option<Vec<WorkspaceTask>>,
     worktree_task_assignments: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpencodeSettings {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    default_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -313,6 +323,8 @@ struct WorkspaceMeta {
     consellour_settings: ConsellourSettings,
     #[serde(default = "default_jira_settings")]
     jira_settings: JiraSettings,
+    #[serde(default = "default_opencode_settings")]
+    opencode_settings: OpencodeSettings,
     #[serde(default)]
     tasks: Vec<WorkspaceTask>,
     #[serde(default)]
@@ -370,6 +382,10 @@ struct WorkspaceGitignoreSanityResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     patched: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    patched_worktree: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    play_started: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
@@ -386,6 +402,7 @@ struct GrooveListPayload {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GrooveRestorePayload {
+    workspace_root: Option<String>,
     root_name: Option<String>,
     #[serde(default)]
     known_worktrees: Vec<String>,
@@ -479,6 +496,14 @@ struct WorkspaceSetWorktreeTaskAssignmentPayload {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct OpencodeSettingsUpdatePayload {
+    enabled: bool,
+    #[serde(default)]
+    default_model: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkspaceBrowseEntriesPayload {
     relative_path: Option<String>,
 }
@@ -544,6 +569,12 @@ struct ConsellourToolEditTaskPayload {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ConsellourToolDeleteTaskPayload {
+    id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct JiraConnectApiTokenPayload {
     site_url: String,
     email: String,
@@ -589,6 +620,9 @@ struct GlobalSettingsUpdatePayload {
     always_show_diagnostics_sidebar: Option<bool>,
     periodic_rerender_enabled: Option<bool>,
     theme_mode: Option<String>,
+    keyboard_shortcut_leader: Option<String>,
+    keyboard_leader_bindings: Option<HashMap<String, String>>,
+    opencode_settings: Option<OpencodeSettingsUpdatePayload>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1221,6 +1255,54 @@ struct GlobalSettings {
     periodic_rerender_enabled: bool,
     #[serde(default = "default_theme_mode")]
     theme_mode: String,
+    #[serde(default = "default_keyboard_shortcut_leader")]
+    keyboard_shortcut_leader: String,
+    #[serde(default = "default_keyboard_leader_bindings")]
+    keyboard_leader_bindings: HashMap<String, String>,
+    #[serde(default = "default_opencode_settings")]
+    opencode_settings: OpencodeSettings,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpencodeIntegrationStatusResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    workspace_scope_available: bool,
+    global_scope_available: bool,
+    effective_scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_settings: Option<OpencodeSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    global_settings: Option<OpencodeSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpencodeWorkspaceSettingsResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settings: Option<OpencodeSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpencodeGlobalSettingsResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    settings: Option<OpencodeSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

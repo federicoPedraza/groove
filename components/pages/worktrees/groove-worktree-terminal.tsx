@@ -1,26 +1,68 @@
 import "@xterm/xterm/css/xterm.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { X } from "lucide-react";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
+import type { ILink, ILinkProvider, IDisposable, ITerminalOptions } from "@xterm/xterm";
 
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
+import type { ThemeMode } from "@/src/lib/theme-constants";
 import {
+  getThemeMode,
   grooveTerminalClose,
+  openExternalUrl,
   grooveTerminalGetSession,
   grooveTerminalListSessions,
   grooveTerminalResize,
   grooveTerminalWrite,
   listenGrooveTerminalLifecycle,
   listenGrooveTerminalOutput,
+  subscribeToGlobalSettings,
   type GrooveTerminalSession,
   type WorkspaceMeta,
 } from "@/src/lib/ipc";
+const TERMINAL_LINK_MATCHER = /(?:https?:\/\/|www\.)[a-zA-Z0-9._~:/?#@!$&'()*+,;=%-]+/g;
+const DARK_THEME_MODES: ReadonlySet<ThemeMode> = new Set(["lava", "earth", "dark", "dark-groove"]);
+
+function getThemeModeSnapshot(): ThemeMode {
+  return getThemeMode();
+}
+
+function getXtermTheme(mode: ThemeMode): NonNullable<ITerminalOptions["theme"]> {
+  const fallbackTheme: NonNullable<ITerminalOptions["theme"]> = DARK_THEME_MODES.has(mode)
+    ? {
+        background: "#0f172a",
+        foreground: "#f8fafc",
+        cursor: "#84cc16",
+        cursorAccent: "#0f172a",
+        selectionBackground: "#334155",
+      }
+    : {
+        background: "#f8fafc",
+        foreground: "#0f172a",
+        cursor: "#4d7c0f",
+        cursorAccent: "#f8fafc",
+        selectionBackground: "#dbeafe",
+      };
+
+  if (typeof document === "undefined") {
+    return fallbackTheme;
+  }
+
+  const rootStyles = window.getComputedStyle(document.documentElement);
+  return {
+    background: rootStyles.getPropertyValue("--card").trim() || fallbackTheme.background,
+    foreground: rootStyles.getPropertyValue("--card-foreground").trim() || fallbackTheme.foreground,
+    cursor: rootStyles.getPropertyValue("--primary").trim() || fallbackTheme.cursor,
+    cursorAccent: rootStyles.getPropertyValue("--card").trim() || fallbackTheme.cursorAccent,
+    selectionBackground: rootStyles.getPropertyValue("--accent").trim() || fallbackTheme.selectionBackground,
+  };
+}
 
 type GrooveWorktreeTerminalProps = {
   workspaceRoot: string;
@@ -36,6 +78,7 @@ type GrooveTerminalPaneProps = {
   knownWorktrees: string[];
   worktree: string;
   sessionId: string;
+  themeMode: ThemeMode;
 };
 
 function getValidSize(terminal: Terminal): { cols: number; rows: number } {
@@ -50,6 +93,7 @@ function GrooveTerminalPane({
   knownWorktrees,
   worktree,
   sessionId,
+  themeMode,
 }: GrooveTerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -57,6 +101,7 @@ function GrooveTerminalPane({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const outputBufferRef = useRef("");
   const flushFrameRef = useRef<number | null>(null);
+  const linkProviderDisposableRef = useRef<IDisposable | null>(null);
   const hasReceivedLiveOutputRef = useRef(false);
   const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
 
@@ -114,9 +159,7 @@ function GrooveTerminalPane({
       fontSize: 12,
       lineHeight: 1.25,
       scrollback: 2000,
-      theme: {
-        background: "#0f172a",
-      },
+      theme: getXtermTheme(getThemeMode()),
     });
     const clipboardAddon = new ClipboardAddon();
     const fitAddon = new FitAddon();
@@ -125,15 +168,26 @@ function GrooveTerminalPane({
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(unicode11Addon);
     let webglAddon: WebglAddon | null = null;
+    let webglContextLossDisposable: IDisposable | null = null;
+    const disposeWebglAddon = () => {
+      if (webglContextLossDisposable) {
+        webglContextLossDisposable.dispose();
+        webglContextLossDisposable = null;
+      }
+
+      if (webglAddon) {
+        webglAddon.dispose();
+        webglAddon = null;
+      }
+    };
     try {
       webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => {
-        webglAddon?.dispose();
-        webglAddon = null;
+      webglContextLossDisposable = webglAddon.onContextLoss(() => {
+        disposeWebglAddon();
       });
       terminal.loadAddon(webglAddon);
     } catch (error) {
-      webglAddon?.dispose();
+      disposeWebglAddon();
       console.warn("Failed to initialize xterm WebGL addon; falling back to default renderer.", error);
     }
     terminal.unicode.activeVersion = "11";
@@ -147,14 +201,109 @@ function GrooveTerminalPane({
       fitAddon.fit();
     }
 
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "c" || event.shiftKey) {
+        return true;
+      }
+
+      if (!terminal.hasSelection()) {
+        return true;
+      }
+
+      const selectedText = terminal.getSelection();
+      if (typeof navigator.clipboard?.writeText !== "function") {
+        console.warn("Clipboard API unavailable; terminal selection was not copied");
+        return false;
+      }
+
+      void navigator.clipboard.writeText(selectedText).then(() => {
+        terminal.clearSelection();
+      }).catch((error: unknown) => {
+        console.warn("Failed to copy terminal selection", { error });
+      });
+      return false;
+    });
+
+    const openTerminalUrl = (url: string) => {
+      const normalizedUrl = url.startsWith("http://") || url.startsWith("https://") ? url : `https://${url}`;
+      void openExternalUrl(normalizedUrl)
+        .then((response) => {
+          if (!response.ok) {
+            console.warn("Failed to open terminal URL", { url: normalizedUrl, error: response.error });
+          }
+        })
+        .catch((error: unknown) => {
+          console.warn("Failed to open terminal URL", { url: normalizedUrl, error });
+        });
+    };
+
+    const linkProvider: ILinkProvider = {
+      provideLinks(bufferLineNumber, callback) {
+        const line = terminal.buffer.active.getLine(bufferLineNumber);
+        if (!line) {
+          callback(undefined);
+          return;
+        }
+
+        const text = line.translateToString(false, 0, terminal.cols);
+        const links: ILink[] = [];
+        const regex = new RegExp(TERMINAL_LINK_MATCHER);
+
+        let match: RegExpMatchArray | null = null;
+        while ((match = regex.exec(text)) !== null) {
+          const matchedUrl = match[0];
+          const startColumn = match.index;
+          if (startColumn === undefined) {
+            continue;
+          }
+          const endColumn = startColumn + matchedUrl.length;
+
+          links.push({
+            range: {
+              start: {
+                x: startColumn + 1,
+                y: bufferLineNumber + 1,
+              },
+              end: {
+                x: endColumn,
+                y: bufferLineNumber + 1,
+              },
+            },
+            text: matchedUrl,
+            activate: (_event: MouseEvent, text: string) => {
+              openTerminalUrl(text);
+            },
+          });
+        }
+
+        callback(links.length > 0 ? links : undefined);
+      },
+    };
+
+    linkProviderDisposableRef.current = terminal.registerLinkProvider(linkProvider);
+
     return () => {
       clearBufferedOutput();
+      if (linkProviderDisposableRef.current !== null) {
+        linkProviderDisposableRef.current.dispose();
+        linkProviderDisposableRef.current = null;
+      }
       terminalRef.current = null;
       clipboardAddonRef.current = null;
       fitAddonRef.current = null;
+      disposeWebglAddon();
       terminal.dispose();
     };
   }, [clearBufferedOutput]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    terminal.options.theme = getXtermTheme(themeMode);
+  }, [themeMode]);
 
   useEffect(() => {
     let disposed = false;
@@ -258,21 +407,48 @@ function GrooveTerminalPane({
   }, [payload]);
 
   useEffect(() => {
-    let mounted = true;
+    let disposed = false;
     let outputUnlisten: (() => void) | null = null;
     let lifecycleUnlisten: (() => void) | null = null;
 
+    const cleanupOutputListener = () => {
+      if (!outputUnlisten) {
+        return;
+      }
+
+      const unlisten = outputUnlisten;
+      outputUnlisten = null;
+      unlisten();
+    };
+
+    const cleanupLifecycleListener = () => {
+      if (!lifecycleUnlisten) {
+        return;
+      }
+
+      const unlisten = lifecycleUnlisten;
+      lifecycleUnlisten = null;
+      unlisten();
+    };
+
     void (async () => {
-      outputUnlisten = await listenGrooveTerminalOutput((event) => {
-        if (!mounted || event.workspaceRoot !== workspaceRoot || event.worktree !== worktree || event.sessionId !== sessionId) {
+      const nextOutputUnlisten = await listenGrooveTerminalOutput((event) => {
+        if (disposed || event.workspaceRoot !== workspaceRoot || event.worktree !== worktree || event.sessionId !== sessionId) {
           return;
         }
         hasReceivedLiveOutputRef.current = true;
         queueOutputChunk(event.chunk);
       });
 
-      lifecycleUnlisten = await listenGrooveTerminalLifecycle((event) => {
-        if (!mounted || event.workspaceRoot !== workspaceRoot || event.worktree !== worktree || event.sessionId !== sessionId) {
+      if (disposed) {
+        nextOutputUnlisten();
+        return;
+      }
+
+      outputUnlisten = nextOutputUnlisten;
+
+      const nextLifecycleUnlisten = await listenGrooveTerminalLifecycle((event) => {
+        if (disposed || event.workspaceRoot !== workspaceRoot || event.worktree !== worktree || event.sessionId !== sessionId) {
           return;
         }
 
@@ -282,16 +458,19 @@ function GrooveTerminalPane({
           terminalRef.current?.reset();
         }
       });
+
+      if (disposed) {
+        nextLifecycleUnlisten();
+        return;
+      }
+
+      lifecycleUnlisten = nextLifecycleUnlisten;
     })();
 
     return () => {
-      mounted = false;
-      if (outputUnlisten) {
-        outputUnlisten();
-      }
-      if (lifecycleUnlisten) {
-        lifecycleUnlisten();
-      }
+      disposed = true;
+      cleanupOutputListener();
+      cleanupLifecycleListener();
       clearBufferedOutput();
     };
   }, [clearBufferedOutput, queueOutputChunk, sessionId, workspaceRoot, worktree]);
@@ -326,6 +505,7 @@ export function GrooveWorktreeTerminal({
     [stableKnownWorktrees, worktree, workspaceMeta],
   );
   const runningSessionIdSet = useMemo(() => new Set(runningSessionIds), [runningSessionIds]);
+  const themeMode = useSyncExternalStore(subscribeToGlobalSettings, getThemeModeSnapshot, getThemeModeSnapshot);
 
   const syncSessions = useCallback(async () => {
     const result = await grooveTerminalListSessions(terminalPayloadBase);
@@ -341,23 +521,38 @@ export function GrooveWorktreeTerminal({
   }, [syncSessions]);
 
   useEffect(() => {
-    let mounted = true;
+    let disposed = false;
     let unlisten: (() => void) | null = null;
 
+    const cleanupListener = () => {
+      if (!unlisten) {
+        return;
+      }
+
+      const dispose = unlisten;
+      unlisten = null;
+      dispose();
+    };
+
     void (async () => {
-      unlisten = await listenGrooveTerminalLifecycle((event) => {
-        if (!mounted || event.workspaceRoot !== workspaceRoot || event.worktree !== worktree) {
+      const nextUnlisten = await listenGrooveTerminalLifecycle((event) => {
+        if (disposed || event.workspaceRoot !== workspaceRoot || event.worktree !== worktree) {
           return;
         }
         void syncSessions();
       });
+
+      if (disposed) {
+        nextUnlisten();
+        return;
+      }
+
+      unlisten = nextUnlisten;
     })();
 
     return () => {
-      mounted = false;
-      if (unlisten) {
-        unlisten();
-      }
+      disposed = true;
+      cleanupListener();
     };
   }, [syncSessions, workspaceRoot, worktree]);
 
@@ -418,12 +613,13 @@ export function GrooveWorktreeTerminal({
                 </div>
                 <div className="h-[75vh] min-h-[280px]">
                   <GrooveTerminalPane
-                     workspaceRoot={workspaceRoot}
-                     workspaceMeta={workspaceMeta}
-                     knownWorktrees={stableKnownWorktrees}
-                     worktree={worktree}
-                     sessionId={session.sessionId}
-                   />
+                    workspaceRoot={workspaceRoot}
+                    workspaceMeta={workspaceMeta}
+                    knownWorktrees={stableKnownWorktrees}
+                    worktree={worktree}
+                    sessionId={session.sessionId}
+                    themeMode={themeMode}
+                  />
                 </div>
               </div>
             );

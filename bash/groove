@@ -601,6 +601,14 @@ launch_in_terminal() {
     return 1
   }
 
+  spawn_system_default() {
+    if command -v x-terminal-emulator >/dev/null 2>&1; then
+      spawn_detached x-terminal-emulator -e bash -lc "${cmd_launch}"
+      exit 0
+    fi
+    return 1
+  }
+
   spawn_warp() {
     if command -v warp-terminal >/dev/null 2>&1; then
       if spawn_detached warp-terminal --working-directory "${wt_path}" --command "${cmd_launch}"; then
@@ -670,7 +678,7 @@ launch_in_terminal() {
     exit 1
   ) ;;
   auto)
-    spawn_ghostty || spawn_warp || spawn_kitty || spawn_gnome || spawn_xterm || spawn_none
+    spawn_system_default || spawn_warp || spawn_kitty || spawn_gnome || spawn_xterm || spawn_ghostty || spawn_none
     ;;
   *)
     echo "invalid --terminal: $open_terminal" >&2
@@ -738,14 +746,39 @@ if [[ "${first_positional}" == "rm" ]]; then
   safe_branch="$(safe_branch_name "$branch_to_remove")"
   wt_path="$wt_root/$safe_branch"
 
-  if ! git worktree list --porcelain | grep -Fxq "worktree $wt_path"; then
+  is_registered="false"
+  if git worktree list --porcelain | grep -Fxq "worktree $wt_path"; then
+    is_registered="true"
+  fi
+
+  if [[ "$is_registered" == "false" && ! -e "$wt_path" ]]; then
     echo "No groove worktree found for '$branch_to_remove' at $wt_path" >&2
     exit 1
   fi
 
-  git worktree remove "$wt_path"
-  echo "Removed groove worktree: $wt_path"
-  exit 0
+  rm_error=""
+  if rm_error="$(git worktree remove "$wt_path" 2>&1)"; then
+    echo "Removed groove worktree: $wt_path"
+    exit 0
+  fi
+
+  if [[ -d "$wt_path" ]] && grep -Eiq '(not a working tree|not registered|no such worktree)' <<<"$rm_error"; then
+    if [[ "$wt_path" != "$wt_root"/* ]]; then
+      echo "Refusing to remove path outside groove worktrees dir: $wt_path" >&2
+      exit 1
+    fi
+
+    rm -rf -- "$wt_path"
+    echo "Removed groove worktree directory: $wt_path"
+    echo "note: git worktree metadata for '$branch_to_remove' was stale/unregistered; performed directory cleanup only" >&2
+    exit 0
+  fi
+
+  echo "Failed to remove groove worktree '$branch_to_remove' at $wt_path" >&2
+  if [[ -n "$rm_error" ]]; then
+    echo "$rm_error" >&2
+  fi
+  exit 1
 fi
 
 if [[ "${first_positional}" == "restore" ]]; then

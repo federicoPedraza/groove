@@ -19,6 +19,7 @@ type SearchDropdownProps = {
   noResultsLabel?: string;
   triggerClassName?: string;
   contentClassName?: string;
+  maxResults?: number;
 };
 
 export function SearchDropdown({
@@ -34,6 +35,7 @@ export function SearchDropdown({
   noResultsLabel = "No matching results.",
   triggerClassName,
   contentClassName,
+  maxResults,
 }: SearchDropdownProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -42,16 +44,20 @@ export function SearchDropdown({
 
   const normalizedQuery = query.trim().toLowerCase();
   const filteredOptions = useMemo<DropdownOption[]>(() => {
-    if (!normalizedQuery) {
-      return options;
+    const matchingOptions = normalizedQuery
+      ? options.filter((option) => {
+          return [option.label, option.value, option.valueLabel]
+            .filter((candidate): candidate is string => Boolean(candidate))
+            .some((candidate) => candidate.toLowerCase().includes(normalizedQuery));
+        })
+      : options;
+
+    if (typeof maxResults === "number") {
+      return matchingOptions.slice(0, Math.max(0, maxResults));
     }
 
-    return options.filter((option) => {
-      return [option.label, option.value, option.valueLabel]
-        .filter((candidate): candidate is string => Boolean(candidate))
-        .some((candidate) => candidate.toLowerCase().includes(normalizedQuery));
-    });
-  }, [normalizedQuery, options]);
+    return matchingOptions;
+  }, [maxResults, normalizedQuery, options]);
 
   useEffect(() => {
     if (!open) {
@@ -69,11 +75,16 @@ export function SearchDropdown({
   }, [open]);
 
   const emptyStateLabel = options.length === 0 ? emptyLabel : noResultsLabel;
+  const selectedOption = value ? options.find((option) => option.value === value) ?? null : null;
+  const dropdownOptions =
+    selectedOption && !filteredOptions.some((option) => option.value === selectedOption.value)
+      ? [selectedOption, ...filteredOptions]
+      : filteredOptions;
 
   return (
     <Dropdown
       ariaLabel={ariaLabel}
-      options={filteredOptions}
+      options={dropdownOptions}
       value={value}
       placeholder={placeholder}
       onValueChange={(nextValue) => {

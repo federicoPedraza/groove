@@ -40,7 +40,8 @@ const CUSTOM_TEMPLATE_VALUE = "__custom__";
 
 const PLAY_GROOVE_TEMPLATE_COMMANDS = {
   groove: GROOVE_PLAY_COMMAND_SENTINEL,
-  ghostty: DEFAULT_PLAY_GROOVE_COMMAND,
+  system: DEFAULT_PLAY_GROOVE_COMMAND,
+  ghostty: "ghostty --working-directory={worktree} -e opencode",
   warp: "warp --working-directory {worktree} --command opencode",
   kitty: "kitty --directory {worktree} opencode",
   gnome: "gnome-terminal --working-directory={worktree} -- opencode",
@@ -49,6 +50,7 @@ const PLAY_GROOVE_TEMPLATE_COMMANDS = {
 
 const PLAY_GROOVE_COMMAND_TEMPLATES: Array<{ value: keyof typeof PLAY_GROOVE_TEMPLATE_COMMANDS; label: string }> = [
   { value: "groove", label: "Groove" },
+  { value: "system", label: "System default" },
   { value: "ghostty", label: "Ghostty" },
   { value: "warp", label: "Warp" },
   { value: "kitty", label: "Kitty" },

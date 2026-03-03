@@ -305,6 +305,8 @@ fn workspace_gitignore_sanity_check(app: AppHandle) -> WorkspaceGitignoreSanityR
                 has_workspace_entry: false,
                 missing_entries: Vec::new(),
                 patched: None,
+                patched_worktree: None,
+                play_started: None,
                 error: Some(error),
             }
         }
@@ -321,6 +323,8 @@ fn workspace_gitignore_sanity_check(app: AppHandle) -> WorkspaceGitignoreSanityR
             has_workspace_entry: false,
             missing_entries: Vec::new(),
             patched: None,
+            patched_worktree: None,
+            play_started: None,
             error: None,
         };
     }
@@ -337,6 +341,8 @@ fn workspace_gitignore_sanity_check(app: AppHandle) -> WorkspaceGitignoreSanityR
                 has_workspace_entry: false,
                 missing_entries: Vec::new(),
                 patched: None,
+                patched_worktree: None,
+                play_started: None,
                 error: Some(format!(
                     "Failed to read {}: {error}",
                     gitignore_path.display()
@@ -357,12 +363,17 @@ fn workspace_gitignore_sanity_check(app: AppHandle) -> WorkspaceGitignoreSanityR
         has_workspace_entry,
         missing_entries,
         patched: None,
+        patched_worktree: None,
+        play_started: None,
         error: None,
     }
 }
 
 #[tauri::command]
-fn workspace_gitignore_sanity_apply(app: AppHandle) -> WorkspaceGitignoreSanityResponse {
+fn workspace_gitignore_sanity_apply(
+    app: AppHandle,
+    terminal_state: State<GrooveTerminalState>,
+) -> WorkspaceGitignoreSanityResponse {
     let request_id = request_id();
     let workspace_root = match active_workspace_root_from_state(&app) {
         Ok(workspace_root) => workspace_root,
@@ -376,6 +387,8 @@ fn workspace_gitignore_sanity_apply(app: AppHandle) -> WorkspaceGitignoreSanityR
                 has_workspace_entry: false,
                 missing_entries: Vec::new(),
                 patched: Some(false),
+                patched_worktree: None,
+                play_started: Some(false),
                 error: Some(error),
             }
         }
@@ -392,6 +405,8 @@ fn workspace_gitignore_sanity_apply(app: AppHandle) -> WorkspaceGitignoreSanityR
             has_workspace_entry: false,
             missing_entries: Vec::new(),
             patched: Some(false),
+            patched_worktree: None,
+            play_started: Some(false),
             error: None,
         };
     }
@@ -408,6 +423,8 @@ fn workspace_gitignore_sanity_apply(app: AppHandle) -> WorkspaceGitignoreSanityR
                 has_workspace_entry: false,
                 missing_entries: Vec::new(),
                 patched: Some(false),
+                patched_worktree: None,
+                play_started: Some(false),
                 error: Some(format!(
                     "Failed to read {}: {error}",
                     gitignore_path.display()
@@ -429,6 +446,8 @@ fn workspace_gitignore_sanity_apply(app: AppHandle) -> WorkspaceGitignoreSanityR
             has_workspace_entry,
             missing_entries,
             patched: Some(false),
+            patched_worktree: None,
+            play_started: Some(false),
             error: None,
         };
     }
@@ -449,7 +468,17 @@ fn workspace_gitignore_sanity_apply(app: AppHandle) -> WorkspaceGitignoreSanityR
         next_content.push_str(&content);
     }
 
-    if let Err(error) = fs::write(&gitignore_path, next_content) {
+    let version = env!("CARGO_PKG_VERSION");
+    let random_suffix = (Uuid::new_v4().as_u128() % 1000) as u16;
+    let patch_worktree_branch = format!("groove/patch.{version}-{random_suffix:03}");
+    let patch_worktree = patch_worktree_branch.replace('/', "_");
+
+    let create_result = run_command(
+        &groove_binary_path(&app),
+        &["create".to_string(), patch_worktree_branch],
+        &workspace_root,
+    );
+    if create_result.exit_code != Some(0) || create_result.error.is_some() {
         return WorkspaceGitignoreSanityResponse {
             request_id,
             ok: false,
@@ -459,10 +488,85 @@ fn workspace_gitignore_sanity_apply(app: AppHandle) -> WorkspaceGitignoreSanityR
             has_workspace_entry,
             missing_entries,
             patched: Some(false),
+            patched_worktree: Some(patch_worktree),
+            play_started: Some(false),
+            error: create_result.error.or_else(|| {
+                Some("Failed to create patch worktree for .gitignore sanity apply.".to_string())
+            }),
+        };
+    }
+
+    let patch_worktree_path = match resolve_patch_worktree_path(&workspace_root, &patch_worktree) {
+        Ok(path) => path,
+        Err(error) => {
+            return WorkspaceGitignoreSanityResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                is_applicable: true,
+                has_groove_entry,
+                has_workspace_entry,
+                missing_entries,
+                patched: Some(false),
+                patched_worktree: Some(patch_worktree),
+                play_started: Some(false),
+                error: Some(error),
+            }
+        }
+    };
+
+    let worktree_gitignore_path = patch_worktree_path.join(".gitignore");
+    if let Err(error) = fs::write(&worktree_gitignore_path, next_content) {
+        return WorkspaceGitignoreSanityResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            is_applicable: true,
+            has_groove_entry,
+            has_workspace_entry,
+            missing_entries,
+            patched: Some(false),
+            patched_worktree: Some(patch_worktree),
+            play_started: Some(false),
             error: Some(format!(
                 "Failed to write {}: {error}",
-                gitignore_path.display()
+                worktree_gitignore_path.display()
             )),
+        };
+    }
+
+    let play_result = groove_restore(
+        app,
+        terminal_state,
+        GrooveRestorePayload {
+            workspace_root: Some(workspace_root.display().to_string()),
+            root_name: None,
+            known_worktrees: vec![patch_worktree.clone()],
+            workspace_meta: None,
+            worktree: patch_worktree.clone(),
+            action: Some("go".to_string()),
+            target: Some(patch_worktree.clone()),
+            dir: None,
+            opencode_log_file: None,
+        },
+    );
+    if !play_result.ok {
+        return WorkspaceGitignoreSanityResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            is_applicable: true,
+            has_groove_entry: true,
+            has_workspace_entry: true,
+            missing_entries: Vec::new(),
+            patched: Some(true),
+            patched_worktree: Some(patch_worktree),
+            play_started: Some(false),
+            error: Some(
+                play_result.error.unwrap_or_else(|| {
+                    "Failed to launch Play Groove for patch worktree.".to_string()
+                }),
+            ),
         };
     }
 
@@ -475,8 +579,169 @@ fn workspace_gitignore_sanity_apply(app: AppHandle) -> WorkspaceGitignoreSanityR
         has_workspace_entry: true,
         missing_entries: Vec::new(),
         patched: Some(true),
+        patched_worktree: Some(patch_worktree),
+        play_started: Some(true),
         error: None,
     }
+}
+
+fn resolve_patch_worktree_path(
+    workspace_root: &Path,
+    patch_worktree: &str,
+) -> Result<PathBuf, String> {
+    let candidate_worktrees = patch_worktree_path_candidates(patch_worktree);
+    let candidate_branches = patch_worktree_branch_candidates(patch_worktree);
+
+    let mut local_resolution_errors = Vec::new();
+    for candidate in &candidate_worktrees {
+        match ensure_worktree_in_dir(workspace_root, candidate, ".worktrees") {
+            Ok(path) => return Ok(path),
+            Err(error) => local_resolution_errors.push(format!(
+                "{}/.worktrees/{candidate}: {error}",
+                workspace_root.display()
+            )),
+        }
+    }
+
+    let listed_worktrees = list_git_worktrees_by_branch(workspace_root).map_err(|error| {
+        format!(
+            "Failed to locate patch worktree \"{}\" under default local paths ({}) and failed to query `git worktree list --porcelain`: {}",
+            patch_worktree,
+            local_resolution_errors.join("; "),
+            error
+        )
+    })?;
+
+    for (branch, path) in listed_worktrees {
+        let branch_matches = branch
+            .as_deref()
+            .map(|value| {
+                candidate_branches
+                    .iter()
+                    .any(|candidate| candidate == value)
+            })
+            .unwrap_or(false);
+        let path_matches = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .map(|value| {
+                candidate_worktrees
+                    .iter()
+                    .any(|candidate| candidate == value)
+            })
+            .unwrap_or(false);
+        if !branch_matches && !path_matches {
+            continue;
+        }
+
+        if path_is_directory(&path) {
+            return Ok(path);
+        }
+
+        return Err(format!(
+            "`git worktree list --porcelain` resolved patch worktree \"{}\" to \"{}\", but that directory is not accessible.",
+            patch_worktree,
+            path.display()
+        ));
+    }
+
+    Err(format!(
+        "Failed to locate patch worktree for branch \"{}\". Checked default local paths ({}) and scanned `git worktree list --porcelain`, but no entry matched refs/heads/{}.",
+        patch_worktree,
+        local_resolution_errors.join("; "),
+        patch_worktree
+    ))
+}
+
+fn patch_worktree_path_candidates(value: &str) -> Vec<String> {
+    let mut candidates = vec![value.to_string()];
+    let stamped = value.replace('/', "_");
+    if stamped != value {
+        candidates.push(stamped);
+    }
+    candidates
+}
+
+fn patch_worktree_branch_candidates(value: &str) -> Vec<String> {
+    let mut candidates = vec![value.to_string()];
+    let stamped = value.replace('/', "_");
+    if stamped != value {
+        candidates.push(stamped.clone());
+    }
+    let slashed = value.replace('_', "/");
+    if slashed != value && slashed != stamped {
+        candidates.push(slashed);
+    }
+    candidates
+}
+
+#[cfg(test)]
+mod workspace_commands_tests {
+    use super::*;
+
+    #[test]
+    fn patch_worktree_candidates_cover_branch_and_path_forms() {
+        let path_candidates = patch_worktree_path_candidates("groove/patch.1");
+        assert_eq!(
+            path_candidates,
+            vec!["groove/patch.1".to_string(), "groove_patch.1".to_string()]
+        );
+
+        let branch_candidates = patch_worktree_branch_candidates("groove_patch.1");
+        assert_eq!(
+            branch_candidates,
+            vec!["groove_patch.1".to_string(), "groove/patch.1".to_string()]
+        );
+    }
+}
+
+fn list_git_worktrees_by_branch(
+    workspace_root: &Path,
+) -> Result<Vec<(Option<String>, PathBuf)>, String> {
+    let result = run_git_command_at_path(workspace_root, &["worktree", "list", "--porcelain"]);
+    if result.exit_code != Some(0) || result.error.is_some() {
+        let mut details = Vec::new();
+        if let Some(error) = result.error.as_ref() {
+            details.push(error.clone());
+        }
+        if let Some(snippet) = command_output_snippet(&result) {
+            details.push(snippet);
+        }
+        if details.is_empty() {
+            details.push("unknown failure".to_string());
+        }
+        return Err(details.join("; "));
+    }
+
+    let mut entries = Vec::new();
+    let mut current_branch = None;
+    let mut current_path = None;
+
+    for raw_line in result.stdout.lines().chain(std::iter::once("")) {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            if let Some(path) = current_path.take() {
+                entries.push((current_branch.take(), path));
+            }
+            continue;
+        }
+
+        if let Some(value) = line.strip_prefix("worktree ") {
+            current_path = Some(PathBuf::from(value.trim()));
+            continue;
+        }
+
+        if let Some(value) = line.strip_prefix("branch ") {
+            let normalized = value
+                .trim()
+                .strip_prefix("refs/heads/")
+                .unwrap_or(value.trim())
+                .to_string();
+            current_branch = Some(normalized);
+        }
+    }
+
+    Ok(entries)
 }
 
 #[tauri::command]
@@ -545,6 +810,22 @@ fn global_settings_update(
                 }
             }
         }
+    }
+    if let Some(keyboard_shortcut_leader) = payload.keyboard_shortcut_leader.as_deref() {
+        global_settings.keyboard_shortcut_leader = normalize_shortcut_key(
+            keyboard_shortcut_leader,
+            &default_keyboard_shortcut_leader(),
+        );
+    }
+    if let Some(keyboard_leader_bindings) = payload.keyboard_leader_bindings.as_ref() {
+        global_settings.keyboard_leader_bindings =
+            normalize_keyboard_leader_bindings(keyboard_leader_bindings);
+    }
+    if let Some(opencode_settings) = payload.opencode_settings.as_ref() {
+        global_settings.opencode_settings = normalize_opencode_settings(&OpencodeSettings {
+            enabled: opencode_settings.enabled,
+            default_model: opencode_settings.default_model.clone(),
+        });
     }
     let settings_file = match global_settings_file(&app) {
         Ok(path) => path,
@@ -1736,6 +2017,78 @@ fn consellour_tool_edit_task(
         ok: true,
         workspace_root: Some(workspace_root.display().to_string()),
         task: Some(task_response),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn consellour_tool_delete_task(
+    app: AppHandle,
+    payload: ConsellourToolDeleteTaskPayload,
+) -> WorkspaceTaskResponse {
+    let request_id = request_id();
+    let (workspace_root, mut workspace_meta) = match active_workspace_meta(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                task: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let normalized_id = payload.id.trim();
+    if normalized_id.is_empty() {
+        return WorkspaceTaskResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            task: None,
+            error: Some("Task id must be a non-empty string.".to_string()),
+        };
+    }
+
+    let task_index = match workspace_meta
+        .tasks
+        .iter()
+        .position(|task| task.id == normalized_id)
+    {
+        Some(index) => index,
+        None => {
+            return WorkspaceTaskResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                task: None,
+                error: Some("Task not found for the provided id.".to_string()),
+            }
+        }
+    };
+
+    let removed_task = workspace_meta.tasks.remove(task_index);
+    workspace_meta
+        .worktree_task_assignments
+        .retain(|_, task_id| task_id != normalized_id);
+    workspace_meta.updated_at = now_iso();
+
+    if let Err(error) = persist_workspace_meta_update(&app, &workspace_root, &workspace_meta) {
+        return WorkspaceTaskResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            task: None,
+            error: Some(error),
+        };
+    }
+
+    WorkspaceTaskResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        task: Some(removed_task),
         error: None,
     }
 }

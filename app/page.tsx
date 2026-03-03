@@ -1,7 +1,8 @@
 "use client";
 
 import { FolderClock, FolderOpen, Terminal, X } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,10 +13,46 @@ import { DashboardHeader } from "@/components/pages/dashboard/dashboard-header";
 import { DashboardModals } from "@/components/pages/dashboard/dashboard-modals";
 import { WorktreesTable } from "@/components/pages/dashboard/worktrees-table";
 import { useDashboardState } from "@/components/pages/dashboard/hooks/use-dashboard-state";
+import { useShortcutRegistration } from "@/components/shortcuts/use-shortcut-registration";
+import type { ActionLauncherItem } from "@/components/shortcuts/action-launcher";
 import type { WorktreeRow } from "@/components/pages/dashboard/types";
 import { useAppLayout } from "@/components/pages/use-app-layout";
 
+export function buildDashboardWorktreeDetailShortcutActionables(
+  activeRows: WorktreeRow[],
+  navigate: (path: string) => void,
+  runPlayGrooveAction: (row: WorktreeRow) => Promise<void>,
+): ActionLauncherItem[] {
+  return activeRows.map((row) => ({
+    id: `dashboard.worktree-details.${row.worktree}`,
+    type: "dropdown",
+    label: row.worktree,
+    description: row.branchGuess,
+    items: [
+      {
+        id: `dashboard.worktree-details.${row.worktree}.open`,
+        type: "button",
+        label: "Open details",
+        description: "Open the worktree details view.",
+        run: () => {
+          navigate(`/worktrees/${encodeURIComponent(row.worktree)}`);
+        },
+      },
+      {
+        id: `dashboard.worktree-details.${row.worktree}.play`,
+        type: "button",
+        label: "Play Groove",
+        description: "Start Groove for this worktree.",
+        run: () => {
+          void runPlayGrooveAction(row);
+        },
+      },
+    ],
+  }));
+}
+
 export default function Home() {
+  const navigate = useNavigate();
   const [pauseConfirmRow, setPauseConfirmRow] = useState<WorktreeRow | null>(null);
   const {
     activeWorkspace,
@@ -27,6 +64,7 @@ export default function Home() {
     isWorkspaceHydrating,
     pendingRestoreActions,
     pendingCutGrooveActions,
+    isForgetAllDeletedWorktreesPending,
     pendingStopActions,
     pendingPlayActions,
     pendingTestActions,
@@ -60,6 +98,7 @@ export default function Home() {
     runRestoreAction,
     runCreateWorktreeAction,
     runCutGrooveAction,
+    runForgetAllDeletedWorktreesAction,
     runStopAction,
     runPlayGrooveAction,
     onSelectTestingTarget,
@@ -73,6 +112,54 @@ export default function Home() {
   const workspaceDisplayName = activeWorkspace?.workspaceMeta.rootName ?? "No directory selected";
   const pauseConfirmActionKey = pauseConfirmRow ? `${pauseConfirmRow.path}:stop` : null;
   const pauseConfirmLoading = pauseConfirmActionKey !== null && pendingStopActions.includes(pauseConfirmActionKey);
+  const shortcutActionables = useMemo<ActionLauncherItem[]>(() => {
+    const activeRows = worktreeRows.filter((row) => row.status !== "deleted");
+    const worktreeByName = activeRows.reduce<Record<string, WorktreeRow>>((map, row) => {
+      map[row.worktree] = row;
+      return map;
+    }, {});
+
+    return [
+      {
+        id: "dashboard.refresh",
+        type: "button",
+        label: "Refresh worktrees",
+        description: "Rescan workspace worktrees and runtime state.",
+        run: () => {
+          void refreshWorktrees();
+        },
+      },
+      {
+        id: "dashboard.testing-targets",
+        type: "checkbox-multiple-input",
+        label: "Testing targets",
+        description: "Toggle which worktrees are selected as testing targets.",
+        options: activeRows.map((row) => ({
+          id: row.worktree,
+          label: row.worktree,
+          description: row.branchGuess,
+          checked: testingTargetWorktrees.includes(row.worktree),
+        })),
+        onToggle: (worktree) => {
+          const row = worktreeByName[worktree];
+          if (!row) {
+            return;
+          }
+          onSelectTestingTarget(row);
+        },
+      },
+    ];
+  }, [onSelectTestingTarget, refreshWorktrees, testingTargetWorktrees, worktreeRows]);
+
+  const worktreeDetailShortcutActionables = useMemo<ActionLauncherItem[]>(() => {
+    const activeRows = worktreeRows.filter((row) => row.status !== "deleted");
+    return buildDashboardWorktreeDetailShortcutActionables(activeRows, navigate, runPlayGrooveAction);
+  }, [navigate, runPlayGrooveAction, worktreeRows]);
+
+  useShortcutRegistration({
+    actionables: shortcutActionables,
+    worktreeDetailActionables: worktreeDetailShortcutActionables,
+  });
 
   useAppLayout({
     noDirectoryOpenState: {
@@ -240,6 +327,14 @@ export default function Home() {
                     setWorktreeTaskAssignment(worktree, taskId);
                   }}
                   onAssignTaskPr={assignTaskPr}
+                  onForgetAllDeletedWorktrees={() => {
+                    const shouldForgetAll = window.confirm("Forget all deleted worktrees forever from Groove local state?");
+                    if (!shouldForgetAll) {
+                      return;
+                    }
+                    void runForgetAllDeletedWorktreesAction();
+                  }}
+                  isForgetAllDeletedWorktreesPending={isForgetAllDeletedWorktreesPending}
                 />
               )}
 

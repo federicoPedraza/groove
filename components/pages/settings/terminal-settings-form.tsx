@@ -85,7 +85,7 @@ export function TerminalSettingsForm({
           onChange={(event) => {
             onTerminalCustomCommandChange(event.target.value);
           }}
-          placeholder="Example: ghostty --working-directory={worktree}"
+          placeholder="Example: x-terminal-emulator"
           disabled={saveState === "saving" || !customCommandEnabled}
         />
         <p className="text-xs text-muted-foreground">

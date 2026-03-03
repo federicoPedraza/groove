@@ -146,18 +146,22 @@ export default function DiagnosticsPage() {
       if (!result.isApplicable) {
         setGitignoreSanityStatusMessage("No .gitignore found in the active workspace.");
       } else if (result.patched) {
-        setGitignoreSanityStatusMessage("Applied Groove .gitignore sanity patch.");
+        if (result.patchedWorktree) {
+          setGitignoreSanityStatusMessage(
+            `Applied Groove .gitignore sanity patch in ${result.patchedWorktree} and started Play Groove.`,
+          );
+        } else {
+          setGitignoreSanityStatusMessage("Applied Groove .gitignore sanity patch.");
+        }
       } else {
         setGitignoreSanityStatusMessage("Groove .gitignore sanity patch is already applied.");
       }
-
-      await loadGitignoreSanityCheck({ showPending: false });
     } catch {
       setGitignoreSanityErrorMessage("Failed to apply .gitignore sanity patch.");
     } finally {
       setIsGitignoreSanityApplyPending(false);
     }
-  }, [clearGitignoreSanityState, loadGitignoreSanityCheck]);
+  }, [clearGitignoreSanityState]);
 
   useEffect(() => {
     const mountDurationMs = Math.max(0, performance.now() - diagnosticsEnterPerfMsRef.current);

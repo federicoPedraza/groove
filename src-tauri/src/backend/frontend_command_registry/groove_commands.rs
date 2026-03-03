@@ -554,44 +554,166 @@ fn groove_restore(
             }
         };
 
-    let (workspace_root, root_fallback_used) = match resolve_workspace_root(
-        &app,
-        &payload.root_name,
-        Some(&worktree),
-        &known_worktrees,
-        &payload.workspace_meta,
-    ) {
-        Ok(root) => (root, false),
-        Err(primary_error) => {
-            log_play_telemetry(
-                telemetry_enabled,
-                "groove_restore.resolve_root_primary_failed",
-                format!("request_id={} worktree={} error={primary_error}", request_id, worktree)
-                    .as_str(),
-            );
-            match resolve_workspace_root(
-                &app,
-                &payload.root_name,
-                None,
-                &known_worktrees,
-                &payload.workspace_meta,
-            ) {
-                Ok(root) => (root, true),
-                Err(_) => {
-                    log_play_telemetry(
-                        telemetry_enabled,
-                        "groove_restore.resolve_root_failed",
-                        format!("request_id={} worktree={} error={primary_error}", request_id, worktree)
+    let mut root_resolution_attempts = Vec::new();
+    let explicit_workspace_root = payload
+        .workspace_root
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let (workspace_root, root_fallback_used) = if let Some(workspace_root_hint) = explicit_workspace_root
+    {
+        match validate_workspace_root_path(workspace_root_hint) {
+            Ok(root) => {
+                root_resolution_attempts.push(format!(
+                    "payload.workspaceRoot={} (validated)",
+                    root.display()
+                ));
+                (root, false)
+            }
+            Err(error) => {
+                root_resolution_attempts.push(format!(
+                    "payload.workspaceRoot={} (invalid: {error})",
+                    workspace_root_hint
+                ));
+                let primary_result = resolve_workspace_root(
+                    &app,
+                    &payload.root_name,
+                    Some(&worktree),
+                    &known_worktrees,
+                    &payload.workspace_meta,
+                );
+
+                match primary_result {
+                    Ok(root) => {
+                        root_resolution_attempts.push(
+                            "active-workspace/rootName with required worktree (resolved)".to_string(),
+                        );
+                        (root, false)
+                    }
+                    Err(primary_error) => {
+                        root_resolution_attempts.push(format!(
+                            "active-workspace/rootName with required worktree (failed: {primary_error})"
+                        ));
+                        log_play_telemetry(
+                            telemetry_enabled,
+                            "groove_restore.resolve_root_primary_failed",
+                            format!(
+                                "request_id={} worktree={} error={primary_error}",
+                                request_id, worktree
+                            )
                             .as_str(),
-                    );
-                    return GrooveCommandResponse {
-                        request_id,
-                        ok: false,
-                        exit_code: None,
-                        stdout: String::new(),
-                        stderr: String::new(),
-                        error: Some(primary_error),
-                    };
+                        );
+
+                        match resolve_workspace_root(
+                            &app,
+                            &payload.root_name,
+                            None,
+                            &known_worktrees,
+                            &payload.workspace_meta,
+                        ) {
+                            Ok(root) => {
+                                root_resolution_attempts.push(
+                                    "active-workspace/rootName without required worktree (resolved)"
+                                        .to_string(),
+                                );
+                                (root, true)
+                            }
+                            Err(secondary_error) => {
+                                root_resolution_attempts.push(format!(
+                                    "active-workspace/rootName without required worktree (failed: {secondary_error})"
+                                ));
+                                let combined_error = format!(
+                                    "Could not resolve workspace root for Play Groove. Attempted {}.",
+                                    root_resolution_attempts.join("; ")
+                                );
+                                log_play_telemetry(
+                                    telemetry_enabled,
+                                    "groove_restore.resolve_root_failed",
+                                    format!(
+                                        "request_id={} worktree={} error={combined_error}",
+                                        request_id, worktree
+                                    )
+                                    .as_str(),
+                                );
+                                return GrooveCommandResponse {
+                                    request_id,
+                                    ok: false,
+                                    exit_code: None,
+                                    stdout: String::new(),
+                                    stderr: String::new(),
+                                    error: Some(combined_error),
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        root_resolution_attempts
+            .push("payload.workspaceRoot (not provided)".to_string());
+        let primary_result = resolve_workspace_root(
+            &app,
+            &payload.root_name,
+            Some(&worktree),
+            &known_worktrees,
+            &payload.workspace_meta,
+        );
+
+        match primary_result {
+            Ok(root) => {
+                root_resolution_attempts
+                    .push("active-workspace/rootName with required worktree (resolved)".to_string());
+                (root, false)
+            }
+            Err(primary_error) => {
+                root_resolution_attempts.push(format!(
+                    "active-workspace/rootName with required worktree (failed: {primary_error})"
+                ));
+                log_play_telemetry(
+                    telemetry_enabled,
+                    "groove_restore.resolve_root_primary_failed",
+                    format!("request_id={} worktree={} error={primary_error}", request_id, worktree)
+                        .as_str(),
+                );
+                match resolve_workspace_root(
+                    &app,
+                    &payload.root_name,
+                    None,
+                    &known_worktrees,
+                    &payload.workspace_meta,
+                ) {
+                    Ok(root) => {
+                        root_resolution_attempts.push(
+                            "active-workspace/rootName without required worktree (resolved)"
+                                .to_string(),
+                        );
+                        (root, true)
+                    }
+                    Err(secondary_error) => {
+                        root_resolution_attempts.push(format!(
+                            "active-workspace/rootName without required worktree (failed: {secondary_error})"
+                        ));
+                        let combined_error = format!(
+                            "Could not resolve workspace root for Play Groove. Attempted {}.",
+                            root_resolution_attempts.join("; ")
+                        );
+                        log_play_telemetry(
+                            telemetry_enabled,
+                            "groove_restore.resolve_root_failed",
+                            format!("request_id={} worktree={} error={combined_error}", request_id, worktree)
+                                .as_str(),
+                        );
+                        return GrooveCommandResponse {
+                            request_id,
+                            ok: false,
+                            exit_code: None,
+                            stdout: String::new(),
+                            stderr: String::new(),
+                            error: Some(combined_error),
+                        };
+                    }
                 }
             }
         }
@@ -644,12 +766,13 @@ fn groove_restore(
         .clone()
         .or(inferred_worktree_dir)
         .unwrap_or_else(|| ".worktrees".to_string());
-    let expected_suffix = Path::new(&worktree_dir).join(&worktree);
-    let expected_worktree_path = if workspace_root.ends_with(&expected_suffix) {
-        workspace_root.clone()
-    } else {
-        workspace_root.join(&worktree_dir).join(&worktree)
-    };
+    let worktree_candidates = worktree_path_token_candidates(&worktree);
+    let mut expected_worktree_path = resolve_worktree_path_for_candidates(
+        &workspace_root,
+        &worktree_dir,
+        &worktree_candidates,
+    )
+    .unwrap_or_else(|| workspace_root.join(&worktree_dir).join(&worktree_candidates[0]));
     log_play_telemetry(
         telemetry_enabled,
         "groove_restore.resolve_worktree",
@@ -716,6 +839,13 @@ fn groove_restore(
             };
         }
 
+        expected_worktree_path = resolve_worktree_path_for_candidates(
+            &workspace_root,
+            &worktree_dir,
+            &worktree_candidates,
+        )
+        .unwrap_or(expected_worktree_path);
+
         if !path_is_directory(&expected_worktree_path) {
             return GrooveCommandResponse {
                 request_id,
@@ -731,16 +861,28 @@ fn groove_restore(
         }
     }
 
-    if let Err(error) = ensure_worktree_in_dir(&workspace_root, &worktree, &worktree_dir) {
+    let mut ensure_errors = Vec::new();
+    let ensured_worktree_path = worktree_candidates
+        .iter()
+        .find_map(|candidate| match ensure_worktree_in_dir(&workspace_root, candidate, &worktree_dir)
+        {
+            Ok(path) => Some(path),
+            Err(error) => {
+                ensure_errors.push(error);
+                None
+            }
+        });
+    let Some(ensured_worktree_path) = ensured_worktree_path else {
         return GrooveCommandResponse {
             request_id,
             ok: false,
             exit_code: None,
             stdout: String::new(),
             stderr: String::new(),
-            error: Some(error),
+            error: Some(ensure_errors.join(" ")),
         };
-    }
+    };
+    expected_worktree_path = ensured_worktree_path;
 
     let mut result = if action == "go" {
         let play_groove_command = play_groove_command_for_workspace(&workspace_root);
@@ -899,7 +1041,10 @@ fn groove_restore(
     };
     let ok = result.exit_code == Some(0) && result.error.is_none();
     if ok {
-        let stamped_worktree = payload.worktree.trim();
+        let stamped_worktree = expected_worktree_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_else(|| payload.worktree.trim());
         if let Err(error) =
             record_worktree_last_executed_at(&app, &workspace_root, stamped_worktree)
         {
@@ -974,6 +1119,56 @@ fn groove_restore(
         stdout: result.stdout,
         stderr: result.stderr,
         error: result.error,
+    }
+}
+
+fn worktree_path_token_candidates(worktree: &str) -> Vec<String> {
+    let mut candidates = vec![worktree.to_string()];
+    let stamped = worktree.replace('/', "_");
+    if stamped != worktree {
+        candidates.push(stamped);
+    }
+    candidates
+}
+
+fn resolve_worktree_path_for_candidates(
+    workspace_root: &Path,
+    worktree_dir: &str,
+    candidates: &[String],
+) -> Option<PathBuf> {
+    for candidate in candidates {
+        let expected_suffix = Path::new(worktree_dir).join(candidate);
+        let candidate_path = if workspace_root.ends_with(&expected_suffix) {
+            workspace_root.to_path_buf()
+        } else {
+            workspace_root.join(worktree_dir).join(candidate)
+        };
+
+        if path_is_directory(&candidate_path) {
+            return Some(candidate_path);
+        }
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod groove_commands_tests {
+    use super::*;
+
+    #[test]
+    fn resolves_existing_stamped_worktree_path_from_branch_like_token() {
+        let temp_root = std::env::temp_dir().join(format!("groove-test-{}", Uuid::new_v4()));
+        let stamped = temp_root.join(".worktrees").join("groove_patch.123");
+        fs::create_dir_all(&stamped).expect("create stamped worktree directory");
+
+        let candidates = worktree_path_token_candidates("groove/patch.123");
+        let resolved = resolve_worktree_path_for_candidates(&temp_root, ".worktrees", &candidates)
+            .expect("resolve worktree path");
+
+        assert_eq!(resolved, stamped);
+
+        fs::remove_dir_all(&temp_root).expect("cleanup temp workspace");
     }
 }
 
@@ -1569,4 +1764,3 @@ fn groove_stop(app: AppHandle, payload: GrooveStopPayload) -> GrooveStopResponse
 
     response
 }
-

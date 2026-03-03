@@ -18,6 +18,14 @@ fn default_play_groove_command() -> String {
     DEFAULT_PLAY_GROOVE_COMMAND_TEMPLATE.to_string()
 }
 
+fn default_keyboard_shortcut_leader() -> String {
+    "Space".to_string()
+}
+
+fn default_keyboard_leader_bindings() -> HashMap<String, String> {
+    HashMap::from([("openActionLauncher".to_string(), "p".to_string())])
+}
+
 fn normalize_terminal_dimension(value: Option<u16>, default: u16) -> u16 {
     terminal::normalize_terminal_dimension(
         value,
@@ -216,7 +224,9 @@ fn validate_groove_terminal_target(value: Option<&str>) -> Result<Option<String>
     terminal::validate_groove_terminal_target(value)
 }
 
-fn validate_groove_terminal_open_mode(value: Option<&str>) -> Result<GrooveTerminalOpenMode, String> {
+fn validate_groove_terminal_open_mode(
+    value: Option<&str>,
+) -> Result<GrooveTerminalOpenMode, String> {
     terminal::validate_groove_terminal_open_mode(value)
 }
 
@@ -311,9 +321,8 @@ fn resolve_terminal_session_id(
         ));
     }
 
-    latest_session_id_for_worktree(sessions_state, worktree_key).ok_or_else(|| {
-        "No active Groove terminal session found for this worktree.".to_string()
-    })
+    latest_session_id_for_worktree(sessions_state, worktree_key)
+        .ok_or_else(|| "No active Groove terminal session found for this worktree.".to_string())
 }
 
 fn open_groove_terminal_session(
@@ -376,17 +385,14 @@ fn open_groove_terminal_session(
 
     let mut sessions_to_close = Vec::new();
     {
-        let mut sessions_state = state
-            .inner
-            .lock()
-            .map_err(|error| {
-                log_play_telemetry(
-                    telemetry_enabled,
-                    "terminal.open.lock_error",
-                    format!("worktree={} error={error}", worktree).as_str(),
-                );
-                format!("Failed to acquire Groove terminal state lock: {error}")
-            })?;
+        let mut sessions_state = state.inner.lock().map_err(|error| {
+            log_play_telemetry(
+                telemetry_enabled,
+                "terminal.open.lock_error",
+                format!("worktree={} error={error}", worktree).as_str(),
+            );
+            format!("Failed to acquire Groove terminal state lock: {error}")
+        })?;
 
         if force_restart {
             let existing_ids = sessions_state
@@ -395,7 +401,9 @@ fn open_groove_terminal_session(
                 .cloned()
                 .unwrap_or_default();
             for existing_id in existing_ids {
-                if let Some(previous_session) = remove_session_by_id(&mut sessions_state, &existing_id) {
+                if let Some(previous_session) =
+                    remove_session_by_id(&mut sessions_state, &existing_id)
+                {
                     sessions_to_close.push(previous_session);
                 }
             }
@@ -414,7 +422,9 @@ fn open_groove_terminal_session(
                 );
             }
         } else if !open_new {
-            if let Some(existing_id) = latest_session_id_for_worktree(&sessions_state, &worktree_key) {
+            if let Some(existing_id) =
+                latest_session_id_for_worktree(&sessions_state, &worktree_key)
+            {
                 if let Some(existing) = sessions_state.sessions_by_id.get(&existing_id) {
                     log_play_telemetry(
                         telemetry_enabled,
@@ -472,8 +482,11 @@ fn open_groove_terminal_session(
             log_play_telemetry(
                 telemetry_enabled,
                 "terminal.open.pty_error",
-                format!("workspace_root={} worktree={} error={error}", workspace_root_rendered, worktree)
-                    .as_str(),
+                format!(
+                    "workspace_root={} worktree={} error={error}",
+                    workspace_root_rendered, worktree
+                )
+                .as_str(),
             );
             format!("Failed to create PTY for Groove terminal: {error}")
         })?;
@@ -490,44 +503,44 @@ fn open_groove_terminal_session(
         spawn_command.env("PATH", path);
     }
 
-    let child = pair
-        .slave
-        .spawn_command(spawn_command)
-        .map_err(|error| {
-            log_play_telemetry(
-                telemetry_enabled,
-                "terminal.open.spawn_error",
-                format!("workspace_root={} worktree={} error={error}", workspace_root_rendered, worktree)
-                    .as_str(),
-            );
-            format!("Failed to spawn in-app terminal command in Groove terminal: {error}")
-        })?;
+    let child = pair.slave.spawn_command(spawn_command).map_err(|error| {
+        log_play_telemetry(
+            telemetry_enabled,
+            "terminal.open.spawn_error",
+            format!(
+                "workspace_root={} worktree={} error={error}",
+                workspace_root_rendered, worktree
+            )
+            .as_str(),
+        );
+        format!("Failed to spawn in-app terminal command in Groove terminal: {error}")
+    })?;
     drop(pair.slave);
 
-    let mut reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|error| {
-            log_play_telemetry(
-                telemetry_enabled,
-                "terminal.open.reader_attach_error",
-                format!("workspace_root={} worktree={} error={error}", workspace_root_rendered, worktree)
-                    .as_str(),
-            );
-            format!("Failed to attach Groove terminal reader: {error}")
-        })?;
-    let writer = pair
-        .master
-        .take_writer()
-        .map_err(|error| {
-            log_play_telemetry(
-                telemetry_enabled,
-                "terminal.open.writer_attach_error",
-                format!("workspace_root={} worktree={} error={error}", workspace_root_rendered, worktree)
-                    .as_str(),
-            );
-            format!("Failed to attach Groove terminal writer: {error}")
-        })?;
+    let mut reader = pair.master.try_clone_reader().map_err(|error| {
+        log_play_telemetry(
+            telemetry_enabled,
+            "terminal.open.reader_attach_error",
+            format!(
+                "workspace_root={} worktree={} error={error}",
+                workspace_root_rendered, worktree
+            )
+            .as_str(),
+        );
+        format!("Failed to attach Groove terminal reader: {error}")
+    })?;
+    let writer = pair.master.take_writer().map_err(|error| {
+        log_play_telemetry(
+            telemetry_enabled,
+            "terminal.open.writer_attach_error",
+            format!(
+                "workspace_root={} worktree={} error={error}",
+                workspace_root_rendered, worktree
+            )
+            .as_str(),
+        );
+        format!("Failed to attach Groove terminal writer: {error}")
+    })?;
 
     let session_id = Uuid::new_v4().to_string();
     let snapshot = Arc::new(Mutex::new(Vec::new()));
@@ -548,23 +561,22 @@ fn open_groove_terminal_session(
     };
 
     {
-        let mut sessions_state = state
-            .inner
-            .lock()
-            .map_err(|error| {
-                log_play_telemetry(
-                    telemetry_enabled,
-                    "terminal.open.store_lock_error",
-                    format!("worktree={} error={error}", worktree).as_str(),
-                );
-                format!("Failed to acquire Groove terminal state lock: {error}")
-            })?;
+        let mut sessions_state = state.inner.lock().map_err(|error| {
+            log_play_telemetry(
+                telemetry_enabled,
+                "terminal.open.store_lock_error",
+                format!("worktree={} error={error}", worktree).as_str(),
+            );
+            format!("Failed to acquire Groove terminal state lock: {error}")
+        })?;
         sessions_state
             .session_ids_by_worktree
             .entry(worktree_key.clone())
             .or_default()
             .push(session_id.clone());
-        sessions_state.sessions_by_id.insert(session_id.clone(), session);
+        sessions_state
+            .sessions_by_id
+            .insert(session_id.clone(), session);
     }
 
     log_play_telemetry(
@@ -679,8 +691,10 @@ fn open_groove_terminal_session(
                                 collect_groove_terminal_exit_status(closed_session.child.as_mut())
                             );
                         } else {
-                            close_detail =
-                                format!("reason=read_error read_error={} already_closed=true", error);
+                            close_detail = format!(
+                                "reason=read_error read_error={} already_closed=true",
+                                error
+                            );
                         }
                     }
                     if let Some(command) = closed_command {
@@ -745,25 +759,25 @@ fn open_groove_terminal_session(
     );
     invalidate_groove_list_cache_for_workspace(app, workspace_root);
 
-    let sessions_state = state
-        .inner
-        .lock()
-        .map_err(|error| {
-            log_play_telemetry(
-                telemetry_enabled,
-                "terminal.open.final_lock_error",
-                format!("worktree={} error={error}", worktree).as_str(),
-            );
-            format!("Failed to acquire Groove terminal state lock: {error}")
-        })?;
+    let sessions_state = state.inner.lock().map_err(|error| {
+        log_play_telemetry(
+            telemetry_enabled,
+            "terminal.open.final_lock_error",
+            format!("worktree={} error={error}", worktree).as_str(),
+        );
+        format!("Failed to acquire Groove terminal state lock: {error}")
+    })?;
     let Some(stored) = sessions_state.sessions_by_id.get(&session_id) else {
         log_play_telemetry(
             telemetry_enabled,
             "terminal.open.missing_after_create",
-            format!("workspace_root={} worktree={}", workspace_root_rendered, worktree).as_str(),
+            format!(
+                "workspace_root={} worktree={}",
+                workspace_root_rendered, worktree
+            )
+            .as_str(),
         );
         return Err("Groove terminal session failed to initialize.".to_string());
     };
     Ok(groove_terminal_session_from_state(stored))
 }
-

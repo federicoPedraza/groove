@@ -186,6 +186,7 @@ export function useDashboardState() {
   const [isBusy, setIsBusy] = useState(false);
   const [pendingRestoreActions, setPendingRestoreActions] = useState<string[]>([]);
   const [pendingCutGrooveActions, setPendingCutGrooveActions] = useState<string[]>([]);
+  const [isForgetAllDeletedWorktreesPending, setIsForgetAllDeletedWorktreesPending] = useState(false);
   const [pendingStopActions, setPendingStopActions] = useState<string[]>([]);
   const [pendingPlayActions, setPendingPlayActions] = useState<string[]>([]);
   const [pendingTestActions, setPendingTestActions] = useState<string[]>([]);
@@ -488,18 +489,22 @@ export function useDashboardState() {
       if (!result.isApplicable) {
         setGitignoreSanityStatusMessage("No .gitignore found in the active workspace.");
       } else if (result.patched) {
-        setGitignoreSanityStatusMessage("Applied Groove .gitignore sanity patch.");
+        if (result.patchedWorktree) {
+          setGitignoreSanityStatusMessage(
+            `Applied Groove .gitignore sanity patch in ${result.patchedWorktree} and started Play Groove.`,
+          );
+        } else {
+          setGitignoreSanityStatusMessage("Applied Groove .gitignore sanity patch.");
+        }
       } else {
         setGitignoreSanityStatusMessage("Groove .gitignore sanity patch is already applied.");
       }
-
-      await loadGitignoreSanityCheck({ showPending: false });
     } catch {
       setGitignoreSanityErrorMessage("Failed to apply .gitignore sanity patch.");
     } finally {
       setIsGitignoreSanityApplyPending(false);
     }
-  }, [loadGitignoreSanityCheck, workspaceRoot]);
+  }, [workspaceRoot]);
 
   useEffect(() => {
     if (!workspaceRoot) {
@@ -948,6 +953,22 @@ export function useDashboardState() {
     },
     [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
+
+  const runForgetAllDeletedWorktreesAction = useCallback(async (): Promise<void> => {
+    const deletedRows = worktreeRows.filter((row) => row.status === "deleted");
+    if (deletedRows.length === 0 || isForgetAllDeletedWorktreesPending) {
+      return;
+    }
+
+    setIsForgetAllDeletedWorktreesPending(true);
+    try {
+      for (const row of deletedRows) {
+        await runCutGrooveAction(row);
+      }
+    } finally {
+      setIsForgetAllDeletedWorktreesPending(false);
+    }
+  }, [isForgetAllDeletedWorktreesPending, runCutGrooveAction, worktreeRows]);
 
   const runStopAction = useCallback(
     async (row: WorktreeRow, runtimeRow: RuntimeStateRow | undefined): Promise<boolean> => {
@@ -1539,6 +1560,7 @@ export function useDashboardState() {
     isWorkspaceHydrating,
     pendingRestoreActions,
     pendingCutGrooveActions,
+    isForgetAllDeletedWorktreesPending,
     pendingStopActions,
     pendingPlayActions,
     pendingTestActions,
@@ -1585,6 +1607,7 @@ export function useDashboardState() {
     runRestoreAction,
     runCreateWorktreeAction,
     runCutGrooveAction,
+    runForgetAllDeletedWorktreesAction,
     runStopAction,
     runPlayGrooveAction,
     runSetTestingTargetAction,

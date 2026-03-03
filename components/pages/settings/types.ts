@@ -1,4 +1,4 @@
-import type { DefaultTerminal, JiraSettings } from "@/src/lib/ipc";
+import type { DefaultTerminal, JiraSettings, OpencodeSettings } from "@/src/lib/ipc";
 
 export type WorkspaceMeta = {
   version: number;
@@ -16,6 +16,7 @@ export type WorkspaceMeta = {
   runLocalCommand?: string | null;
   worktreeSymlinkPaths?: string[];
   jiraSettings?: JiraSettings;
+  opencodeSettings?: OpencodeSettings;
 };
 
 export type SaveState = "idle" | "saving" | "success" | "error";

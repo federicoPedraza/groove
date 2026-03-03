@@ -105,7 +105,6 @@ export default function WorktreeDetailPage() {
   const branchCopied = row ? copiedBranchPath === row.path : false;
   const pauseConfirmActionKey = pauseConfirmRow ? `${pauseConfirmRow.path}:stop` : null;
   const pauseConfirmLoading = pauseConfirmActionKey !== null && pendingStopActions.includes(pauseConfirmActionKey);
-
   useAppLayout({
     pageSidebar: () => null,
     noDirectoryOpenState: {

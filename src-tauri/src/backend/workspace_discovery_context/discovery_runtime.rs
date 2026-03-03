@@ -308,6 +308,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
     });
     let consellour_settings = None;
     let jira_settings = None;
+    let opencode_settings = None;
     let tasks = None;
     let worktree_task_assignments = None;
 
@@ -327,6 +328,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         && worktree_symlink_paths.is_none()
         && consellour_settings.is_none()
         && jira_settings.is_none()
+        && opencode_settings.is_none()
         && tasks.is_none()
         && worktree_task_assignments.is_none()
     {
@@ -350,6 +352,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         worktree_symlink_paths,
         consellour_settings,
         jira_settings,
+        opencode_settings,
         tasks,
         worktree_task_assignments,
     })

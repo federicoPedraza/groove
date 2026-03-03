@@ -40,6 +40,24 @@ fn default_jira_settings() -> JiraSettings {
     }
 }
 
+fn default_opencode_settings() -> OpencodeSettings {
+    OpencodeSettings {
+        enabled: false,
+        default_model: None,
+    }
+}
+
+fn normalize_opencode_settings(settings: &OpencodeSettings) -> OpencodeSettings {
+    let mut normalized = settings.clone();
+    normalized.default_model = settings
+        .default_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+    normalized
+}
+
 fn normalize_jira_site_url(value: &str) -> Result<String, String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -263,13 +281,17 @@ fn resolve_play_groove_command(
 ) -> Result<(String, Vec<String>), String> {
     let tokens = parse_play_groove_command_tokens(command_template)?;
     let worktree = worktree_path.display().to_string();
-    let contains_worktree_placeholder = tokens.iter().any(|token| token.contains("{worktree}"));
+    let escaped_worktree = shell_single_quote_escape(&worktree);
+    let contains_worktree_placeholder = tokens
+        .iter()
+        .any(|token| token.contains("{worktree}") || token.contains("{worktree_escaped}"));
     let contains_target_placeholder = tokens.iter().any(|token| token.contains("{target}"));
 
     let mut resolved_tokens = tokens
         .into_iter()
         .map(|token| {
             token
+                .replace("{worktree_escaped}", &escaped_worktree)
                 .replace("{worktree}", &worktree)
                 .replace("{target}", target)
         })
@@ -283,6 +305,14 @@ fn resolve_play_groove_command(
     };
 
     Ok((program.to_string(), args.to_vec()))
+}
+
+fn shell_single_quote_escape(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn parse_custom_terminal_command(
@@ -482,10 +512,7 @@ fn launch_plain_terminal(
         "auto" => {
             #[allow(unused_mut)]
             let mut terminals = vec![
-                (
-                    "ghostty".to_string(),
-                    vec![format!("--working-directory={worktree}")],
-                ),
+                ("x-terminal-emulator".to_string(), Vec::new()),
                 (
                     "warp".to_string(),
                     vec!["--working-directory".to_string(), worktree.clone()],
@@ -499,23 +526,32 @@ fn launch_plain_terminal(
                     vec![format!("--working-directory={worktree}")],
                 ),
                 ("xterm".to_string(), Vec::new()),
-                ("x-terminal-emulator".to_string(), Vec::new()),
+                (
+                    "ghostty".to_string(),
+                    vec![format!("--working-directory={worktree}")],
+                ),
             ];
             #[cfg(target_os = "macos")]
-            terminals.push((
-                "open".to_string(),
-                vec!["-a".to_string(), "Terminal".to_string(), worktree.clone()],
-            ));
+            terminals.insert(
+                0,
+                (
+                    "open".to_string(),
+                    vec!["-a".to_string(), "Terminal".to_string(), worktree.clone()],
+                ),
+            );
             #[cfg(target_os = "windows")]
-            terminals.push((
-                "cmd".to_string(),
-                vec![
-                    "/C".to_string(),
-                    "start".to_string(),
-                    "".to_string(),
+            terminals.insert(
+                0,
+                (
                     "cmd".to_string(),
-                ],
-            ));
+                    vec![
+                        "/C".to_string(),
+                        "start".to_string(),
+                        "".to_string(),
+                        "cmd".to_string(),
+                    ],
+                ),
+            );
             terminals
         }
         _ => {
@@ -876,7 +912,42 @@ fn default_global_settings() -> GlobalSettings {
         always_show_diagnostics_sidebar: false,
         periodic_rerender_enabled: false,
         theme_mode: default_theme_mode(),
+        keyboard_shortcut_leader: default_keyboard_shortcut_leader(),
+        keyboard_leader_bindings: default_keyboard_leader_bindings(),
+        opencode_settings: default_opencode_settings(),
     }
+}
+
+fn normalize_shortcut_key(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.eq_ignore_ascii_case("space") {
+        return "Space".to_string();
+    }
+
+    if trimmed.len() == 1 {
+        let normalized = trimmed.to_ascii_lowercase();
+        if normalized
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
+        {
+            return normalized;
+        }
+    }
+
+    fallback.to_string()
+}
+
+fn normalize_keyboard_leader_bindings(value: &HashMap<String, String>) -> HashMap<String, String> {
+    let mut normalized = default_keyboard_leader_bindings();
+    for (command_id, default_value) in default_keyboard_leader_bindings() {
+        if let Some(candidate_value) = value.get(&command_id) {
+            normalized.insert(
+                command_id,
+                normalize_shortcut_key(candidate_value, &default_value),
+            );
+        }
+    }
+    normalized
 }
 
 fn play_groove_command_for_workspace(workspace_root: &Path) -> String {
@@ -1059,8 +1130,27 @@ fn ensure_global_settings(app: &AppHandle) -> Result<GlobalSettings, String> {
                 || !obj.contains_key("alwaysShowDiagnosticsSidebar")
                 || !obj.contains_key("periodicRerenderEnabled")
                 || !obj.contains_key("themeMode")
+                || !obj.contains_key("keyboardShortcutLeader")
+                || !obj.contains_key("keyboardLeaderBindings")
+                || !obj.contains_key("opencodeSettings")
         })
         .unwrap_or(true);
+
+    let normalized_leader = normalize_shortcut_key(
+        &settings.keyboard_shortcut_leader,
+        &default_keyboard_shortcut_leader(),
+    );
+    if normalized_leader != settings.keyboard_shortcut_leader {
+        settings.keyboard_shortcut_leader = normalized_leader;
+        should_write_back = true;
+    }
+
+    let normalized_bindings =
+        normalize_keyboard_leader_bindings(&settings.keyboard_leader_bindings);
+    if normalized_bindings != settings.keyboard_leader_bindings {
+        settings.keyboard_leader_bindings = normalized_bindings;
+        should_write_back = true;
+    }
 
     if let Ok(normalized_theme_mode) = normalize_theme_mode(&settings.theme_mode) {
         if normalized_theme_mode != settings.theme_mode {
@@ -1069,6 +1159,14 @@ fn ensure_global_settings(app: &AppHandle) -> Result<GlobalSettings, String> {
         }
     } else {
         settings.theme_mode = default_theme_mode();
+        should_write_back = true;
+    }
+
+    let normalized_opencode_settings = normalize_opencode_settings(&settings.opencode_settings);
+    if normalized_opencode_settings.enabled != settings.opencode_settings.enabled
+        || normalized_opencode_settings.default_model != settings.opencode_settings.default_model
+    {
+        settings.opencode_settings = normalized_opencode_settings;
         should_write_back = true;
     }
 
@@ -1340,6 +1438,7 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         worktree_symlink_paths: default_worktree_symlink_paths(),
         consellour_settings: default_consellour_settings(),
         jira_settings: default_jira_settings(),
+        opencode_settings: default_opencode_settings(),
         tasks: Vec::new(),
         worktree_task_assignments: HashMap::new(),
     }
@@ -1431,6 +1530,11 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 .as_ref()
                 .and_then(|parsed| parsed.as_object())
                 .map(|obj| obj.contains_key("jiraSettings"))
+                .unwrap_or(true);
+            let has_opencode_settings = parsed_workspace_json
+                .as_ref()
+                .and_then(|parsed| parsed.as_object())
+                .map(|obj| obj.contains_key("opencodeSettings"))
                 .unwrap_or(true);
             let has_tasks = parsed_workspace_json
                 .as_ref()
@@ -1581,6 +1685,16 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 did_update = true;
             }
 
+            let normalized_opencode_settings =
+                normalize_opencode_settings(&workspace_meta.opencode_settings);
+            if workspace_meta.opencode_settings.enabled != normalized_opencode_settings.enabled
+                || workspace_meta.opencode_settings.default_model
+                    != normalized_opencode_settings.default_model
+            {
+                workspace_meta.opencode_settings = normalized_opencode_settings;
+                did_update = true;
+            }
+
             let mut normalized_tasks = workspace_meta.tasks.clone();
             let mut normalized_any_task = false;
             for task in &mut normalized_tasks {
@@ -1672,6 +1786,11 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 did_update = true;
             }
 
+            if !has_opencode_settings {
+                workspace_meta.opencode_settings = default_opencode_settings();
+                did_update = true;
+            }
+
             if !has_tasks {
                 workspace_meta.tasks = Vec::new();
                 did_update = true;
@@ -1700,5 +1819,38 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 "Recovered corrupt .groove/workspace.json by recreating defaults.".to_string(),
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod settings_runtime_tests {
+    use super::*;
+
+    #[test]
+    fn resolves_play_command_with_shell_escaped_worktree_placeholder() {
+        let command = "x-terminal-emulator -e bash -lc \"cd {worktree_escaped} && opencode\"";
+        let worktree_path = Path::new("/tmp/worktrees/my\"quoted\"worktree");
+
+        let (program, args) = resolve_play_groove_command(command, "feature/test", worktree_path)
+            .expect("play command should resolve");
+
+        assert_eq!(program, "x-terminal-emulator");
+        assert_eq!(
+            args,
+            vec![
+                "-e",
+                "bash",
+                "-lc",
+                "cd '/tmp/worktrees/my\"quoted\"worktree' && opencode"
+            ]
+        );
+    }
+
+    #[test]
+    fn shell_single_quote_escape_handles_single_quotes() {
+        assert_eq!(
+            shell_single_quote_escape("/tmp/o'connor"),
+            "'/tmp/o'\"'\"'connor'"
+        );
     }
 }

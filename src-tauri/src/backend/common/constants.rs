@@ -12,7 +12,7 @@ const DEFAULT_WORKTREE_SYMLINK_PATHS: [&str; 4] = [".env", ".env.local", ".conve
 const MIN_TESTING_PORT: u16 = 1;
 const MAX_TESTING_PORT: u16 = 65535;
 const DEFAULT_PLAY_GROOVE_COMMAND_TEMPLATE: &str =
-    "ghostty --working-directory={worktree} -e opencode";
+    "x-terminal-emulator -e bash -lc \"cd {worktree_escaped} && opencode\"";
 const DEFAULT_RUN_LOCAL_COMMAND: &str = "pnpm run dev";
 const SUPPORTED_DEFAULT_TERMINALS: [&str; 8] = [
     "auto", "ghostty", "warp", "kitty", "gnome", "xterm", "none", "custom",

@@ -207,6 +207,232 @@ struct OpencodeSettings {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct OpenCodeProfileCommands {
+    init: String,
+    new_change: String,
+    #[serde(rename = "continue")]
+    continue_phase: String,
+    apply: String,
+    verify: String,
+    archive: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeProfileTimeouts {
+    phase_seconds: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeProfileSafety {
+    require_user_approval_between_phases: bool,
+    allow_parallel_spec_design: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeProfile {
+    version: String,
+    enabled: bool,
+    artifact_store: String,
+    default_flow: String,
+    commands: OpenCodeProfileCommands,
+    timeouts: OpenCodeProfileTimeouts,
+    safety: OpenCodeProfileSafety,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeProfileCommandsPatch {
+    #[serde(default)]
+    init: Option<String>,
+    #[serde(default)]
+    new_change: Option<String>,
+    #[serde(default, rename = "continue")]
+    continue_phase: Option<String>,
+    #[serde(default)]
+    apply: Option<String>,
+    #[serde(default)]
+    verify: Option<String>,
+    #[serde(default)]
+    archive: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeProfileTimeoutsPatch {
+    #[serde(default)]
+    phase_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeProfileSafetyPatch {
+    #[serde(default)]
+    require_user_approval_between_phases: Option<bool>,
+    #[serde(default)]
+    allow_parallel_spec_design: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeProfilePatch {
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    artifact_store: Option<String>,
+    #[serde(default)]
+    default_flow: Option<String>,
+    #[serde(default)]
+    commands: Option<OpenCodeProfileCommandsPatch>,
+    #[serde(default)]
+    timeouts: Option<OpenCodeProfileTimeoutsPatch>,
+    #[serde(default)]
+    safety: Option<OpenCodeProfileSafetyPatch>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetOpenCodeProfilePayload {
+    patch: OpenCodeProfilePatch,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RunOpenCodeFlowPayload {
+    phase: String,
+    #[serde(default)]
+    args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeErrorDetail {
+    code: String,
+    message: String,
+    hint: String,
+    #[serde(default)]
+    paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeSanityChecks {
+    agent_teams_lite_available: bool,
+    required_refs_present: bool,
+    profile_exists_and_valid: bool,
+    sync_artifact_applied: bool,
+    artifact_store_ready: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeSanityStatus {
+    applied: bool,
+    checks: OpenCodeSanityChecks,
+    #[serde(default)]
+    hard_blockers: Vec<String>,
+    #[serde(default)]
+    recommendations: Vec<String>,
+    #[serde(default)]
+    diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeStatus {
+    worktree_path: String,
+    worktree_exists: bool,
+    git_repo: bool,
+    opencode_available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    opencode_binary_path: Option<String>,
+    agent_teams_lite_available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_teams_lite_dir: Option<String>,
+    required_commands_available: bool,
+    #[serde(default)]
+    missing_commands: Vec<String>,
+    profile_present: bool,
+    profile_path: String,
+    sync_target_exists: bool,
+    sync_target_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    artifact_store: Option<String>,
+    artifact_store_ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    engram_binary_available: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    engram_opencode_mcp_config_present: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    engram_opencode_plugin_present: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    engram_opencode_config_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    engram_opencode_plugin_path: Option<String>,
+    profile_valid: bool,
+    #[serde(default)]
+    warnings: Vec<String>,
+    sanity: OpenCodeSanityStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncResult {
+    ok: bool,
+    changed: bool,
+    profile_path: String,
+    sync_artifact_path: String,
+    #[serde(default)]
+    warnings: Vec<String>,
+    message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeRepairResult {
+    repaired: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_path: Option<String>,
+    #[serde(default)]
+    actions: Vec<String>,
+    post_repair_status: OpenCodeStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeRunResult {
+    run_id: String,
+    phase: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_code: Option<i32>,
+    duration_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+    stdout: String,
+    stderr: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<OpenCodeErrorDetail>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CancelResult {
+    run_id: String,
+    supported: bool,
+    cancelled: bool,
+    status: String,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<OpenCodeErrorDetail>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct JiraSettings {
     #[serde(default)]
     enabled: bool,
@@ -385,6 +611,22 @@ struct WorkspaceGitignoreSanityResponse {
     patched_worktree: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     play_started: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceTermSanityResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    term_value: Option<String>,
+    is_usable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fixed_value: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -1303,6 +1545,66 @@ struct OpencodeGlobalSettingsResponse {
     settings: Option<OpencodeSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeStatusResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<OpenCodeStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeProfileResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    profile: Option<OpenCodeProfile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeSyncResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<SyncResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeRepairResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<OpenCodeRepairResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeRunResponse {
+    request_id: String,
+    ok: bool,
+    result: OpenCodeRunResult,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenCodeCancelResponse {
+    request_id: String,
+    ok: bool,
+    result: CancelResult,
 }
 
 #[derive(Debug, Clone, Serialize)]

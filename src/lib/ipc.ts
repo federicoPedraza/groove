@@ -90,6 +90,179 @@ export type OpencodeGlobalSettingsResponse = {
   error?: string;
 };
 
+export type OpenCodeProfileCommands = {
+  init: string;
+  newChange: string;
+  continue: string;
+  apply: string;
+  verify: string;
+  archive: string;
+};
+
+export type OpenCodeProfileTimeouts = {
+  phaseSeconds: number;
+};
+
+export type OpenCodeProfileSafety = {
+  requireUserApprovalBetweenPhases: boolean;
+  allowParallelSpecDesign: boolean;
+};
+
+export type OpenCodeProfile = {
+  version: string;
+  enabled: boolean;
+  artifactStore: "engram" | "openspec" | "none" | string;
+  defaultFlow: string;
+  commands: OpenCodeProfileCommands;
+  timeouts: OpenCodeProfileTimeouts;
+  safety: OpenCodeProfileSafety;
+};
+
+export type OpenCodeProfilePatch = {
+  version?: string;
+  enabled?: boolean;
+  artifactStore?: "engram" | "openspec" | "none" | string;
+  defaultFlow?: string;
+  commands?: Partial<OpenCodeProfileCommands>;
+  timeouts?: Partial<OpenCodeProfileTimeouts>;
+  safety?: Partial<OpenCodeProfileSafety>;
+};
+
+export type OpenCodeErrorDetail = {
+  code: string;
+  message: string;
+  hint: string;
+  paths: string[];
+};
+
+export type OpenCodeStatus = {
+  worktreePath: string;
+  worktreeExists: boolean;
+  gitRepo: boolean;
+  opencodeAvailable: boolean;
+  opencodeBinaryPath?: string;
+  agentTeamsLiteAvailable: boolean;
+  agentTeamsLiteDir?: string;
+  requiredCommandsAvailable: boolean;
+  missingCommands: string[];
+  profilePresent: boolean;
+  profilePath: string;
+  syncTargetExists: boolean;
+  syncTargetPath: string;
+  artifactStore?: string;
+  artifactStoreReady: boolean;
+  engramBinaryAvailable?: boolean;
+  engramOpencodeMcpConfigPresent?: boolean;
+  engramOpencodePluginPresent?: boolean;
+  engramOpencodeConfigPath?: string;
+  engramOpencodePluginPath?: string;
+  profileValid: boolean;
+  warnings: string[];
+  sanity: OpenCodeSanityStatus;
+};
+
+export type OpenCodeSanityChecks = {
+  agentTeamsLiteAvailable: boolean;
+  requiredRefsPresent: boolean;
+  profileExistsAndValid: boolean;
+  syncArtifactApplied: boolean;
+  artifactStoreReady: boolean;
+};
+
+export type OpenCodeSanityStatus = {
+  applied: boolean;
+  checks: OpenCodeSanityChecks;
+  hardBlockers: string[];
+  recommendations: string[];
+  diagnostics: string[];
+};
+
+export type OpenCodeStatusResponse = {
+  requestId?: string;
+  ok: boolean;
+  status?: OpenCodeStatus;
+  error?: string;
+};
+
+export type OpenCodeProfileResponse = {
+  requestId?: string;
+  ok: boolean;
+  profile?: OpenCodeProfile;
+  error?: string;
+};
+
+export type OpenCodeSyncResult = {
+  ok: boolean;
+  changed: boolean;
+  profilePath: string;
+  syncArtifactPath: string;
+  warnings: string[];
+  message: string;
+};
+
+export type OpenCodeSyncResponse = {
+  requestId?: string;
+  ok: boolean;
+  result?: OpenCodeSyncResult;
+  error?: string;
+};
+
+export type OpenCodeRepairResult = {
+  repaired: boolean;
+  backupPath?: string;
+  actions: string[];
+  postRepairStatus: OpenCodeStatus;
+};
+
+export type OpenCodeRepairResponse = {
+  requestId?: string;
+  ok: boolean;
+  result?: OpenCodeRepairResult;
+  error?: string;
+};
+
+export type OpenCodeRunResult = {
+  runId: string;
+  phase: string;
+  status: "ok" | "warning" | "blocked" | "failed" | "timeout" | string;
+  exitCode?: number | null;
+  durationMs: number;
+  summary?: string;
+  stdout: string;
+  stderr: string;
+  error?: OpenCodeErrorDetail;
+};
+
+export type OpenCodeRunResponse = {
+  requestId?: string;
+  ok: boolean;
+  result: OpenCodeRunResult;
+};
+
+export type OpenCodeCancelResult = {
+  runId: string;
+  supported: boolean;
+  cancelled: boolean;
+  status: string;
+  message: string;
+  error?: OpenCodeErrorDetail;
+};
+
+export type OpenCodeCancelResponse = {
+  requestId?: string;
+  ok: boolean;
+  result: OpenCodeCancelResult;
+};
+
+export type OpenCodeSetProfilePayload = {
+  patch: OpenCodeProfilePatch;
+};
+
+export type OpenCodeRunFlowPayload = {
+  phase: "init" | "new_change" | "continue" | "apply" | "verify" | "archive" | string;
+  args?: string[];
+};
+
 export type JiraSettings = {
   enabled: boolean;
   siteUrl: string;
@@ -406,6 +579,16 @@ export type WorkspaceGitignoreSanityResponse = {
   patched?: boolean;
   patchedWorktree?: string;
   playStarted?: boolean;
+  error?: string;
+};
+
+export type WorkspaceTermSanityResponse = {
+  requestId?: string;
+  ok: boolean;
+  termValue?: string;
+  isUsable: boolean;
+  applied?: boolean;
+  fixedValue?: string;
   error?: string;
 };
 
@@ -1058,6 +1241,8 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "testing_environment_get_status",
   "workspace_events",
   "workspace_get_active",
+  "workspace_term_sanity_check",
+  "workspace_term_sanity_apply",
   "workspace_gitignore_sanity_check",
   "groove_bin_status",
   "groove_bin_repair",
@@ -1097,6 +1282,13 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "opencode_integration_status",
   "opencode_update_workspace_settings",
   "opencode_update_global_settings",
+  "check_opencode_status",
+  "get_opencode_profile",
+  "set_opencode_profile",
+  "sync_opencode_config",
+  "repair_opencode_integration",
+  "run_opencode_flow",
+  "cancel_opencode_flow",
 ]);
 
 const NON_DEDUPED_COMMANDS = new Set<string>(["groove_terminal_write"]);
@@ -1736,6 +1928,16 @@ export function workspaceGetActive(): Promise<WorkspaceContextResponse> {
   });
 }
 
+export function workspaceTermSanityCheck(): Promise<WorkspaceTermSanityResponse> {
+  return invokeCommand<WorkspaceTermSanityResponse>("workspace_term_sanity_check", undefined, {
+    intent: "background",
+  });
+}
+
+export function workspaceTermSanityApply(): Promise<WorkspaceTermSanityResponse> {
+  return invokeCommand<WorkspaceTermSanityResponse>("workspace_term_sanity_apply");
+}
+
 export function workspaceGitignoreSanityCheck(): Promise<WorkspaceGitignoreSanityResponse> {
   return invokeCommand<WorkspaceGitignoreSanityResponse>("workspace_gitignore_sanity_check", undefined, {
     intent: "background",
@@ -1986,6 +2188,41 @@ export function opencodeUpdateGlobalSettings(
   payload: OpencodeUpdateGlobalSettingsPayload,
 ): Promise<OpencodeGlobalSettingsResponse> {
   return invokeCommand<OpencodeGlobalSettingsResponse>("opencode_update_global_settings", { payload });
+}
+
+export function checkOpencodeStatus(worktreePath: string): Promise<OpenCodeStatusResponse> {
+  return invokeCommand<OpenCodeStatusResponse>("check_opencode_status", { worktreePath }, {
+    intent: "background",
+  });
+}
+
+export function getOpencodeProfile(worktreePath: string): Promise<OpenCodeProfileResponse> {
+  return invokeCommand<OpenCodeProfileResponse>("get_opencode_profile", { worktreePath }, {
+    intent: "background",
+  });
+}
+
+export function setOpencodeProfile(
+  worktreePath: string,
+  payload: OpenCodeSetProfilePayload,
+): Promise<OpenCodeProfileResponse> {
+  return invokeCommand<OpenCodeProfileResponse>("set_opencode_profile", { worktreePath, payload });
+}
+
+export function syncOpencodeConfig(worktreePath: string): Promise<OpenCodeSyncResponse> {
+  return invokeCommand<OpenCodeSyncResponse>("sync_opencode_config", { worktreePath });
+}
+
+export function repairOpencodeIntegration(worktreePath: string): Promise<OpenCodeRepairResponse> {
+  return invokeCommand<OpenCodeRepairResponse>("repair_opencode_integration", { worktreePath });
+}
+
+export function runOpencodeFlow(worktreePath: string, payload: OpenCodeRunFlowPayload): Promise<OpenCodeRunResponse> {
+  return invokeCommand<OpenCodeRunResponse>("run_opencode_flow", { worktreePath, payload });
+}
+
+export function cancelOpencodeFlow(runId: string): Promise<OpenCodeCancelResponse> {
+  return invokeCommand<OpenCodeCancelResponse>("cancel_opencode_flow", { runId });
 }
 
 export function workspaceOpenTerminal(payload: TestingEnvironmentStartPayload): Promise<GrooveRestoreResponse> {

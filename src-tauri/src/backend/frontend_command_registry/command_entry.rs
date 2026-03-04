@@ -29,6 +29,8 @@ pub(crate) fn run() {
             workspace_open,
             workspace_get_active,
             workspace_clear_active,
+            workspace_term_sanity_check,
+            workspace_term_sanity_apply,
             workspace_gitignore_sanity_check,
             workspace_gitignore_sanity_apply,
             global_settings_get,
@@ -109,7 +111,14 @@ pub(crate) fn run() {
             jira_issue_open_in_browser,
             opencode_integration_status,
             opencode_update_workspace_settings,
-            opencode_update_global_settings
+            opencode_update_global_settings,
+            check_opencode_status,
+            get_opencode_profile,
+            set_opencode_profile,
+            sync_opencode_config,
+            repair_opencode_integration,
+            run_opencode_flow,
+            cancel_opencode_flow
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

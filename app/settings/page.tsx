@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 
 import { CommandsSettingsForm } from "@/components/pages/settings/commands-settings-form";
 import { WorktreeSymlinkPathsModal } from "@/components/pages/settings/worktree-symlink-paths-modal";
@@ -36,10 +36,13 @@ import {
   jiraDisconnect,
   jiraSyncPull,
   subscribeToGlobalSettings,
+  workspaceTermSanityApply,
+  workspaceTermSanityCheck,
   workspaceGetActive,
   workspaceUpdateCommandsSettings,
   workspaceUpdateWorktreeSymlinkPaths,
   type WorkspaceCommandSettingsPayload,
+  type WorkspaceTermSanityResponse,
 } from "@/src/lib/ipc";
 import { describeWorkspaceContextError } from "@/lib/utils/workspace/context";
 
@@ -115,6 +118,11 @@ export default function SettingsPage() {
   const [isJiraDisconnectPending, setIsJiraDisconnectPending] = useState(false);
   const [isJiraSyncPending, setIsJiraSyncPending] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemeMode());
+  const [termSanity, setTermSanity] = useState<WorkspaceTermSanityResponse | null>(null);
+  const [isTermSanityChecking, setIsTermSanityChecking] = useState(false);
+  const [isTermSanityApplyPending, setIsTermSanityApplyPending] = useState(false);
+  const [termSanityStatusMessage, setTermSanityStatusMessage] = useState<string | null>(null);
+  const [termSanityErrorMessage, setTermSanityErrorMessage] = useState<string | null>(null);
   const disableGrooveLoadingSectionRequestVersionRef = useRef(0);
   const telemetryEnabledRequestVersionRef = useRef(0);
   const showFpsRequestVersionRef = useRef(0);
@@ -198,6 +206,60 @@ export default function SettingsPage() {
     },
     [workspaceMeta],
   );
+
+  const loadTermSanityCheck = useCallback(
+    async (options?: { clearStatusMessage?: boolean }): Promise<void> => {
+      try {
+        setIsTermSanityChecking(true);
+        setTermSanityErrorMessage(null);
+        if (options?.clearStatusMessage) {
+          setTermSanityStatusMessage(null);
+        }
+
+        const result = await workspaceTermSanityCheck();
+        if (!result.ok) {
+          setTermSanity(null);
+          setTermSanityErrorMessage(result.error ?? "Failed to check TERM sanity.");
+          return;
+        }
+
+        setTermSanity(result);
+        setTermSanityErrorMessage(null);
+      } catch {
+        setTermSanity(null);
+        setTermSanityErrorMessage("Failed to check TERM sanity.");
+      } finally {
+        setIsTermSanityChecking(false);
+      }
+    },
+    [],
+  );
+
+  const applyTermSanityFix = useCallback(async (): Promise<void> => {
+    try {
+      setIsTermSanityApplyPending(true);
+      setTermSanityStatusMessage(null);
+      setTermSanityErrorMessage(null);
+
+      const result = await workspaceTermSanityApply();
+      if (!result.ok) {
+        setTermSanityErrorMessage(result.error ?? "Failed to apply TERM fix.");
+        return;
+      }
+
+      setTermSanity(result);
+      if (result.applied) {
+        setTermSanityStatusMessage(`Applied TERM fix${result.fixedValue ? ` (${result.fixedValue}).` : "."}`);
+      } else {
+        setTermSanityStatusMessage("TERM is already set to a usable value.");
+      }
+      void loadTermSanityCheck();
+    } catch {
+      setTermSanityErrorMessage("Failed to apply TERM fix.");
+    } finally {
+      setIsTermSanityApplyPending(false);
+    }
+  }, [loadTermSanityCheck]);
 
   useEffect(() => {
     void (async () => {
@@ -392,6 +454,24 @@ export default function SettingsPage() {
   useEffect(() => {
     void refreshJiraStatus();
   }, [refreshJiraStatus]);
+
+  useEffect(() => {
+    void loadTermSanityCheck({ clearStatusMessage: true });
+  }, [loadTermSanityCheck]);
+
+  const isTermSanityHealthy = Boolean(!isTermSanityChecking && !termSanityErrorMessage && termSanity?.isUsable);
+  const shouldShowApplyTermFix = Boolean(!isTermSanityChecking && !termSanity?.isUsable);
+
+  let termSanityLabel = "Checking TERM sanity...";
+  if (termSanityErrorMessage) {
+    termSanityLabel = "Unable to check TERM sanity.";
+  } else if (!isTermSanityChecking) {
+    if (termSanity?.isUsable) {
+      termSanityLabel = `TERM is usable${termSanity.termValue ? ` (${termSanity.termValue}).` : "."}`;
+    } else {
+      termSanityLabel = "TERM is missing or unusable for interactive shells.";
+    }
+  }
 
   const onThemeModeChange = (nextTheme: ThemeMode): void => {
     const previousThemeMode = themeMode;
@@ -589,68 +669,37 @@ export default function SettingsPage() {
             </CardHeader>
             <CollapsibleContent>
               <CardContent className="space-y-3">
-                <Collapsible className="rounded-md border px-3 py-3">
-                  <CollapsibleTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180"
-                      aria-label="Toggle workspace commands settings"
-                    >
-                      <h3 className="text-sm font-medium text-foreground">Commands</h3>
-                      <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
-                    </button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="pt-3">
-                    <CommandsSettingsForm
-                      playGrooveCommand={playGrooveCommand}
-                      testingPorts={testingPorts}
-                      openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
-                      runLocalCommand={runLocalCommand}
-                      section="commands"
-                      disabled={!workspaceMeta}
-                      disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace command settings." : undefined}
-                      onSave={onSaveCommandSettings}
-                    />
-                  </CollapsibleContent>
-                </Collapsible>
+                <section className="space-y-3 rounded-md border px-3 py-3">
+                  <h3 className="text-sm font-medium text-foreground">Commands</h3>
+                  <CommandsSettingsForm
+                    playGrooveCommand={playGrooveCommand}
+                    testingPorts={testingPorts}
+                    openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
+                    runLocalCommand={runLocalCommand}
+                    section="commands"
+                    disabled={!workspaceMeta}
+                    disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace command settings." : undefined}
+                    onSave={onSaveCommandSettings}
+                  />
+                </section>
 
-                <Collapsible className="rounded-md border px-3 py-3">
-                  <CollapsibleTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180"
-                      aria-label="Toggle workspace testing ports settings"
-                    >
-                      <h3 className="text-sm font-medium text-foreground">Testing ports</h3>
-                      <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
-                    </button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="pt-3">
-                    <CommandsSettingsForm
-                      playGrooveCommand={playGrooveCommand}
-                      testingPorts={testingPorts}
-                      openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
-                      runLocalCommand={runLocalCommand}
-                      section="testingPorts"
-                      disabled={!workspaceMeta}
-                      disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace testing ports settings." : undefined}
-                      onSave={onSaveCommandSettings}
-                    />
-                  </CollapsibleContent>
-                </Collapsible>
+                <section className="space-y-3 rounded-md border px-3 py-3">
+                  <h3 className="text-sm font-medium text-foreground">Testing ports</h3>
+                  <CommandsSettingsForm
+                    playGrooveCommand={playGrooveCommand}
+                    testingPorts={testingPorts}
+                    openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
+                    runLocalCommand={runLocalCommand}
+                    section="testingPorts"
+                    disabled={!workspaceMeta}
+                    disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace testing ports settings." : undefined}
+                    onSave={onSaveCommandSettings}
+                  />
+                </section>
 
-                <Collapsible className="rounded-md border px-3 py-3">
+                <section className="space-y-2 rounded-md border px-3 py-3">
                   <div className="flex items-center justify-between gap-2">
-                    <CollapsibleTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex min-w-0 items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
-                        aria-label="Toggle worktree symlinked paths settings"
-                      >
-                        <h3 className="text-sm font-medium text-foreground">Worktree symlinked paths</h3>
-                        <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
-                      </button>
-                    </CollapsibleTrigger>
+                    <h3 className="text-sm font-medium text-foreground">Worktree symlinked paths</h3>
                     <Button
                       type="button"
                       variant="outline"
@@ -666,27 +715,25 @@ export default function SettingsPage() {
                     </Button>
                   </div>
 
-                  <CollapsibleContent className="space-y-2">
-                    <p className="text-xs text-muted-foreground">Groove symlinks these paths into worktrees when they exist in the repository root.</p>
+                  <p className="text-xs text-muted-foreground">Groove symlinks these paths into worktrees when they exist in the repository root.</p>
 
-                    <ul className="space-y-1 text-sm text-foreground">
-                      {worktreeSymlinkPaths.map((path) => (
-                        <li key={path}>
-                          <code>{path}</code>
-                        </li>
-                      ))}
-                      {worktreeSymlinkPaths.length === 0 && <li className="text-muted-foreground">No configured paths.</li>}
-                    </ul>
+                  <ul className="space-y-1 text-sm text-foreground">
+                    {worktreeSymlinkPaths.map((path) => (
+                      <li key={path}>
+                        <code>{path}</code>
+                      </li>
+                    ))}
+                    {worktreeSymlinkPaths.length === 0 && <li className="text-muted-foreground">No configured paths.</li>}
+                  </ul>
 
-                    {!workspaceMeta && <p className="text-xs text-muted-foreground">Connect a repository to edit this list.</p>}
-                    {worktreeSymlinkMessage && worktreeSymlinkMessageType === "success" && (
-                      <p className="text-xs text-green-800">{worktreeSymlinkMessage}</p>
-                    )}
-                    {worktreeSymlinkMessage && worktreeSymlinkMessageType === "error" && (
-                      <p className="text-xs text-destructive">{worktreeSymlinkMessage}</p>
-                    )}
-                  </CollapsibleContent>
-                </Collapsible>
+                  {!workspaceMeta && <p className="text-xs text-muted-foreground">Connect a repository to edit this list.</p>}
+                  {worktreeSymlinkMessage && worktreeSymlinkMessageType === "success" && (
+                    <p className="text-xs text-green-800">{worktreeSymlinkMessage}</p>
+                  )}
+                  {worktreeSymlinkMessage && worktreeSymlinkMessageType === "error" && (
+                    <p className="text-xs text-destructive">{worktreeSymlinkMessage}</p>
+                  )}
+                </section>
               </CardContent>
             </CollapsibleContent>
           </Card>
@@ -987,6 +1034,32 @@ export default function SettingsPage() {
             </CardHeader>
             <CollapsibleContent>
               <CardContent className="space-y-3">
+              <div
+                className={`rounded-md border px-3 py-2 ${
+                  isTermSanityHealthy ? "border-emerald-700/30 bg-emerald-500/10" : "border-amber-700/30 bg-amber-500/10"
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm text-muted-foreground">TERM sanity: {termSanityLabel}</p>
+                  {shouldShowApplyTermFix ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        void applyTermSanityFix();
+                      }}
+                      disabled={isTermSanityChecking || isTermSanityApplyPending}
+                    >
+                      {isTermSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+                      <span>Apply TERM fix</span>
+                    </Button>
+                  ) : null}
+                </div>
+                {termSanityStatusMessage ? <p className="mt-1 text-xs text-emerald-700">{termSanityStatusMessage}</p> : null}
+                {termSanityErrorMessage ? <p className="mt-1 text-xs text-destructive">{termSanityErrorMessage}</p> : null}
+              </div>
+
               <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
                 <span className="inline-flex min-w-0 items-center gap-2">
                   <Checkbox

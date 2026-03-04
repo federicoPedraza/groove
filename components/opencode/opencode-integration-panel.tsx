@@ -118,6 +118,7 @@ export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeInteg
 
       <OpencodeSettingsModal
         open={isModalOpen}
+        workspaceRoot={workspaceRoot}
         workspaceScopeAvailable={workspaceScopeAvailable}
         globalScopeAvailable={globalScopeAvailable}
         effectiveScope={effectiveScope}

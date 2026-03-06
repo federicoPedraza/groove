@@ -1,3 +1,189 @@
+fn resolve_opencode_settings_directory(
+    settings_directory: &str,
+    _workspace_root: Option<&str>,
+) -> Result<PathBuf, String> {
+    let normalized = if settings_directory.trim().is_empty() {
+        default_opencode_settings_directory()
+    } else {
+        settings_directory.trim().to_string()
+    };
+
+    let expanded = if normalized == "~" {
+        dirs_home().ok_or_else(|| "Unable to resolve home directory for '~'.".to_string())?
+    } else if let Some(rest) = normalized.strip_prefix("~/") {
+        dirs_home()
+            .ok_or_else(|| "Unable to resolve home directory for '~/'.".to_string())?
+            .join(rest)
+    } else {
+        PathBuf::from(&normalized)
+    };
+
+    if expanded.is_absolute() {
+        return Ok(expanded);
+    }
+
+    let home = dirs_home().ok_or_else(|| {
+        "Unable to resolve home directory for relative settings directory.".to_string()
+    })?;
+    Ok(home.join(expanded))
+}
+
+
+fn resolve_directory_input(path_input: &str) -> Result<PathBuf, String> {
+    let normalized = path_input.trim();
+    if normalized.is_empty() {
+        return Err("Directory path cannot be empty.".to_string());
+    }
+
+    let expanded = if normalized == "~" {
+        dirs_home().ok_or_else(|| "Unable to resolve home directory for '~'.".to_string())?
+    } else if let Some(rest) = normalized.strip_prefix("~/") {
+        dirs_home()
+            .ok_or_else(|| "Unable to resolve home directory for '~/'".to_string())?
+            .join(rest)
+    } else {
+        PathBuf::from(normalized)
+    };
+
+    if expanded.is_absolute() {
+        Ok(expanded)
+    } else {
+        let home = dirs_home()
+            .ok_or_else(|| "Unable to resolve home directory for relative directory path.".to_string())?;
+        Ok(home.join(expanded))
+    }
+}
+
+fn collect_opencode_skills(skills_dir: &Path) -> Vec<OpencodeSkillEntry> {
+    let mut skills = match fs::read_dir(skills_dir) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let entry_path = entry.path();
+                let metadata = entry.metadata().ok()?;
+                let is_directory = metadata.is_dir();
+                let has_skill_markdown = if is_directory {
+                    path_is_file(&entry_path.join("SKILL.md"))
+                } else {
+                    entry_path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .map(|name| name.eq_ignore_ascii_case("SKILL.md"))
+                        .unwrap_or(false)
+                };
+
+                Some(OpencodeSkillEntry {
+                    name: entry.file_name().to_string_lossy().to_string(),
+                    path: entry_path.display().to_string(),
+                    is_directory,
+                    has_skill_markdown,
+                })
+            })
+            .collect::<Vec<_>>(),
+        Err(_) => Vec::new(),
+    };
+
+    skills.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    skills
+}
+
+
+fn copy_path_recursive(source: &Path, destination: &Path) -> Result<(), String> {
+    if !source.exists() {
+        return Err(format!("Source path does not exist: {}", source.display()));
+    }
+
+    if path_is_directory(source) {
+        fs::create_dir_all(destination)
+            .map_err(|error| format!("Failed to create directory {}: {}", destination.display(), error))?;
+
+        for entry in fs::read_dir(source)
+            .map_err(|error| format!("Failed to read directory {}: {}", source.display(), error))?
+        {
+            let entry = entry.map_err(|error| format!("Failed to read directory entry: {}", error))?;
+            let child_source = entry.path();
+            let child_destination = destination.join(entry.file_name());
+            copy_path_recursive(&child_source, &child_destination)?;
+        }
+
+        return Ok(());
+    }
+
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create parent directory {}: {}", parent.display(), error))?;
+    }
+
+    fs::copy(source, destination).map_err(|error| {
+        format!(
+            "Failed to copy file {} to {}: {}",
+            source.display(),
+            destination.display(),
+            error
+        )
+    })?;
+
+    Ok(())
+}
+
+fn copy_skills_by_name(source_root: &Path, target_root: &Path, names: &[String]) -> Result<usize, String> {
+    if names.is_empty() {
+        return Ok(0);
+    }
+
+    fs::create_dir_all(target_root)
+        .map_err(|error| format!("Failed to create target skills directory {}: {}", target_root.display(), error))?;
+
+    let mut copied_count = 0usize;
+    for name in names {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if trimmed.contains('/') || trimmed.contains('\\') {
+            return Err(format!("Invalid skill name: {}", trimmed));
+        }
+
+        let source = source_root.join(trimmed);
+        if !source.exists() {
+            return Err(format!("Skill not found in source scope: {}", source.display()));
+        }
+
+        let destination = target_root.join(trimmed);
+        copy_path_recursive(&source, &destination)?;
+        copied_count += 1;
+    }
+
+    Ok(copied_count)
+}
+
+fn build_opencode_skill_scope(scope: &str, root_path: PathBuf) -> OpencodeSkillScope {
+    let primary_skills_path = root_path.join("skills");
+    let fallback_skills_path = root_path.join("skill");
+
+    let skills_path = if path_is_directory(&primary_skills_path) {
+        primary_skills_path
+    } else {
+        fallback_skills_path
+    };
+
+    let skills_directory_exists = path_is_directory(&skills_path);
+    let skills = if skills_directory_exists {
+        collect_opencode_skills(&skills_path)
+    } else {
+        Vec::new()
+    };
+
+    OpencodeSkillScope {
+        scope: scope.to_string(),
+        root_path: root_path.display().to_string(),
+        skills_path: skills_path.display().to_string(),
+        skills_directory_exists,
+        skills,
+    }
+}
+
 #[tauri::command]
 fn opencode_integration_status(app: AppHandle) -> OpencodeIntegrationStatusResponse {
     let request_id = request_id();
@@ -80,6 +266,9 @@ fn opencode_update_workspace_settings(
     workspace_meta.opencode_settings = normalize_opencode_settings(&OpencodeSettings {
         enabled: payload.enabled,
         default_model: payload.default_model,
+        settings_directory: payload
+            .settings_directory
+            .unwrap_or_else(|| workspace_meta.opencode_settings.settings_directory.clone()),
     });
     workspace_meta.updated_at = now_iso();
 
@@ -123,6 +312,9 @@ fn opencode_update_global_settings(
     global_settings.opencode_settings = normalize_opencode_settings(&OpencodeSettings {
         enabled: payload.enabled,
         default_model: payload.default_model,
+        settings_directory: payload
+            .settings_directory
+            .unwrap_or_else(|| global_settings.opencode_settings.settings_directory.clone()),
     });
 
     let settings_file = match global_settings_file(&app) {
@@ -150,6 +342,233 @@ fn opencode_update_global_settings(
         request_id,
         ok: true,
         settings: Some(global_settings.opencode_settings),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn validate_opencode_settings_directory(
+    settings_directory: String,
+    workspace_root: Option<String>,
+) -> OpencodeSettingsDirectoryValidationResponse {
+    let request_id = request_id();
+
+    let resolved =
+        match resolve_opencode_settings_directory(&settings_directory, workspace_root.as_deref()) {
+            Ok(path) => path,
+            Err(error) => {
+                return OpencodeSettingsDirectoryValidationResponse {
+                    request_id,
+                    ok: false,
+                    resolved_path: None,
+                    directory_exists: false,
+                    opencode_config_exists: false,
+                    error: Some(error),
+                }
+            }
+        };
+
+    let directory_exists = path_is_directory(&resolved);
+    let opencode_config_exists = path_is_file(&resolved.join("opencode.json"));
+
+    if !directory_exists {
+        return OpencodeSettingsDirectoryValidationResponse {
+            request_id,
+            ok: false,
+            resolved_path: Some(resolved.display().to_string()),
+            directory_exists,
+            opencode_config_exists,
+            error: Some(format!("Directory not found: {}", resolved.display())),
+        };
+    }
+
+    if !opencode_config_exists {
+        return OpencodeSettingsDirectoryValidationResponse {
+            request_id,
+            ok: false,
+            resolved_path: Some(resolved.display().to_string()),
+            directory_exists,
+            opencode_config_exists,
+            error: Some(format!(
+                "Missing opencode.json in directory: {}",
+                resolved.display()
+            )),
+        };
+    }
+
+    OpencodeSettingsDirectoryValidationResponse {
+        request_id,
+        ok: true,
+        resolved_path: Some(resolved.display().to_string()),
+        directory_exists,
+        opencode_config_exists,
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn opencode_list_skills(
+    workspace_root: Option<String>,
+    global_skills_path: Option<String>,
+    workspace_skills_path: Option<String>,
+) -> OpencodeSkillsListResponse {
+    let request_id = request_id();
+
+    let global_scope = if let Some(custom_path) = global_skills_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        match resolve_directory_input(custom_path) {
+            Ok(skills_path) => Some(OpencodeSkillScope {
+                scope: "global".to_string(),
+                root_path: skills_path
+                    .parent()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| skills_path.display().to_string()),
+                skills_path: skills_path.display().to_string(),
+                skills_directory_exists: path_is_directory(&skills_path),
+                skills: if path_is_directory(&skills_path) {
+                    collect_opencode_skills(&skills_path)
+                } else {
+                    Vec::new()
+                },
+            }),
+            Err(error) => {
+                return OpencodeSkillsListResponse {
+                    request_id,
+                    ok: false,
+                    global_scope: None,
+                    workspace_scope: None,
+                    error: Some(error),
+                }
+            }
+        }
+    } else {
+        dirs_home().map(|home| {
+            build_opencode_skill_scope("global", home.join(".config").join("opencode"))
+        })
+    };
+
+    let workspace_scope = if let Some(custom_path) = workspace_skills_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        match resolve_directory_input(custom_path) {
+            Ok(skills_path) => Some(OpencodeSkillScope {
+                scope: "workspace".to_string(),
+                root_path: skills_path
+                    .parent()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| skills_path.display().to_string()),
+                skills_path: skills_path.display().to_string(),
+                skills_directory_exists: path_is_directory(&skills_path),
+                skills: if path_is_directory(&skills_path) {
+                    collect_opencode_skills(&skills_path)
+                } else {
+                    Vec::new()
+                },
+            }),
+            Err(error) => {
+                return OpencodeSkillsListResponse {
+                    request_id,
+                    ok: false,
+                    global_scope,
+                    workspace_scope: None,
+                    error: Some(error),
+                }
+            }
+        }
+    } else {
+        workspace_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .filter(|root| path_is_directory(&root.join(".opencode")))
+            .map(|root| build_opencode_skill_scope("workspace", root.join(".opencode")))
+    };
+
+    OpencodeSkillsListResponse {
+        request_id,
+        ok: true,
+        global_scope,
+        workspace_scope,
+        error: None,
+    }
+}
+
+
+#[tauri::command]
+fn opencode_copy_skills(payload: OpencodeCopySkillsPayload) -> OpencodeCopySkillsResponse {
+    let request_id = request_id();
+
+    let global_skills_path = match resolve_directory_input(&payload.global_skills_path) {
+        Ok(path) => path,
+        Err(error) => {
+            return OpencodeCopySkillsResponse {
+                request_id,
+                ok: false,
+                copied_to_workspace: 0,
+                copied_to_global: 0,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_skills_path = match resolve_directory_input(&payload.workspace_skills_path) {
+        Ok(path) => path,
+        Err(error) => {
+            return OpencodeCopySkillsResponse {
+                request_id,
+                ok: false,
+                copied_to_workspace: 0,
+                copied_to_global: 0,
+                error: Some(error),
+            }
+        }
+    };
+
+    let copied_to_workspace = match copy_skills_by_name(
+        &global_skills_path,
+        &workspace_skills_path,
+        &payload.global_to_workspace,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return OpencodeCopySkillsResponse {
+                request_id,
+                ok: false,
+                copied_to_workspace: 0,
+                copied_to_global: 0,
+                error: Some(error),
+            }
+        }
+    };
+
+    let copied_to_global = match copy_skills_by_name(
+        &workspace_skills_path,
+        &global_skills_path,
+        &payload.workspace_to_global,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return OpencodeCopySkillsResponse {
+                request_id,
+                ok: false,
+                copied_to_workspace,
+                copied_to_global: 0,
+                error: Some(error),
+            }
+        }
+    };
+
+    OpencodeCopySkillsResponse {
+        request_id,
+        ok: true,
+        copied_to_workspace,
+        copied_to_global,
         error: None,
     }
 }
@@ -374,5 +793,52 @@ fn cancel_opencode_flow(run_id: String) -> OpenCodeCancelResponse {
         request_id,
         ok: false,
         result,
+    }
+}
+
+#[cfg(test)]
+mod opencode_commands_tests {
+    use super::*;
+
+    #[test]
+    fn resolves_default_directory_from_home_instead_of_workspace() {
+        let home = dirs_home().expect("home directory should be available for test");
+
+        let resolved = resolve_opencode_settings_directory("", Some("/tmp/workspace"))
+            .expect("default directory should resolve");
+
+        assert_eq!(resolved, home.join(".config").join("opencode"));
+    }
+
+    #[test]
+    fn resolves_relative_directory_from_home_instead_of_workspace() {
+        let home = dirs_home().expect("home directory should be available for test");
+
+        let resolved =
+            resolve_opencode_settings_directory("./config/opencode", Some("/tmp/workspace"))
+                .expect("relative directory should resolve");
+
+        assert_eq!(resolved, home.join("./config/opencode"));
+    }
+
+    #[test]
+    fn expands_tilde_prefix_to_home_directory() {
+        let home = dirs_home().expect("home directory should be available for test");
+
+        let resolved = resolve_opencode_settings_directory("~/.config/opencode", None)
+            .expect("tilde path should resolve");
+
+        assert_eq!(resolved, home.join(".config").join("opencode"));
+    }
+
+    #[test]
+    fn keeps_absolute_paths_unchanged() {
+        let absolute = PathBuf::from("/tmp/custom-opencode");
+
+        let resolved =
+            resolve_opencode_settings_directory("/tmp/custom-opencode", Some("/tmp/workspace"))
+                .expect("absolute path should resolve");
+
+        assert_eq!(resolved, absolute);
     }
 }

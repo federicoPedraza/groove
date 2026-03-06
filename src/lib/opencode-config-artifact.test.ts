@@ -7,6 +7,7 @@ describe("opencode config artifact", () => {
     const artifact = buildOpencodeConfigArtifact("workspace", {
       enabled: true,
       defaultModel: "gpt-5.3-codex",
+      settingsDirectory: "~/.config/opencode",
     });
 
     expect(artifact.schema).toBe("groove-opencode-config");
@@ -15,6 +16,7 @@ describe("opencode config artifact", () => {
     expect(artifact.settings).toEqual({
       enabled: true,
       defaultModel: "gpt-5.3-codex",
+      settingsDirectory: "~/.config/opencode",
     });
   });
 
@@ -25,6 +27,7 @@ describe("opencode config artifact", () => {
         settings: {
           enabled: false,
           defaultModel: "gpt-5.3-codex",
+          settingsDirectory: "~/.config/opencode",
         },
       }),
       "global",
@@ -35,6 +38,7 @@ describe("opencode config artifact", () => {
       expect(result.settings).toEqual({
         enabled: false,
         defaultModel: "gpt-5.3-codex",
+        settingsDirectory: "~/.config/opencode",
       });
     }
   });

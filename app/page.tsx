@@ -4,19 +4,21 @@ import { FolderClock, FolderOpen, Terminal, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { DirectoryBehindIndicator } from "@/components/pages/dashboard/directory-behind-indicator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dropdown } from "@/components/ui/dropdown";
-import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DashboardHeader } from "@/components/pages/dashboard/dashboard-header";
 import { DashboardModals } from "@/components/pages/dashboard/dashboard-modals";
+import { useDirectoryBehindStatus } from "@/components/pages/dashboard/hooks/use-directory-behind-status";
 import { WorktreesTable } from "@/components/pages/dashboard/worktrees-table";
 import { useDashboardState } from "@/components/pages/dashboard/hooks/use-dashboard-state";
 import { useShortcutRegistration } from "@/components/shortcuts/use-shortcut-registration";
 import type { ActionLauncherItem } from "@/components/shortcuts/action-launcher";
 import type { WorktreeRow } from "@/components/pages/dashboard/types";
 import { useAppLayout } from "@/components/pages/use-app-layout";
+import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function buildDashboardWorktreeDetailShortcutActionables(
   activeRows: WorktreeRow[],
@@ -78,6 +80,7 @@ export default function Home() {
     isCreateModalOpen,
     createBranch,
     createBase,
+    createTaskPrompt,
     isCreatePending,
     workspaceRoot,
     recentDirectories,
@@ -91,6 +94,7 @@ export default function Home() {
     setIsCreateModalOpen,
     setCreateBranch,
     setCreateBase,
+    setCreateTaskPrompt,
     pickDirectory,
     openRecentDirectory,
     refreshWorktrees,
@@ -104,11 +108,13 @@ export default function Home() {
     onSelectTestingTarget,
     setWorktreeTaskAssignment,
     assignTaskPr,
+    createTaskWithConsellour,
     runOpenWorkspaceTerminalAction,
     closeCurrentWorkspace,
   } = useDashboardState();
 
   const hasDirectory = Boolean(activeWorkspace);
+  const directoryBehindStatus = useDirectoryBehindStatus(activeWorkspace?.workspaceRoot ?? null);
   const workspaceDisplayName = activeWorkspace?.workspaceMeta.rootName ?? "No directory selected";
   const pauseConfirmActionKey = pauseConfirmRow ? `${pauseConfirmRow.path}:stop` : null;
   const pauseConfirmLoading = pauseConfirmActionKey !== null && pendingStopActions.includes(pauseConfirmActionKey);
@@ -201,6 +207,7 @@ export default function Home() {
                 </TooltipTrigger>
                 <TooltipContent>Change directory</TooltipContent>
               </Tooltip>
+              <DirectoryBehindIndicator collapsed={collapsed} status={directoryBehindStatus} />
               <Dropdown
                 ariaLabel="Recent directories"
                 options={recentDirectories.map((directoryPath) => ({
@@ -327,6 +334,7 @@ export default function Home() {
                     setWorktreeTaskAssignment(worktree, taskId);
                   }}
                   onAssignTaskPr={assignTaskPr}
+                  onCreateTask={createTaskWithConsellour}
                   onForgetAllDeletedWorktrees={() => {
                     const shouldForgetAll = window.confirm("Forget all deleted worktrees forever from Groove local state?");
                     if (!shouldForgetAll) {
@@ -366,9 +374,11 @@ export default function Home() {
         setIsCreateModalOpen={setIsCreateModalOpen}
         createBranch={createBranch}
         createBase={createBase}
+        createTaskPrompt={createTaskPrompt}
         isCreatePending={isCreatePending}
         setCreateBranch={setCreateBranch}
         setCreateBase={setCreateBase}
+        setCreateTaskPrompt={setCreateTaskPrompt}
         onRunCutGrooveAction={(row, force) => {
           void runCutGrooveAction(row, force);
         }}

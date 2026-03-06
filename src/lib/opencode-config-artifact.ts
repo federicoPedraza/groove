@@ -1,4 +1,4 @@
-import type { OpencodeSettings } from "@/src/lib/ipc";
+import { DEFAULT_OPENCODE_SETTINGS_DIRECTORY, type OpencodeSettings } from "@/src/lib/ipc";
 
 export type OpencodeConfigScope = "workspace" | "global";
 
@@ -25,6 +25,7 @@ function normalizeImportedSettings(value: unknown): OpencodeSettings | null {
 
   const enabled = value.enabled;
   const defaultModel = value.defaultModel;
+  const settingsDirectory = value.settingsDirectory;
   if (typeof enabled !== "boolean") {
     return null;
   }
@@ -32,10 +33,17 @@ function normalizeImportedSettings(value: unknown): OpencodeSettings | null {
   if (defaultModel !== undefined && defaultModel !== null && typeof defaultModel !== "string") {
     return null;
   }
+  if (settingsDirectory !== undefined && settingsDirectory !== null && typeof settingsDirectory !== "string") {
+    return null;
+  }
 
   return {
     enabled,
     defaultModel: typeof defaultModel === "string" ? defaultModel.trim() || null : null,
+    settingsDirectory:
+      typeof settingsDirectory === "string" && settingsDirectory.trim().length > 0
+        ? settingsDirectory.trim()
+        : DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
   };
 }
 
@@ -48,6 +56,7 @@ export function buildOpencodeConfigArtifact(scope: OpencodeConfigScope, settings
     settings: {
       enabled: settings.enabled,
       defaultModel: settings.defaultModel ?? null,
+      settingsDirectory: settings.settingsDirectory,
     },
   };
 }

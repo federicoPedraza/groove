@@ -17,6 +17,7 @@ export type CommandIntent = "blocking" | "background";
 export const DEFAULT_PLAY_GROOVE_COMMAND = "x-terminal-emulator -e bash -lc \"cd \\\"{worktree}\\\" && opencode\"";
 export const GROOVE_PLAY_COMMAND_SENTINEL = "__groove_terminal__";
 export const GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL = "__groove_terminal_open__";
+export const DEFAULT_OPENCODE_SETTINGS_DIRECTORY = "~/.config/opencode";
 export const DEFAULT_RUN_LOCAL_COMMAND = "pnpm run dev";
 export const DEFAULT_TESTING_PORTS = [3000, 3001, 3002] as const;
 
@@ -49,6 +50,7 @@ export type WorkspaceMeta = {
 export type OpencodeSettings = {
   enabled: boolean;
   defaultModel?: string | null;
+  settingsDirectory: string;
 };
 
 export type OpencodeEffectiveScope = "workspace" | "global" | "none";
@@ -68,11 +70,60 @@ export type OpencodeIntegrationStatusResponse = {
 export type OpencodeUpdateWorkspaceSettingsPayload = {
   enabled: boolean;
   defaultModel?: string | null;
+  settingsDirectory?: string | null;
 };
 
 export type OpencodeUpdateGlobalSettingsPayload = {
   enabled: boolean;
   defaultModel?: string | null;
+  settingsDirectory?: string | null;
+};
+
+export type OpencodeSettingsDirectoryValidationResponse = {
+  requestId?: string;
+  ok: boolean;
+  resolvedPath?: string;
+  directoryExists: boolean;
+  opencodeConfigExists: boolean;
+  error?: string;
+};
+
+export type OpencodeSkillEntry = {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  hasSkillMarkdown: boolean;
+};
+
+export type OpencodeSkillScope = {
+  scope: "global" | "workspace" | string;
+  rootPath: string;
+  skillsPath: string;
+  skillsDirectoryExists: boolean;
+  skills: OpencodeSkillEntry[];
+};
+
+export type OpencodeSkillsListResponse = {
+  requestId?: string;
+  ok: boolean;
+  globalScope?: OpencodeSkillScope;
+  workspaceScope?: OpencodeSkillScope;
+  error?: string;
+};
+
+export type OpencodeCopySkillsPayload = {
+  globalSkillsPath: string;
+  workspaceSkillsPath: string;
+  globalToWorkspace: string[];
+  workspaceToGlobal: string[];
+};
+
+export type OpencodeCopySkillsResponse = {
+  requestId?: string;
+  ok: boolean;
+  copiedToWorkspace: number;
+  copiedToGlobal: number;
+  error?: string;
 };
 
 export type OpencodeWorkspaceSettingsResponse = {
@@ -1111,6 +1162,20 @@ export type GhBranchActionPayload = {
   branch: string;
 };
 
+export type GhBranchBehindPayload = {
+  path: string;
+};
+
+export type GhBranchBehindResponse = {
+  requestId?: string;
+  ok: boolean;
+  path?: string;
+  branch?: string;
+  behind: number;
+  hasUpstream: boolean;
+  error?: string;
+};
+
 export type GhBranchActionResponse = {
   requestId?: string;
   ok: boolean;
@@ -1142,6 +1207,7 @@ type WorkspaceEvent = {
 
 export type GrooveTerminalSession = {
   sessionId: string;
+  pid?: number;
   workspaceRoot: string;
   worktree: string;
   worktreePath: string;
@@ -1283,6 +1349,9 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "opencode_update_workspace_settings",
   "opencode_update_global_settings",
   "check_opencode_status",
+  "validate_opencode_settings_directory",
+  "opencode_list_skills",
+  "opencode_copy_skills",
   "get_opencode_profile",
   "set_opencode_profile",
   "sync_opencode_config",
@@ -1330,6 +1399,7 @@ let blockingInvokeCount = 0;
 const DEFAULT_OPENCODE_SETTINGS: OpencodeSettings = {
   enabled: false,
   defaultModel: null,
+  settingsDirectory: DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
 };
 let latestGlobalSettings: GlobalSettings = {
   telemetryEnabled: true,
@@ -1347,9 +1417,14 @@ const blockingInvokeListeners = new Set<() => void>();
 
 function normalizeOpencodeSettings(value: Partial<OpencodeSettings> | null | undefined): OpencodeSettings {
   const defaultModel = value?.defaultModel;
+  const settingsDirectory = value?.settingsDirectory;
   return {
     enabled: value?.enabled === true,
     defaultModel: typeof defaultModel === "string" && defaultModel.trim().length > 0 ? defaultModel.trim() : null,
+    settingsDirectory:
+      typeof settingsDirectory === "string" && settingsDirectory.trim().length > 0
+        ? settingsDirectory.trim()
+        : DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
   };
 }
 
@@ -1437,6 +1512,7 @@ function syncGlobalSettingsFromResult(command: string, result: unknown): void {
     nextGlobalSettings.keyboardShortcutLeader !== latestGlobalSettings.keyboardShortcutLeader ||
     nextGlobalSettings.opencodeSettings.enabled !== latestGlobalSettings.opencodeSettings.enabled ||
     nextGlobalSettings.opencodeSettings.defaultModel !== latestGlobalSettings.opencodeSettings.defaultModel ||
+    nextGlobalSettings.opencodeSettings.settingsDirectory !== latestGlobalSettings.opencodeSettings.settingsDirectory ||
     didBindingsChange;
 
   latestGlobalSettings = nextGlobalSettings;
@@ -2054,6 +2130,12 @@ export function ghOpenBranch(payload: GhBranchActionPayload): Promise<GhBranchAc
   return invokeCommand<GhBranchActionResponse>("gh_open_branch", { payload });
 }
 
+export function ghBranchBehind(payload: GhBranchBehindPayload): Promise<GhBranchBehindResponse> {
+  return invokeCommand<GhBranchBehindResponse>("gh_branch_behind", { payload }, {
+    intent: "background",
+  });
+}
+
 export function ghOpenActivePr(payload: GhBranchActionPayload): Promise<GhBranchActionResponse> {
   return invokeCommand<GhBranchActionResponse>("gh_open_active_pr", { payload });
 }
@@ -2194,6 +2276,34 @@ export function checkOpencodeStatus(worktreePath: string): Promise<OpenCodeStatu
   return invokeCommand<OpenCodeStatusResponse>("check_opencode_status", { worktreePath }, {
     intent: "background",
   });
+}
+
+export function validateOpencodeSettingsDirectory(
+  settingsDirectory: string,
+  workspaceRoot?: string | null,
+): Promise<OpencodeSettingsDirectoryValidationResponse> {
+  return invokeCommand<OpencodeSettingsDirectoryValidationResponse>("validate_opencode_settings_directory", {
+    settingsDirectory,
+    workspaceRoot: workspaceRoot ?? null,
+  });
+}
+
+export function opencodeListSkills(
+  workspaceRoot?: string | null,
+  globalSkillsPath?: string | null,
+  workspaceSkillsPath?: string | null,
+): Promise<OpencodeSkillsListResponse> {
+  return invokeCommand<OpencodeSkillsListResponse>("opencode_list_skills", {
+    workspaceRoot: workspaceRoot ?? null,
+    globalSkillsPath: globalSkillsPath ?? null,
+    workspaceSkillsPath: workspaceSkillsPath ?? null,
+  }, {
+    intent: "background",
+  });
+}
+
+export function opencodeCopySkills(payload: OpencodeCopySkillsPayload): Promise<OpencodeCopySkillsResponse> {
+  return invokeCommand<OpencodeCopySkillsResponse>("opencode_copy_skills", { payload });
 }
 
 export function getOpencodeProfile(worktreePath: string): Promise<OpenCodeProfileResponse> {

@@ -203,6 +203,27 @@ struct OpencodeSettings {
     enabled: bool,
     #[serde(default)]
     default_model: Option<String>,
+    #[serde(default = "default_opencode_settings_directory")]
+    settings_directory: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpencodeSkillEntry {
+    name: String,
+    path: String,
+    is_directory: bool,
+    has_skill_markdown: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpencodeSkillScope {
+    scope: String,
+    root_path: String,
+    skills_path: String,
+    skills_directory_exists: bool,
+    skills: Vec<OpencodeSkillEntry>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -742,6 +763,19 @@ struct OpencodeSettingsUpdatePayload {
     enabled: bool,
     #[serde(default)]
     default_model: Option<String>,
+    #[serde(default)]
+    settings_directory: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpencodeCopySkillsPayload {
+    global_skills_path: String,
+    workspace_skills_path: String,
+    #[serde(default)]
+    global_to_workspace: Vec<String>,
+    #[serde(default)]
+    workspace_to_global: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1560,6 +1594,43 @@ struct OpenCodeStatusResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct OpencodeSettingsDirectoryValidationResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolved_path: Option<String>,
+    directory_exists: bool,
+    opencode_config_exists: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpencodeSkillsListResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    global_scope: Option<OpencodeSkillScope>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_scope: Option<OpencodeSkillScope>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpencodeCopySkillsResponse {
+    request_id: String,
+    ok: bool,
+    copied_to_workspace: usize,
+    copied_to_global: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct OpenCodeProfileResponse {
     request_id: String,
     ok: bool,
@@ -1856,6 +1927,21 @@ struct GhPrCreateResponse {
     url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhBranchBehindResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<String>,
+    behind: u32,
+    has_upstream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }

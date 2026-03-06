@@ -1,215 +1,157 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { buildOpencodeConfigArtifact } from "@/src/lib/opencode-config-artifact";
 import {
-  checkOpencodeStatus,
-  getOpencodeProfile,
-  repairOpencodeIntegration,
-  setOpencodeProfile,
-  syncOpencodeConfig,
-  type OpenCodeProfile,
-  type OpenCodeStatus,
+  DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
+  opencodeCopySkills,
+  opencodeListSkills,
+  opencodeUpdateGlobalSettings,
+  opencodeUpdateWorkspaceSettings,
   type OpencodeEffectiveScope,
+  type OpencodeSkillScope,
   type OpencodeSettings,
+  validateOpencodeSettingsDirectory,
 } from "@/src/lib/ipc";
 
 type OpencodeSettingsModalProps = {
   open: boolean;
   workspaceRoot: string | null;
-  workspaceScopeAvailable: boolean;
-  globalScopeAvailable: boolean;
   effectiveScope: OpencodeEffectiveScope;
   workspaceSettings: OpencodeSettings;
   globalSettings: OpencodeSettings;
-  workspaceSavePending: boolean;
-  globalSavePending: boolean;
   statusMessage: string | null;
   errorMessage: string | null;
+  onSettingsSaved: (message: string) => void;
   onOpenChange: (open: boolean) => void;
-  onSaveWorkspace: (payload: OpencodeSettings) => void;
-  onSaveGlobal: (payload: OpencodeSettings) => void;
-  onImportWorkspace: (file: File) => void;
-  onImportGlobal: (file: File) => void;
 };
 
-const DEFAULT_SETTINGS: OpencodeSettings = {
-  enabled: false,
-  defaultModel: null,
-};
 
-const DEFAULT_PROFILE: OpenCodeProfile = {
-  version: "v1",
-  enabled: true,
-  artifactStore: "none",
-  defaultFlow: "new_change",
-  commands: {
-    init: "init",
-    newChange: "new_change",
-    continue: "continue",
-    apply: "apply",
-    verify: "verify",
-    archive: "archive",
-  },
-  timeouts: {
-    phaseSeconds: 900,
-  },
-  safety: {
-    requireUserApprovalBetweenPhases: true,
-    allowParallelSpecDesign: false,
-  },
-};
+function defaultGlobalSkillsPathFromSettingsDirectory(settingsDirectory: string): string {
+  const normalized = settingsDirectory.trim();
+  return normalized.length > 0 ? `${normalized}/skills` : `${DEFAULT_OPENCODE_SETTINGS_DIRECTORY}/skills`;
+}
 
-function scopeLabel(scope: OpencodeEffectiveScope): string {
-  if (scope === "workspace") {
-    return "workspace";
+function defaultWorkspaceSkillsPath(workspaceRoot: string | null): string {
+  if (!workspaceRoot) {
+    return "./.opencode/skill";
   }
-  if (scope === "global") {
-    return "global";
-  }
-  return "none";
+  return `${workspaceRoot}/.opencode/skill`;
+}
+
+function workspaceSkillsStorageKey(workspaceRoot: string | null): string {
+  return workspaceRoot ? `groove:opencode:workspace-skills-path:${workspaceRoot}` : "groove:opencode:workspace-skills-path:default";
+}
+
+function globalSkillsStorageKey(): string {
+  return "groove:opencode:global-skills-path";
 }
 
 export function OpencodeSettingsModal({
   open,
   workspaceRoot,
-  workspaceScopeAvailable,
-  globalScopeAvailable,
   effectiveScope,
   workspaceSettings,
   globalSettings,
-  workspaceSavePending,
-  globalSavePending,
   statusMessage,
   errorMessage,
+  onSettingsSaved,
   onOpenChange,
-  onSaveWorkspace,
-  onSaveGlobal,
-  onImportWorkspace,
-  onImportGlobal,
 }: OpencodeSettingsModalProps) {
-  const [workspaceEnabled, setWorkspaceEnabled] = useState(DEFAULT_SETTINGS.enabled);
-  const [workspaceDefaultModel, setWorkspaceDefaultModel] = useState("");
-  const [globalEnabled, setGlobalEnabled] = useState(DEFAULT_SETTINGS.enabled);
-  const [globalDefaultModel, setGlobalDefaultModel] = useState("");
-  const workspaceImportInputRef = useRef<HTMLInputElement | null>(null);
-  const globalImportInputRef = useRef<HTMLInputElement | null>(null);
-  const [statusLoading, setStatusLoading] = useState(false);
-  const [statusData, setStatusData] = useState<OpenCodeStatus | null>(null);
-  const [applyPending, setApplyPending] = useState(false);
-  const [repairPending, setRepairPending] = useState(false);
-  const [runtimeMessage, setRuntimeMessage] = useState<string | null>(null);
-  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [savePending, setSavePending] = useState(false);
+  const [validationPending, setValidationPending] = useState(false);
+  const [settingsDirectory, setSettingsDirectory] = useState(DEFAULT_OPENCODE_SETTINGS_DIRECTORY);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [globalSkillsPath, setGlobalSkillsPath] = useState(`${DEFAULT_OPENCODE_SETTINGS_DIRECTORY}/skills`);
+  const [workspaceSkillsPath, setWorkspaceSkillsPath] = useState("./.opencode/skill");
+  const [globalSkillsScope, setGlobalSkillsScope] = useState<OpencodeSkillScope | null>(null);
+  const [workspaceSkillsScope, setWorkspaceSkillsScope] = useState<OpencodeSkillScope | null>(null);
+  const [globalMarkedSkills, setGlobalMarkedSkills] = useState<string[]>([]);
+  const [workspaceMarkedSkills, setWorkspaceMarkedSkills] = useState<string[]>([]);
 
-  const resolveProfileForApply = (profile: OpenCodeProfile | null): OpenCodeProfile => {
-    const source = profile ?? DEFAULT_PROFILE;
-    const phaseSeconds =
-      Number.isFinite(source.timeouts.phaseSeconds) && source.timeouts.phaseSeconds > 0
-        ? source.timeouts.phaseSeconds
-        : DEFAULT_PROFILE.timeouts.phaseSeconds;
-
-    return {
-      version: source.version.trim() || DEFAULT_PROFILE.version,
-      enabled: source.enabled,
-      artifactStore: "none",
-      defaultFlow: source.defaultFlow.trim() || DEFAULT_PROFILE.defaultFlow,
-      commands: {
-        init: source.commands.init.trim() || DEFAULT_PROFILE.commands.init,
-        newChange: source.commands.newChange.trim() || DEFAULT_PROFILE.commands.newChange,
-        continue: source.commands.continue.trim() || DEFAULT_PROFILE.commands.continue,
-        apply: source.commands.apply.trim() || DEFAULT_PROFILE.commands.apply,
-        verify: source.commands.verify.trim() || DEFAULT_PROFILE.commands.verify,
-        archive: source.commands.archive.trim() || DEFAULT_PROFILE.commands.archive,
-      },
-      timeouts: {
-        phaseSeconds,
-      },
-      safety: {
-        requireUserApprovalBetweenPhases: source.safety.requireUserApprovalBetweenPhases,
-        allowParallelSpecDesign: source.safety.allowParallelSpecDesign,
-      },
-    };
-  };
-
-  const refreshRuntime = async () => {
-    if (!workspaceRoot) {
-      setStatusData(null);
-      return;
+  const selectedSettings = useMemo<OpencodeSettings>(() => {
+    if (effectiveScope === "workspace") {
+      return workspaceSettings;
     }
-
-    setStatusLoading(true);
-    setRuntimeError(null);
-
-    try {
-      const [statusResponse, profileResponse] = await Promise.all([
-        checkOpencodeStatus(workspaceRoot),
-        getOpencodeProfile(workspaceRoot),
-      ]);
-
-      if (!statusResponse.ok || !statusResponse.status) {
-        setStatusData(null);
-        setRuntimeError(statusResponse.error ?? "Failed to load OpenCode diagnostics.");
-      } else {
-        setStatusData(statusResponse.status);
-      }
-
-      if (!profileResponse.ok || !profileResponse.profile) {
-        setRuntimeError((current) => current ?? profileResponse.error ?? "Failed to load OpenCode profile.");
-      }
-    } catch {
-      setStatusData(null);
-      setRuntimeError("Failed to load OpenCode diagnostics.");
-    } finally {
-      setStatusLoading(false);
+    if (effectiveScope === "global") {
+      return globalSettings;
     }
-  };
+    return globalSettings;
+  }, [effectiveScope, globalSettings, workspaceSettings]);
 
-  const effectiveScopeText = useMemo(() => {
-    if (effectiveScope === "none") {
-      return "No Opencode config scope is available in this environment.";
-    }
-    return `Effective config scope is currently ${scopeLabel(effectiveScope)}.`;
-  }, [effectiveScope]);
 
   useEffect(() => {
     if (!open) {
       return;
     }
 
-    setWorkspaceEnabled(workspaceSettings.enabled ?? false);
-    setWorkspaceDefaultModel(workspaceSettings.defaultModel ?? "");
-    setGlobalEnabled(globalSettings.enabled ?? false);
-    setGlobalDefaultModel(globalSettings.defaultModel ?? "");
-    setRuntimeMessage(null);
-    setRuntimeError(null);
-    void refreshRuntime();
-  }, [globalSettings, open, workspaceSettings]);
+    setSettingsDirectory(selectedSettings.settingsDirectory || DEFAULT_OPENCODE_SETTINGS_DIRECTORY);
+    setValidationMessage(null);
+    setValidationError(null);
+    setGlobalMarkedSkills([]);
+    setWorkspaceMarkedSkills([]);
+  }, [open, selectedSettings.settingsDirectory]);
 
-  const runtimeBusy = statusLoading || applyPending || repairPending;
+  const loadSkillsScopes = (globalPath: string, workspacePath: string) => {
+    setSkillsLoading(true);
+    setSkillsError(null);
 
-  const downloadScopeConfig = (scope: "workspace" | "global") => {
-    const settings =
-      scope === "workspace"
-        ? { enabled: workspaceEnabled, defaultModel: workspaceDefaultModel.trim() || null }
-        : { enabled: globalEnabled, defaultModel: globalDefaultModel.trim() || null };
+    void (async () => {
+      try {
+        const response = await opencodeListSkills(workspaceRoot, globalPath, workspacePath);
+        if (!response.ok) {
+          setGlobalSkillsScope(null);
+          setWorkspaceSkillsScope(null);
+          setSkillsError(response.error ?? "Failed to load Opencode skills.");
+          return;
+        }
 
-    const artifact = buildOpencodeConfigArtifact(scope, settings);
-    const blob = new Blob([JSON.stringify(artifact, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    const date = new Date().toISOString().slice(0, 10);
-    anchor.href = url;
-    anchor.download = `opencode-${scope}-config-${date}.json`;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+        setGlobalSkillsScope(response.globalScope ?? null);
+        setWorkspaceSkillsScope(response.workspaceScope ?? null);
+      } catch {
+        setGlobalSkillsScope(null);
+        setWorkspaceSkillsScope(null);
+        setSkillsError("Failed to load Opencode skills.");
+      } finally {
+        setSkillsLoading(false);
+      }
+    })();
   };
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const globalDefaultPath = defaultGlobalSkillsPathFromSettingsDirectory(
+      selectedSettings.settingsDirectory || DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
+    );
+    const workspaceDefaultPath = defaultWorkspaceSkillsPath(workspaceRoot);
+
+    let storedGlobalPath: string | null = null;
+    let storedWorkspacePath: string | null = null;
+
+    if (typeof window !== "undefined") {
+      storedGlobalPath = window.localStorage.getItem(globalSkillsStorageKey());
+      storedWorkspacePath = window.localStorage.getItem(workspaceSkillsStorageKey(workspaceRoot));
+    }
+
+    const normalizedGlobalPath = (storedGlobalPath && storedGlobalPath.trim()) || globalSkillsPath.trim() || globalDefaultPath;
+    const normalizedWorkspacePath =
+      (storedWorkspacePath && storedWorkspacePath.trim()) || workspaceSkillsPath.trim() || workspaceDefaultPath;
+
+    setGlobalSkillsPath(normalizedGlobalPath);
+    setWorkspaceSkillsPath(normalizedWorkspacePath);
+    loadSkillsScopes(normalizedGlobalPath, normalizedWorkspacePath);
+  }, [open, workspaceRoot, selectedSettings.settingsDirectory]);
+
+  const settingsBusy = savePending || validationPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -222,333 +164,357 @@ export function OpencodeSettingsModal({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-          <p className="text-xs text-muted-foreground">{effectiveScopeText}</p>
-
           <section className="space-y-3 rounded-md border px-3 py-3">
             <div>
-              <p className="text-sm font-medium text-foreground">Workspace configuration</p>
+              <p className="text-sm font-medium text-foreground">Opencode settings directory</p>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="opencode-settings-directory" className="text-xs font-medium text-foreground">
+                Directory path
+              </label>
+              <Input
+                id="opencode-settings-directory"
+                value={settingsDirectory}
+                onChange={(event) => {
+                  setSettingsDirectory(event.target.value);
+                  setValidationMessage(null);
+                  setValidationError(null);
+                }}
+                placeholder={DEFAULT_OPENCODE_SETTINGS_DIRECTORY}
+                disabled={settingsBusy}
+                autoComplete="off"
+              />
               <p className="text-xs text-muted-foreground">
-                Available only when the active workspace has a <code>.opencode/</code> directory.
+                Default path: <code>{DEFAULT_OPENCODE_SETTINGS_DIRECTORY}</code>
               </p>
             </div>
 
-            {!workspaceScopeAvailable ? <p className="text-xs text-muted-foreground">Unavailable for the current workspace.</p> : null}
-
-            <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <Checkbox
-                  checked={workspaceEnabled}
-                  disabled={!workspaceScopeAvailable || workspaceSavePending}
-                  onCheckedChange={(checked) => setWorkspaceEnabled(checked === true)}
-                />
-                <span>Enable workspace Opencode configuration</span>
-              </span>
-            </label>
-
-            <div className="space-y-2">
-              <label htmlFor="opencode-workspace-default-model" className="text-sm font-medium">
-                Default model (optional)
-              </label>
-              <Input
-                id="opencode-workspace-default-model"
-                value={workspaceDefaultModel}
-                onChange={(event) => setWorkspaceDefaultModel(event.target.value)}
-                placeholder="gpt-5.3-codex"
-                disabled={!workspaceScopeAvailable || workspaceSavePending}
-                autoComplete="off"
-              />
-            </div>
-
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!workspaceScopeAvailable || workspaceSavePending}
+                disabled={settingsBusy}
                 onClick={() => {
-                  onSaveWorkspace({
-                    enabled: workspaceEnabled,
-                    defaultModel: workspaceDefaultModel.trim() || null,
-                  });
-                }}
-              >
-                Save workspace config
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!workspaceScopeAvailable || workspaceSavePending}
-                onClick={() => downloadScopeConfig("workspace")}
-              >
-                Export
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!workspaceScopeAvailable || workspaceSavePending}
-                onClick={() => workspaceImportInputRef.current?.click()}
-              >
-                Import
-              </Button>
-              <input
-                ref={workspaceImportInputRef}
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = "";
-                  if (!file) {
-                    return;
-                  }
-                  onImportWorkspace(file);
-                }}
-              />
-            </div>
-          </section>
-
-          <section className="space-y-3 rounded-md border px-3 py-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">Global configuration</p>
-              <p className="text-xs text-muted-foreground">
-                Available only when <code>$HOME/.config/opencode/</code> exists.
-              </p>
-            </div>
-
-            {!globalScopeAvailable ? <p className="text-xs text-muted-foreground">Unavailable on this machine.</p> : null}
-
-            <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <Checkbox
-                  checked={globalEnabled}
-                  disabled={!globalScopeAvailable || globalSavePending}
-                  onCheckedChange={(checked) => setGlobalEnabled(checked === true)}
-                />
-                <span>Enable global Opencode configuration</span>
-              </span>
-            </label>
-
-            <div className="space-y-2">
-              <label htmlFor="opencode-global-default-model" className="text-sm font-medium">
-                Default model (optional)
-              </label>
-              <Input
-                id="opencode-global-default-model"
-                value={globalDefaultModel}
-                onChange={(event) => setGlobalDefaultModel(event.target.value)}
-                placeholder="gpt-5.3-codex"
-                disabled={!globalScopeAvailable || globalSavePending}
-                autoComplete="off"
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!globalScopeAvailable || globalSavePending}
-                onClick={() => {
-                  onSaveGlobal({
-                    enabled: globalEnabled,
-                    defaultModel: globalDefaultModel.trim() || null,
-                  });
-                }}
-              >
-                Save global config
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!globalScopeAvailable || globalSavePending}
-                onClick={() => downloadScopeConfig("global")}
-              >
-                Export
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!globalScopeAvailable || globalSavePending}
-                onClick={() => globalImportInputRef.current?.click()}
-              >
-                Import
-              </Button>
-              <input
-                ref={globalImportInputRef}
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = "";
-                  if (!file) {
-                    return;
-                  }
-                  onImportGlobal(file);
-                }}
-              />
-            </div>
-          </section>
-
-          <section className="space-y-3 rounded-md border px-3 py-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <p className="text-sm font-medium text-foreground">Workspace runtime profile</p>
-                <p className="text-xs text-muted-foreground">
-                  Runs OpenCode operational actions using <code>.groove/opencode-profile.json</code> and <code>.groove/opencode-config.generated.json</code>.
-                </p>
-              </div>
-            </div>
-
-            {!workspaceRoot ? <p className="text-xs text-muted-foreground">Connect a repository to use OpenCode runtime tools.</p> : null}
-
-            {statusData ? (
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-muted-foreground">ATL sanity:</span>
-                  <span
-                    className={`rounded px-2 py-0.5 text-xs ${
-                      statusData.sanity.applied ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-900"
-                    }`}
-                  >
-                    {statusData.sanity.applied ? "Applied" : "Needs repair"}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 gap-1 text-xs text-muted-foreground md:grid-cols-2">
-                  <p>Worktree exists: {statusData.worktreeExists ? "Yes" : "No"}</p>
-                  <p>Git repository: {statusData.gitRepo ? "Yes" : "No"}</p>
-                  <p>OpenCode binary: {statusData.opencodeAvailable ? "Available" : "Missing"}</p>
-                  <p>Required commands: {statusData.requiredCommandsAvailable ? "Ready" : "Missing"}</p>
-                  <p>Profile valid: {statusData.profileValid ? "Yes" : "No"}</p>
-                  <p>Profile path: <code>{statusData.profilePath}</code></p>
-                  <p>Sync target: <code>{statusData.syncTargetPath}</code></p>
-                  <p>Artifact store: <code>{statusData.artifactStore ?? "none"}</code></p>
-                  <p>Artifact store readiness: {statusData.artifactStoreReady ? "Ready" : "Needs setup"}</p>
-                </div>
-              </div>
-            ) : null}
-
-            {statusData && statusData.missingCommands.length > 0 ? (
-              <p className="text-xs text-destructive">Missing commands: {statusData.missingCommands.join(", ")}</p>
-            ) : null}
-
-            {statusData && statusData.warnings.length > 0 ? (
-              <p className="text-xs text-muted-foreground">Warnings: {statusData.warnings.join(" | ")}</p>
-            ) : null}
-
-            {statusData && statusData.sanity.diagnostics.length > 0 ? (
-              <p className="text-xs text-muted-foreground">Sanity diagnostics: {statusData.sanity.diagnostics.join(" | ")}</p>
-            ) : null}
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!workspaceRoot || runtimeBusy}
-                onClick={() => {
-                  setRuntimeMessage(null);
-                  setRuntimeError(null);
-                  void refreshRuntime();
-                }}
-              >
-                Refresh
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!workspaceRoot || runtimeBusy}
-                onClick={() => {
-                  if (!workspaceRoot) {
-                    return;
-                  }
-
-                  setApplyPending(true);
-                  setRuntimeMessage(null);
-                  setRuntimeError(null);
+                  setValidationPending(true);
+                  setValidationMessage(null);
+                  setValidationError(null);
 
                   void (async () => {
                     try {
-                      const profileResponse = await getOpencodeProfile(workspaceRoot);
-                      const profileToApply =
-                        profileResponse.ok && profileResponse.profile
-                          ? resolveProfileForApply(profileResponse.profile)
-                          : resolveProfileForApply(null);
-
-                      const setProfileResponse = await setOpencodeProfile(workspaceRoot, {
-                        patch: profileToApply,
-                      });
-                      if (!setProfileResponse.ok || !setProfileResponse.profile) {
-                        setRuntimeError(setProfileResponse.error ?? "OpenCode apply failed while preparing profile.");
+                      const response = await validateOpencodeSettingsDirectory(settingsDirectory, workspaceRoot);
+                      if (!response.ok) {
+                        const resolvedText = response.resolvedPath ? ` Resolved path: ${response.resolvedPath}` : "";
+                        const existenceText =
+                          response.directoryExists && !response.opencodeConfigExists
+                            ? " Directory exists but opencode.json is missing."
+                            : "";
+                        setValidationError(
+                          `${response.error ?? "Invalid Opencode settings directory."}${existenceText}${resolvedText}`,
+                        );
                         return;
                       }
 
-                      const syncResponse = await syncOpencodeConfig(workspaceRoot);
-                      if (!syncResponse.ok || !syncResponse.result) {
-                        setRuntimeError(syncResponse.error ?? "OpenCode apply failed while syncing config.");
-                        return;
-                      }
-
-                      setRuntimeMessage(syncResponse.result.message);
-                      await refreshRuntime();
-                    } catch {
-                      setRuntimeError("OpenCode apply failed.");
-                    } finally {
-                      setApplyPending(false);
-                    }
-                  })();
-                }}
-              >
-                Apply
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!workspaceRoot || runtimeBusy || Boolean(statusData?.sanity.applied)}
-                onClick={() => {
-                  if (!workspaceRoot) {
-                    return;
-                  }
-
-                  setRepairPending(true);
-                  setRuntimeMessage(null);
-                  setRuntimeError(null);
-
-                  void (async () => {
-                    try {
-                      const response = await repairOpencodeIntegration(workspaceRoot);
-                      if (!response.ok || !response.result) {
-                        setRuntimeError(response.error ?? "OpenCode repair failed.");
-                        return;
-                      }
-
-                      const backupText = response.result.backupPath ? ` Backup: ${response.result.backupPath}` : "";
-                      setRuntimeMessage(
-                        response.result.repaired
-                          ? `OpenCode repair completed.${backupText}`
-                          : `Repair attempted but sanity is still failing.${backupText}`,
+                      setValidationMessage(
+                        response.resolvedPath
+                          ? `Validated Opencode settings directory at ${response.resolvedPath}.`
+                          : "Validated Opencode settings directory.",
                       );
-                      await refreshRuntime();
                     } catch {
-                      setRuntimeError("OpenCode repair failed.");
+                      setValidationError("Failed to validate Opencode settings directory.");
                     } finally {
-                      setRepairPending(false);
+                      setValidationPending(false);
                     }
                   })();
                 }}
               >
-                Repair
+                Validate
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={settingsBusy}
+                onClick={() => {
+                  const normalizedDirectory = settingsDirectory.trim() || DEFAULT_OPENCODE_SETTINGS_DIRECTORY;
+                  const shouldUseWorkspaceScope = effectiveScope === "workspace" && workspaceRoot != null;
+                  const settingsSource = shouldUseWorkspaceScope ? workspaceSettings : globalSettings;
+
+                  setSavePending(true);
+                  setValidationMessage(null);
+                  setValidationError(null);
+
+                  void (async () => {
+                    try {
+                      if (shouldUseWorkspaceScope && workspaceRoot) {
+                        const response = await opencodeUpdateWorkspaceSettings({
+                          enabled: settingsSource.enabled,
+                          defaultModel: settingsSource.defaultModel ?? null,
+                          settingsDirectory: normalizedDirectory,
+                        });
+
+                        if (!response.ok) {
+                          setValidationError(response.error ?? "Failed to save Opencode settings directory.");
+                          return;
+                        }
+                      } else {
+                        const response = await opencodeUpdateGlobalSettings({
+                          enabled: settingsSource.enabled,
+                          defaultModel: settingsSource.defaultModel ?? null,
+                          settingsDirectory: normalizedDirectory,
+                        });
+
+                        if (!response.ok) {
+                          setValidationError(response.error ?? "Failed to save Opencode settings directory.");
+                          return;
+                        }
+                      }
+
+                      setSettingsDirectory(normalizedDirectory);
+                      setValidationMessage("Opencode settings directory saved.");
+                      onSettingsSaved("Opencode settings updated.");
+                    } catch {
+                      setValidationError("Failed to save Opencode settings directory.");
+                    } finally {
+                      setSavePending(false);
+                    }
+                  })();
+                }}
+              >
+                Save path
               </Button>
             </div>
 
-            {runtimeMessage ? <p className="text-xs text-green-800">{runtimeMessage}</p> : null}
-            {runtimeError ? <p className="text-xs text-destructive">{runtimeError}</p> : null}
+            {validationMessage ? <p className="text-xs text-green-800">{validationMessage}</p> : null}
+            {validationError ? <p className="text-xs text-destructive">{validationError}</p> : null}
+          </section>
+
+          <section className="space-y-3 rounded-md border px-3 py-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Skills visualizer</p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label htmlFor="global-skills-path" className="text-xs font-medium text-foreground">
+                  Global skills path
+                </label>
+                <Input
+                  id="global-skills-path"
+                  value={globalSkillsPath}
+                  onChange={(event) => setGlobalSkillsPath(event.target.value)}
+                  disabled={skillsLoading}
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="workspace-skills-path" className="text-xs font-medium text-foreground">
+                  Workspace skills path
+                </label>
+                <Input
+                  id="workspace-skills-path"
+                  value={workspaceSkillsPath}
+                  onChange={(event) => setWorkspaceSkillsPath(event.target.value)}
+                  disabled={skillsLoading}
+                  autoComplete="off"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={skillsLoading}
+                onClick={() => {
+                  const normalizedGlobalPath = globalSkillsPath.trim() || `${DEFAULT_OPENCODE_SETTINGS_DIRECTORY}/skills`;
+                  const normalizedWorkspacePath = workspaceSkillsPath.trim() || defaultWorkspaceSkillsPath(workspaceRoot);
+                  setGlobalSkillsPath(normalizedGlobalPath);
+                  setWorkspaceSkillsPath(normalizedWorkspacePath);
+                  if (typeof window !== "undefined") {
+                    window.localStorage.setItem(globalSkillsStorageKey(), normalizedGlobalPath);
+                    window.localStorage.setItem(workspaceSkillsStorageKey(workspaceRoot), normalizedWorkspacePath);
+                  }
+
+                  void (async () => {
+                    if (globalMarkedSkills.length > 0 || workspaceMarkedSkills.length > 0) {
+                      try {
+                        setSkillsLoading(true);
+                        setSkillsError(null);
+                        const copyResponse = await opencodeCopySkills({
+                          globalSkillsPath: normalizedGlobalPath,
+                          workspaceSkillsPath: normalizedWorkspacePath,
+                          globalToWorkspace: globalMarkedSkills,
+                          workspaceToGlobal: workspaceMarkedSkills,
+                        });
+
+                        if (!copyResponse.ok) {
+                          setSkillsError(copyResponse.error ?? "Failed to copy selected skills.");
+                          setSkillsLoading(false);
+                          return;
+                        }
+
+                        setValidationMessage(
+                          `Copied ${copyResponse.copiedToWorkspace} to workspace and ${copyResponse.copiedToGlobal} to global.`,
+                        );
+                        setGlobalMarkedSkills([]);
+                        setWorkspaceMarkedSkills([]);
+                      } catch {
+                        setSkillsError("Failed to copy selected skills.");
+                        setSkillsLoading(false);
+                        return;
+                      }
+                    }
+
+                    loadSkillsScopes(normalizedGlobalPath, normalizedWorkspacePath);
+                  })();
+                }}
+              >
+                Reload skills
+              </Button>
+            </div>
+
+            {skillsLoading ? <p className="text-xs text-muted-foreground">Loading skills...</p> : null}
+            {skillsError ? <p className="text-xs text-destructive">{skillsError}</p> : null}
+
+            <div className="grid gap-3 md:grid-cols-2">
+              {globalSkillsScope ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-foreground">Global scope</p>
+                  <p className="text-xs text-muted-foreground">
+                    Skills directory: <code>{globalSkillsScope.skillsPath}</code>
+                  </p>
+                  {!globalSkillsScope.skillsDirectoryExists ? (
+                    <p className="text-xs text-muted-foreground">No skills directory found.</p>
+                  ) : null}
+                  {globalSkillsScope.skillsDirectoryExists && globalSkillsScope.skills.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No skills found in this scope.</p>
+                  ) : null}
+                  {globalSkillsScope.skills.length > 0 ? (
+                    <div className="min-h-56 max-h-56 overflow-y-auto rounded-md border border-border/60 p-2">
+                      <ul className="space-y-1">
+                        {Array.from(new Map([
+                          ...globalSkillsScope.skills.map((skill) => [skill.name, { ...skill, virtualIncoming: false }]),
+                          ...workspaceMarkedSkills.map((name) => [
+                            name,
+                            {
+                              name,
+                              path: `incoming:${name}`,
+                              isDirectory: true,
+                              hasSkillMarkdown: false,
+                              virtualIncoming: true,
+                            },
+                          ]),
+                        ]).values()).map((skill) => {
+                          const isMarked = globalMarkedSkills.includes(skill.name);
+                          const movedFromWorkspace = workspaceMarkedSkills.includes(skill.name);
+                          const textColorClass = movedFromWorkspace
+                            ? "text-blue-600"
+                            : isMarked
+                              ? "text-green-600"
+                              : "text-foreground";
+                          const className = [
+                            "cursor-pointer rounded px-2 py-1 text-xs transition-colors hover:bg-muted",
+                            textColorClass,
+                          ].join(" ");
+
+                          return (
+                            <li
+                              key={skill.path}
+                              className={className}
+                              onClick={() => {
+                                if ((skill as { virtualIncoming?: boolean }).virtualIncoming) {
+                                  return;
+                                }
+                                setGlobalMarkedSkills((current) =>
+                                  current.includes(skill.name)
+                                    ? current.filter((name) => name !== skill.name)
+                                    : [...current, skill.name],
+                                );
+                              }}
+                            >
+                              {skill.name} <span className="text-muted-foreground">({skill.isDirectory ? "dir" : "file"})</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {workspaceSkillsScope ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-foreground">Workspace scope</p>
+                  <p className="text-xs text-muted-foreground">
+                    Skills directory: <code>{workspaceSkillsScope.skillsPath}</code>
+                  </p>
+                  {!workspaceSkillsScope.skillsDirectoryExists ? (
+                    <p className="text-xs text-muted-foreground">No skills directory found.</p>
+                  ) : null}
+                  {workspaceSkillsScope.skillsDirectoryExists && workspaceSkillsScope.skills.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No skills found in this scope.</p>
+                  ) : null}
+                  {workspaceSkillsScope.skills.length > 0 ? (
+                    <div className="min-h-56 max-h-56 overflow-y-auto rounded-md border border-border/60 p-2">
+                      <ul className="space-y-1">
+                        {Array.from(new Map([
+                          ...workspaceSkillsScope.skills.map((skill) => [skill.name, { ...skill, virtualIncoming: false }]),
+                          ...globalMarkedSkills.map((name) => [
+                            name,
+                            {
+                              name,
+                              path: `incoming:${name}`,
+                              isDirectory: true,
+                              hasSkillMarkdown: false,
+                              virtualIncoming: true,
+                            },
+                          ]),
+                        ]).values()).map((skill) => {
+                          const isMarked = workspaceMarkedSkills.includes(skill.name);
+                          const movedFromGlobal = globalMarkedSkills.includes(skill.name);
+                          const textColorClass = movedFromGlobal
+                            ? "text-blue-600"
+                            : isMarked
+                              ? "text-green-600"
+                              : "text-foreground";
+                          const className = [
+                            "cursor-pointer rounded px-2 py-1 text-xs transition-colors hover:bg-muted",
+                            textColorClass,
+                          ].join(" ");
+
+                          return (
+                            <li
+                              key={skill.path}
+                              className={className}
+                              onClick={() => {
+                                if ((skill as { virtualIncoming?: boolean }).virtualIncoming) {
+                                  return;
+                                }
+                                setWorkspaceMarkedSkills((current) =>
+                                  current.includes(skill.name)
+                                    ? current.filter((name) => name !== skill.name)
+                                    : [...current, skill.name],
+                                );
+                              }}
+                            >
+                              {skill.name} <span className="text-muted-foreground">({skill.isDirectory ? "dir" : "file"})</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="">
+                  <p className="text-xs text-muted-foreground">Workspace scope appears only when this workspace has a <code>.opencode</code> folder.</p>
+                </div>
+              )}
+            </div>
           </section>
 
           {statusMessage ? <p className="text-xs text-green-800">{statusMessage}</p> : null}

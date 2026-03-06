@@ -601,9 +601,9 @@ fn collect_gitignore_sanity(content: &str) -> (bool, bool, bool, Vec<String>) {
 
     for line in content.lines() {
         let normalized = line.trim();
-        if normalized == GITIGNORE_REQUIRED_ENTRIES[0] {
+        if gitignore_entry_matches_required(normalized, GITIGNORE_REQUIRED_ENTRIES[0]) {
             has_groove_entry = true;
-        } else if normalized == GITIGNORE_REQUIRED_ENTRIES[1] {
+        } else if gitignore_entry_matches_required(normalized, GITIGNORE_REQUIRED_ENTRIES[1]) {
             has_workspace_entry = true;
         } else if normalized == GITIGNORE_GROOVE_COMMENT {
             has_groove_comment = true;
@@ -624,6 +624,40 @@ fn collect_gitignore_sanity(content: &str) -> (bool, bool, bool, Vec<String>) {
         has_groove_comment,
         missing_entries,
     )
+}
+
+fn gitignore_entry_matches_required(entry: &str, required: &str) -> bool {
+    let Some(normalized_entry) = normalize_gitignore_entry(entry) else {
+        return false;
+    };
+    let Some(normalized_required) = normalize_gitignore_entry(required) else {
+        return false;
+    };
+
+    if normalized_entry == normalized_required {
+        return true;
+    }
+
+    let entry_is_worktrees = normalized_entry == "worktrees" || normalized_entry == ".worktrees";
+    let required_is_worktrees =
+        normalized_required == "worktrees" || normalized_required == ".worktrees";
+
+    entry_is_worktrees && required_is_worktrees
+}
+
+fn normalize_gitignore_entry(entry: &str) -> Option<&str> {
+    let trimmed = entry.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+
+    let without_prefix = trimmed.strip_prefix("./").unwrap_or(trimmed);
+    let normalized = without_prefix.trim_end_matches('/');
+    if normalized.is_empty() {
+        return None;
+    }
+
+    Some(normalized)
 }
 
 fn newline_for_content(content: &str) -> &'static str {
@@ -695,4 +729,42 @@ fn first_non_empty_line(value: &str) -> Option<String> {
 
 fn repository_remote_url(workspace_root: &Path) -> Option<String> {
     resolve_remote_url_with_fallback(workspace_root).map(|(_, remote_url)| remote_url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_gitignore_sanity;
+
+    #[test]
+    fn gitignore_sanity_accepts_worktrees_equivalent_forms() {
+        let content = "# Groove\n.groove/\n./worktrees\n";
+        let (has_groove_entry, has_workspace_entry, has_groove_comment, missing_entries) =
+            collect_gitignore_sanity(content);
+
+        assert!(has_groove_entry);
+        assert!(has_workspace_entry);
+        assert!(has_groove_comment);
+        assert!(missing_entries.is_empty());
+    }
+
+    #[test]
+    fn gitignore_sanity_accepts_canonical_worktrees_entry() {
+        let content = "# Groove\n.groove/\n.worktrees/\n";
+        let (has_groove_entry, has_workspace_entry, has_groove_comment, missing_entries) =
+            collect_gitignore_sanity(content);
+
+        assert!(has_groove_entry);
+        assert!(has_workspace_entry);
+        assert!(has_groove_comment);
+        assert!(missing_entries.is_empty());
+    }
+
+    #[test]
+    fn gitignore_sanity_keeps_unrelated_paths_missing() {
+        let content = "# Groove\n.groove/\n.worktree/\n";
+        let (_, has_workspace_entry, _, missing_entries) = collect_gitignore_sanity(content);
+
+        assert!(!has_workspace_entry);
+        assert_eq!(missing_entries, vec![".worktrees/".to_string()]);
+    }
 }

@@ -933,6 +933,10 @@ fn global_settings_update(
         global_settings.opencode_settings = normalize_opencode_settings(&OpencodeSettings {
             enabled: opencode_settings.enabled,
             default_model: opencode_settings.default_model.clone(),
+            settings_directory: opencode_settings
+                .settings_directory
+                .clone()
+                .unwrap_or_else(|| global_settings.opencode_settings.settings_directory.clone()),
         });
     }
     let settings_file = match global_settings_file(&app) {

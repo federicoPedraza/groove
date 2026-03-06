@@ -6,8 +6,6 @@ import { Loader2, X } from "lucide-react";
 import { DiagnosticsHeader } from "@/components/pages/diagnostics/diagnostics-header";
 import { DiagnosticsSystemSidebar } from "@/components/pages/diagnostics/diagnostics-system-sidebar";
 import { EmergencyCard } from "@/components/pages/diagnostics/emergency-card";
-import { NodeAppsCard } from "@/components/pages/diagnostics/node-apps-card";
-import { OpencodeInstancesCard } from "@/components/pages/diagnostics/opencode-instances-card";
 import { useAppLayout } from "@/components/pages/use-app-layout";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
@@ -16,24 +14,19 @@ import {
   diagnosticsCleanAllDevServers,
   diagnosticsGetSystemOverview,
   diagnosticsGetMsotConsumingPrograms,
-  diagnosticsListOpencodeInstances,
-  diagnosticsListWorktreeNodeApps,
   diagnosticsStopAllNonWorktreeOpencodeInstances,
   isTelemetryEnabled,
   type DiagnosticsMostConsumingProgramsResponse,
   type DiagnosticsSystemOverview,
   type DiagnosticsSystemOverviewResponse,
-  diagnosticsStopAllOpencodeInstances,
-  diagnosticsStopProcess,
-  type DiagnosticsNodeAppRow,
-  type DiagnosticsNodeAppsResponse,
-  type DiagnosticsProcessRow,
   type DiagnosticsStopAllResponse,
-  type DiagnosticsStopResponse,
   type WorkspaceGitignoreSanityResponse,
+  type WorkspaceTermSanityResponse,
   workspaceGetActive,
   workspaceGitignoreSanityApply,
   workspaceGitignoreSanityCheck,
+  workspaceTermSanityApply,
+  workspaceTermSanityCheck,
 } from "@/src/lib/ipc";
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
@@ -48,19 +41,8 @@ function logDiagnosticsTelemetry(event: string, payload: Record<string, unknown>
 export default function DiagnosticsPage() {
   const diagnosticsEnterPerfMsRef = useRef<number>(performance.now());
   const isSystemOverviewRequestInFlightRef = useRef(false);
-  const [opencodeRows, setOpencodeRows] = useState<DiagnosticsProcessRow[]>([]);
-  const [nodeAppRows, setNodeAppRows] = useState<DiagnosticsNodeAppRow[]>([]);
-  const [isLoadingOpencode, setIsLoadingOpencode] = useState(false);
-  const [isLoadingNodeApps, setIsLoadingNodeApps] = useState(false);
-  const [hasLoadedProcessSnapshots, setHasLoadedProcessSnapshots] = useState(false);
-  const [isClosingAll, setIsClosingAll] = useState(false);
-  const [isClosingAllNodeInstances, setIsClosingAllNodeInstances] = useState(false);
   const [isKillingAllNonWorktreeOpencode, setIsKillingAllNonWorktreeOpencode] = useState(false);
   const [isCleaningAllDevServers, setIsCleaningAllDevServers] = useState(false);
-  const [pendingStopPids, setPendingStopPids] = useState<number[]>([]);
-  const [opencodeError, setOpencodeError] = useState<string | null>(null);
-  const [nodeAppsError, setNodeAppsError] = useState<string | null>(null);
-  const [nodeAppsWarning, setNodeAppsWarning] = useState<string | null>(null);
   const [mostConsumingProgramsOutput, setMostConsumingProgramsOutput] = useState<string | null>(null);
   const [mostConsumingProgramsError, setMostConsumingProgramsError] = useState<string | null>(null);
   const [isLoadingMostConsumingPrograms, setIsLoadingMostConsumingPrograms] = useState(false);
@@ -73,6 +55,11 @@ export default function DiagnosticsPage() {
   const [gitignoreSanityErrorMessage, setGitignoreSanityErrorMessage] = useState<string | null>(null);
   const [isGitignoreSanityChecking, setIsGitignoreSanityChecking] = useState(false);
   const [isGitignoreSanityApplyPending, setIsGitignoreSanityApplyPending] = useState(false);
+  const [termSanity, setTermSanity] = useState<WorkspaceTermSanityResponse | null>(null);
+  const [termSanityStatusMessage, setTermSanityStatusMessage] = useState<string | null>(null);
+  const [termSanityErrorMessage, setTermSanityErrorMessage] = useState<string | null>(null);
+  const [isTermSanityChecking, setIsTermSanityChecking] = useState(false);
+  const [isTermSanityApplyPending, setIsTermSanityApplyPending] = useState(false);
 
   const clearGitignoreSanityState = useCallback((): void => {
     setHasActiveWorkspace(false);
@@ -163,6 +150,62 @@ export default function DiagnosticsPage() {
     }
   }, [clearGitignoreSanityState]);
 
+  const loadTermSanityCheck = useCallback(async (options?: { showPending?: boolean; clearStatusMessage?: boolean }): Promise<void> => {
+    const showPending = options?.showPending !== false;
+
+    try {
+      if (showPending) {
+        setIsTermSanityChecking(true);
+      }
+      if (options?.clearStatusMessage) {
+        setTermSanityStatusMessage(null);
+      }
+
+      const result = await workspaceTermSanityCheck();
+      if (!result.ok) {
+        setTermSanity(null);
+        setTermSanityErrorMessage(result.error ?? "Failed to check TERM sanity.");
+        return;
+      }
+
+      setTermSanity(result);
+      setTermSanityErrorMessage(null);
+    } catch {
+      setTermSanity(null);
+      setTermSanityErrorMessage("Failed to check TERM sanity.");
+    } finally {
+      if (showPending) {
+        setIsTermSanityChecking(false);
+      }
+    }
+  }, []);
+
+  const applyTermSanityPatch = useCallback(async (): Promise<void> => {
+    try {
+      setIsTermSanityApplyPending(true);
+      setTermSanityStatusMessage(null);
+      setTermSanityErrorMessage(null);
+
+      const result = await workspaceTermSanityApply();
+      if (!result.ok) {
+        setTermSanityErrorMessage(result.error ?? "Failed to apply TERM sanity patch.");
+        return;
+      }
+
+      setTermSanity(result);
+      if (result.applied) {
+        const fixedValue = result.fixedValue ?? result.termValue ?? "xterm-256color";
+        setTermSanityStatusMessage(`Applied TERM sanity patch (TERM=${fixedValue}).`);
+      } else {
+        setTermSanityStatusMessage("TERM sanity patch is already applied.");
+      }
+    } catch {
+      setTermSanityErrorMessage("Failed to apply TERM sanity patch.");
+    } finally {
+      setIsTermSanityApplyPending(false);
+    }
+  }, []);
+
   useEffect(() => {
     const mountDurationMs = Math.max(0, performance.now() - diagnosticsEnterPerfMsRef.current);
     logDiagnosticsTelemetry("diagnostics.enter.mount", {
@@ -185,120 +228,6 @@ export default function DiagnosticsPage() {
       cancelAnimationFrame(rafNestedFrameId);
     };
   }, []);
-
-  const loadOpencodeRows = useCallback(async (showLoading = true): Promise<DiagnosticsProcessRow[]> => {
-    const startedAtMs = performance.now();
-    setHasLoadedProcessSnapshots(true);
-    if (showLoading) {
-      setIsLoadingOpencode(true);
-    }
-    setOpencodeError(null);
-
-    try {
-      const result = await diagnosticsListOpencodeInstances();
-      if (!result.ok) {
-        setOpencodeError(result.error ?? "Failed to load worktree OpenCode processes.");
-        const durationMs = Math.max(0, performance.now() - startedAtMs);
-        logDiagnosticsTelemetry("diagnostics.load_opencode_rows", {
-          duration_ms: Number(durationMs.toFixed(2)),
-          outcome: "error",
-          rows: 0,
-        });
-        return [];
-      }
-      setOpencodeRows(result.rows);
-      const durationMs = Math.max(0, performance.now() - startedAtMs);
-      logDiagnosticsTelemetry("diagnostics.load_opencode_rows", {
-        duration_ms: Number(durationMs.toFixed(2)),
-        outcome: "ok",
-        rows: result.rows.length,
-      });
-      return result.rows;
-    } catch {
-      setOpencodeError("Failed to load worktree OpenCode processes.");
-      const durationMs = Math.max(0, performance.now() - startedAtMs);
-      logDiagnosticsTelemetry("diagnostics.load_opencode_rows", {
-        duration_ms: Number(durationMs.toFixed(2)),
-        outcome: "error",
-        rows: 0,
-      });
-      return [];
-    } finally {
-      if (showLoading) {
-        setIsLoadingOpencode(false);
-      }
-    }
-  }, []);
-
-  const loadNodeAppRows = useCallback(async (showLoading = true): Promise<DiagnosticsNodeAppRow[]> => {
-    const startedAtMs = performance.now();
-    setHasLoadedProcessSnapshots(true);
-    if (showLoading) {
-      setIsLoadingNodeApps(true);
-    }
-    setNodeAppsError(null);
-
-    try {
-      const result = (await diagnosticsListWorktreeNodeApps()) as DiagnosticsNodeAppsResponse;
-      if (!result.ok) {
-        setNodeAppsWarning(null);
-        setNodeAppsError(result.error ?? "Failed to load worktree node apps.");
-        const durationMs = Math.max(0, performance.now() - startedAtMs);
-        logDiagnosticsTelemetry("diagnostics.load_node_app_rows", {
-          duration_ms: Number(durationMs.toFixed(2)),
-          outcome: "error",
-          rows: 0,
-        });
-        return [];
-      }
-
-      setNodeAppRows(result.rows);
-      setNodeAppsWarning(result.warning ?? null);
-      const durationMs = Math.max(0, performance.now() - startedAtMs);
-      logDiagnosticsTelemetry("diagnostics.load_node_app_rows", {
-        duration_ms: Number(durationMs.toFixed(2)),
-        outcome: "ok",
-        rows: result.rows.length,
-        warning: result.warning != null,
-      });
-      return result.rows;
-    } catch {
-      setNodeAppsWarning(null);
-      setNodeAppsError("Failed to load worktree node apps.");
-      const durationMs = Math.max(0, performance.now() - startedAtMs);
-      logDiagnosticsTelemetry("diagnostics.load_node_app_rows", {
-        duration_ms: Number(durationMs.toFixed(2)),
-        outcome: "error",
-        rows: 0,
-      });
-      return [];
-    } finally {
-      if (showLoading) {
-        setIsLoadingNodeApps(false);
-      }
-    }
-  }, []);
-
-  const loadProcessSnapshots = useCallback(async (): Promise<void> => {
-    const startedAtMs = performance.now();
-    setHasLoadedProcessSnapshots(true);
-    try {
-      const [nextOpencodeRows, nextNodeAppRows] = await Promise.all([loadOpencodeRows(), loadNodeAppRows()]);
-      const durationMs = Math.max(0, performance.now() - startedAtMs);
-      logDiagnosticsTelemetry("diagnostics.load_process_snapshots", {
-        duration_ms: Number(durationMs.toFixed(2)),
-        outcome: "ok",
-        opencode_rows: nextOpencodeRows.length,
-        node_app_rows: nextNodeAppRows.length,
-      });
-    } catch {
-      const durationMs = Math.max(0, performance.now() - startedAtMs);
-      logDiagnosticsTelemetry("diagnostics.load_process_snapshots", {
-        duration_ms: Number(durationMs.toFixed(2)),
-        outcome: "error",
-      });
-    }
-  }, [loadNodeAppRows, loadOpencodeRows]);
 
   const loadSystemOverview = useCallback(async (showLoading = true): Promise<void> => {
     if (isSystemOverviewRequestInFlightRef.current) {
@@ -332,10 +261,6 @@ export default function DiagnosticsPage() {
   }, []);
 
   useEffect(() => {
-    void loadProcessSnapshots();
-  }, [loadProcessSnapshots]);
-
-  useEffect(() => {
     void loadSystemOverview();
 
     const intervalId = window.setInterval(() => {
@@ -354,128 +279,9 @@ export default function DiagnosticsPage() {
     void loadGitignoreSanityCheck({ clearStatusMessage: true });
   }, [loadGitignoreSanityCheck]);
 
-  const runStopProcessAction = async (pid: number): Promise<void> => {
-    setPendingStopPids((prev) => (prev.includes(pid) ? prev : [...prev, pid]));
-
-    try {
-      const result = (await diagnosticsStopProcess(pid)) as DiagnosticsStopResponse;
-      if (!result.ok) {
-        toast.error(`Failed to stop PID ${String(pid)}.`, {
-          description: appendRequestId(result.error, result.requestId),
-        });
-        return;
-      }
-
-      if (result.alreadyStopped) {
-        toast.info(`PID ${String(pid)} is already stopped.`, {
-          description: appendRequestId(undefined, result.requestId),
-        });
-      } else {
-        toast.success(`Stopped PID ${String(pid)}.`, {
-          description: appendRequestId(undefined, result.requestId),
-        });
-      }
-      const [nextOpencodeRows, nextNodeAppRows] = await Promise.all([
-        loadOpencodeRows(false),
-        loadNodeAppRows(false),
-      ]);
-
-      const stillRunning =
-        nextOpencodeRows.some((row) => row.pid === pid) ||
-        nextNodeAppRows.some((row) => row.pid === pid);
-      if (stillRunning) {
-        toast.error(`PID ${String(pid)} still appears to be running after stop.`);
-      }
-    } catch {
-      toast.error(`Stop request failed for PID ${String(pid)}.`);
-    } finally {
-      setPendingStopPids((prev) => prev.filter((candidate) => candidate !== pid));
-    }
-  };
-
-  const runStopWorktreeProcessesAction = async (worktree: string, pids: number[], processLabel: string): Promise<void> => {
-    const uniquePids = [...new Set(pids)];
-    if (uniquePids.length === 0) {
-      return;
-    }
-
-    setPendingStopPids((prev) => [...new Set([...prev, ...uniquePids])]);
-
-    try {
-      const stopResults = await Promise.all(uniquePids.map(async (pid) => ({ pid, result: (await diagnosticsStopProcess(pid)) as DiagnosticsStopResponse })));
-
-      let stopped = 0;
-      let alreadyStopped = 0;
-      let failed = 0;
-
-      for (const { result } of stopResults) {
-        if (!result.ok) {
-          failed += 1;
-          continue;
-        }
-
-        if (result.alreadyStopped) {
-          alreadyStopped += 1;
-        } else {
-          stopped += 1;
-        }
-      }
-
-      if (failed > 0) {
-        toast.error(`Some ${processLabel} cleanup actions failed for ${worktree}.`, {
-          description: `attempted=${String(uniquePids.length)}, stopped=${String(stopped)}, alreadyStopped=${String(alreadyStopped)}, failed=${String(failed)}`,
-        });
-      } else {
-        toast.success(`${processLabel} cleanup completed for ${worktree}.`, {
-          description: `attempted=${String(uniquePids.length)}, stopped=${String(stopped)}, alreadyStopped=${String(alreadyStopped)}, failed=0`,
-        });
-      }
-
-      const [nextOpencodeRows, nextNodeApps] = await Promise.all([loadOpencodeRows(false), loadNodeAppRows(false)]);
-      const hasRemainingTargetProcess = uniquePids.some(
-        (pid) => nextOpencodeRows.some((row) => row.pid === pid) || nextNodeApps.some((row) => row.pid === pid),
-      );
-      if (hasRemainingTargetProcess) {
-        toast.error(`Some ${processLabel} processes in ${worktree} are still running after cleanup.`);
-      }
-    } catch {
-      toast.error(`Cleanup request failed for ${worktree} ${processLabel} processes.`);
-    } finally {
-      setPendingStopPids((prev) => prev.filter((candidate) => !uniquePids.includes(candidate)));
-    }
-  };
-
-  const runStopAllOpencodeAction = async (): Promise<void> => {
-    setIsClosingAll(true);
-
-    try {
-      const result = (await diagnosticsStopAllOpencodeInstances()) as DiagnosticsStopAllResponse;
-      if (!result.ok) {
-        toast.error("Failed to stop all worktree OpenCode instances.", {
-          description: appendRequestId(result.error, result.requestId),
-        });
-        return;
-      }
-
-      toast.success("Worktree OpenCode stop-all completed.", {
-        description: appendRequestId(
-          `attempted=${String(result.attempted)}, stopped=${String(result.stopped)}, alreadyStopped=${String(result.alreadyStopped)}, failed=${String(result.failed)}`,
-          result.requestId,
-        ),
-      });
-      const [nextOpencodeRows] = await Promise.all([
-        loadOpencodeRows(false),
-        loadNodeAppRows(false),
-      ]);
-      if (nextOpencodeRows.length > 0) {
-        toast.error("Some worktree OpenCode instances are still running after stop-all.");
-      }
-    } catch {
-      toast.error("Stop-all request failed.");
-    } finally {
-      setIsClosingAll(false);
-    }
-  };
+  useEffect(() => {
+    void loadTermSanityCheck({ clearStatusMessage: true });
+  }, [loadTermSanityCheck]);
 
   const runCleanAllDevServersAction = async (): Promise<void> => {
     setIsCleaningAllDevServers(true);
@@ -495,10 +301,6 @@ export default function DiagnosticsPage() {
         });
       }
 
-      const [nextOpencodeRows, nextNodeApps] = await Promise.all([loadOpencodeRows(false), loadNodeAppRows(false)]);
-      if (nextOpencodeRows.length > 0 || nextNodeApps.length > 0) {
-        toast.error("Some worktree OpenCode or worktree Node processes are still running after clean all.");
-      }
     } catch {
       toast.error("Clean-all request failed.");
     } finally {
@@ -528,20 +330,6 @@ export default function DiagnosticsPage() {
       toast.error("Emergency kill request failed.");
     } finally {
       setIsKillingAllNonWorktreeOpencode(false);
-    }
-  };
-
-  const runCloseAllNodeInstancesAction = async (): Promise<void> => {
-    const uniquePids = [...new Set(nodeAppRows.map((row) => row.pid))];
-    if (uniquePids.length === 0) {
-      return;
-    }
-
-    setIsClosingAllNodeInstances(true);
-    try {
-      await runStopWorktreeProcessesAction("all worktrees", uniquePids, "Node app");
-    } finally {
-      setIsClosingAllNodeInstances(false);
     }
   };
 
@@ -590,6 +378,13 @@ export default function DiagnosticsPage() {
       gitignoreSanity?.isApplicable &&
       gitignoreSanity.missingEntries.length === 0,
   );
+  const shouldShowApplyTermPatch = Boolean(termSanity && !termSanity.isUsable);
+  const isTermSanityHealthy = Boolean(
+    !isTermSanityChecking &&
+      !termSanityErrorMessage &&
+      termSanity?.isUsable,
+  );
+  const isGrooveSanityHealthy = isGitignoreSanityHealthy && isTermSanityHealthy;
 
   let gitignoreSanityLabel = "Checking .gitignore sanity...";
   if (!hasActiveWorkspace && !isGitignoreSanityChecking) {
@@ -603,6 +398,18 @@ export default function DiagnosticsPage() {
       gitignoreSanityLabel = `Missing ${gitignoreSanity.missingEntries.join(" and ")} in .gitignore.`;
     } else {
       gitignoreSanityLabel = ".gitignore includes Groove entries.";
+    }
+  }
+
+  let termSanityLabel = "Checking TERM sanity...";
+  if (termSanityErrorMessage) {
+    termSanityLabel = "Unable to check TERM sanity.";
+  } else if (!isTermSanityChecking) {
+    const termValueLabel = termSanity?.termValue ? ` (${termSanity.termValue})` : "";
+    if (termSanity?.isUsable) {
+      termSanityLabel = `TERM is usable${termValueLabel}.`;
+    } else {
+      termSanityLabel = `TERM is missing or unusable${termValueLabel}.`;
     }
   }
 
@@ -623,13 +430,8 @@ export default function DiagnosticsPage() {
   return (
     <>
       <DiagnosticsHeader
-        isLoadingProcessSnapshots={isLoadingOpencode || isLoadingNodeApps}
-        hasLoadedProcessSnapshots={hasLoadedProcessSnapshots}
         isLoadingMostConsumingPrograms={isLoadingMostConsumingPrograms}
         isCleaningAllDevServers={isCleaningAllDevServers}
-        onLoadProcessSnapshots={() => {
-          void loadProcessSnapshots();
-        }}
         onLoadMostConsumingPrograms={() => {
           void runGetMsotConsumingProgramsAction();
         }}
@@ -641,28 +443,52 @@ export default function DiagnosticsPage() {
       {shouldShowGitignoreSanityPanel ? (
         <div
           className={`rounded-md border px-3 py-2 ${
-            isGitignoreSanityHealthy ? "border-emerald-700/30 bg-emerald-500/10" : "border-amber-700/30 bg-amber-500/10"
+            isGrooveSanityHealthy ? "border-emerald-700/30 bg-emerald-500/10" : "border-amber-700/30 bg-amber-500/10"
           }`}
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-muted-foreground">Groove sanity: {gitignoreSanityLabel}</p>
-            {shouldShowApplyPatch ? (
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  void applyGitignoreSanityPatch();
-                }}
-                disabled={isGitignoreSanityChecking || isGitignoreSanityApplyPending}
-              >
-                {isGitignoreSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
-                <span>Apply Patch</span>
-              </Button>
-            ) : null}
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-sm text-muted-foreground">Groove sanity checks:</p>
+              <ol className="mt-1 list-decimal pl-5 text-sm text-muted-foreground">
+                <li>.gitignore: {gitignoreSanityLabel}</li>
+                <li>TERM: {termSanityLabel}</li>
+              </ol>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {shouldShowApplyPatch ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    void applyGitignoreSanityPatch();
+                  }}
+                  disabled={isGitignoreSanityChecking || isGitignoreSanityApplyPending}
+                >
+                  {isGitignoreSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+                  <span>Apply Patch</span>
+                </Button>
+              ) : null}
+              {shouldShowApplyTermPatch ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    void applyTermSanityPatch();
+                  }}
+                  disabled={isTermSanityChecking || isTermSanityApplyPending}
+                >
+                  {isTermSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+                  <span>Fix TERM</span>
+                </Button>
+              ) : null}
+            </div>
           </div>
           {gitignoreSanityStatusMessage ? <p className="mt-1 text-xs text-emerald-700">{gitignoreSanityStatusMessage}</p> : null}
           {gitignoreSanityErrorMessage ? <p className="mt-1 text-xs text-destructive">{gitignoreSanityErrorMessage}</p> : null}
+          {termSanityStatusMessage ? <p className="mt-1 text-xs text-emerald-700">{termSanityStatusMessage}</p> : null}
+          {termSanityErrorMessage ? <p className="mt-1 text-xs text-destructive">{termSanityErrorMessage}</p> : null}
         </div>
       ) : null}
 
@@ -690,50 +516,6 @@ export default function DiagnosticsPage() {
           <pre className="overflow-x-auto text-xs text-foreground">{mostConsumingProgramsOutput}</pre>
         </div>
       )}
-
-      <NodeAppsCard
-        nodeAppRows={nodeAppRows}
-        pendingStopPids={pendingStopPids}
-        hasLoadedSnapshots={hasLoadedProcessSnapshots}
-        isLoadingNodeApps={isLoadingNodeApps}
-        isCleaningAllDevServers={isCleaningAllDevServers}
-        isClosingAllNodeInstances={isClosingAllNodeInstances}
-        nodeAppsError={nodeAppsError}
-        nodeAppsWarning={nodeAppsWarning}
-        onRefresh={() => {
-          void loadNodeAppRows();
-        }}
-        onCloseAllNodeInstances={() => {
-          void runCloseAllNodeInstancesAction();
-        }}
-        onStopProcess={(pid) => {
-          void runStopProcessAction(pid);
-        }}
-        onStopWorktreeProcesses={(worktree, pids) => {
-          void runStopWorktreeProcessesAction(worktree, pids, "Node app");
-        }}
-      />
-
-      <OpencodeInstancesCard
-        opencodeRows={opencodeRows}
-        pendingStopPids={pendingStopPids}
-        hasLoadedSnapshots={hasLoadedProcessSnapshots}
-        isLoadingOpencode={isLoadingOpencode}
-        isClosingAll={isClosingAll}
-        opencodeError={opencodeError}
-        onRefresh={() => {
-          void loadOpencodeRows();
-        }}
-        onCloseAll={() => {
-          void runStopAllOpencodeAction();
-        }}
-        onStopProcess={(pid) => {
-          void runStopProcessAction(pid);
-        }}
-        onStopWorktreeProcesses={(worktree, pids) => {
-          void runStopWorktreeProcessesAction(worktree, pids, "OpenCode");
-        }}
-      />
 
       <EmergencyCard
         isKillingAllNonWorktreeOpencode={isKillingAllNonWorktreeOpencode}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 import { CommandsSettingsForm } from "@/components/pages/settings/commands-settings-form";
 import { WorktreeSymlinkPathsModal } from "@/components/pages/settings/worktree-symlink-paths-modal";
@@ -36,13 +36,10 @@ import {
   jiraDisconnect,
   jiraSyncPull,
   subscribeToGlobalSettings,
-  workspaceTermSanityApply,
-  workspaceTermSanityCheck,
   workspaceGetActive,
   workspaceUpdateCommandsSettings,
   workspaceUpdateWorktreeSymlinkPaths,
   type WorkspaceCommandSettingsPayload,
-  type WorkspaceTermSanityResponse,
 } from "@/src/lib/ipc";
 import { describeWorkspaceContextError } from "@/lib/utils/workspace/context";
 
@@ -118,11 +115,6 @@ export default function SettingsPage() {
   const [isJiraDisconnectPending, setIsJiraDisconnectPending] = useState(false);
   const [isJiraSyncPending, setIsJiraSyncPending] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemeMode());
-  const [termSanity, setTermSanity] = useState<WorkspaceTermSanityResponse | null>(null);
-  const [isTermSanityChecking, setIsTermSanityChecking] = useState(false);
-  const [isTermSanityApplyPending, setIsTermSanityApplyPending] = useState(false);
-  const [termSanityStatusMessage, setTermSanityStatusMessage] = useState<string | null>(null);
-  const [termSanityErrorMessage, setTermSanityErrorMessage] = useState<string | null>(null);
   const disableGrooveLoadingSectionRequestVersionRef = useRef(0);
   const telemetryEnabledRequestVersionRef = useRef(0);
   const showFpsRequestVersionRef = useRef(0);
@@ -206,60 +198,6 @@ export default function SettingsPage() {
     },
     [workspaceMeta],
   );
-
-  const loadTermSanityCheck = useCallback(
-    async (options?: { clearStatusMessage?: boolean }): Promise<void> => {
-      try {
-        setIsTermSanityChecking(true);
-        setTermSanityErrorMessage(null);
-        if (options?.clearStatusMessage) {
-          setTermSanityStatusMessage(null);
-        }
-
-        const result = await workspaceTermSanityCheck();
-        if (!result.ok) {
-          setTermSanity(null);
-          setTermSanityErrorMessage(result.error ?? "Failed to check TERM sanity.");
-          return;
-        }
-
-        setTermSanity(result);
-        setTermSanityErrorMessage(null);
-      } catch {
-        setTermSanity(null);
-        setTermSanityErrorMessage("Failed to check TERM sanity.");
-      } finally {
-        setIsTermSanityChecking(false);
-      }
-    },
-    [],
-  );
-
-  const applyTermSanityFix = useCallback(async (): Promise<void> => {
-    try {
-      setIsTermSanityApplyPending(true);
-      setTermSanityStatusMessage(null);
-      setTermSanityErrorMessage(null);
-
-      const result = await workspaceTermSanityApply();
-      if (!result.ok) {
-        setTermSanityErrorMessage(result.error ?? "Failed to apply TERM fix.");
-        return;
-      }
-
-      setTermSanity(result);
-      if (result.applied) {
-        setTermSanityStatusMessage(`Applied TERM fix${result.fixedValue ? ` (${result.fixedValue}).` : "."}`);
-      } else {
-        setTermSanityStatusMessage("TERM is already set to a usable value.");
-      }
-      void loadTermSanityCheck();
-    } catch {
-      setTermSanityErrorMessage("Failed to apply TERM fix.");
-    } finally {
-      setIsTermSanityApplyPending(false);
-    }
-  }, [loadTermSanityCheck]);
 
   useEffect(() => {
     void (async () => {
@@ -455,24 +393,6 @@ export default function SettingsPage() {
     void refreshJiraStatus();
   }, [refreshJiraStatus]);
 
-  useEffect(() => {
-    void loadTermSanityCheck({ clearStatusMessage: true });
-  }, [loadTermSanityCheck]);
-
-  const isTermSanityHealthy = Boolean(!isTermSanityChecking && !termSanityErrorMessage && termSanity?.isUsable);
-  const shouldShowApplyTermFix = Boolean(!isTermSanityChecking && !termSanity?.isUsable);
-
-  let termSanityLabel = "Checking TERM sanity...";
-  if (termSanityErrorMessage) {
-    termSanityLabel = "Unable to check TERM sanity.";
-  } else if (!isTermSanityChecking) {
-    if (termSanity?.isUsable) {
-      termSanityLabel = `TERM is usable${termSanity.termValue ? ` (${termSanity.termValue}).` : "."}`;
-    } else {
-      termSanityLabel = "TERM is missing or unusable for interactive shells.";
-    }
-  }
-
   const onThemeModeChange = (nextTheme: ThemeMode): void => {
     const previousThemeMode = themeMode;
     setThemeMode(nextTheme);
@@ -654,22 +574,22 @@ export default function SettingsPage() {
         {isLoading && <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">Loading active workspace...</p>}
 
         <Collapsible defaultOpen>
-          <Card className="gap-0 py-2">
+          <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
                   aria-label="Toggle workspace settings"
                 >
-                  <CardTitle className="text-sm">Workspace settings</CardTitle>
                   <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                  <CardTitle className="text-sm">Workspace settings</CardTitle>
                 </button>
               </CollapsibleTrigger>
             </CardHeader>
             <CollapsibleContent>
               <CardContent className="space-y-3">
-                <section className="space-y-3 rounded-md border px-3 py-3">
+                <section className="space-y-3">
                   <h3 className="text-sm font-medium text-foreground">Commands</h3>
                   <CommandsSettingsForm
                     playGrooveCommand={playGrooveCommand}
@@ -683,7 +603,7 @@ export default function SettingsPage() {
                   />
                 </section>
 
-                <section className="space-y-3 rounded-md border px-3 py-3">
+                <section className="space-y-3">
                   <h3 className="text-sm font-medium text-foreground">Testing ports</h3>
                   <CommandsSettingsForm
                     playGrooveCommand={playGrooveCommand}
@@ -697,7 +617,7 @@ export default function SettingsPage() {
                   />
                 </section>
 
-                <section className="space-y-2 rounded-md border px-3 py-3">
+                <section className="space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-sm font-medium text-foreground">Worktree symlinked paths</h3>
                     <Button
@@ -740,16 +660,16 @@ export default function SettingsPage() {
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <Card className="gap-0 py-2">
+          <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
                   aria-label="Toggle keyboard shortcuts settings"
                 >
-                  <CardTitle className="text-sm">Keyboard shortcuts</CardTitle>
                   <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                  <CardTitle className="text-sm">Keyboard shortcuts</CardTitle>
                 </button>
               </CollapsibleTrigger>
             </CardHeader>
@@ -820,21 +740,23 @@ export default function SettingsPage() {
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <Card className="gap-0 py-2">
+          <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
                   aria-label="Toggle integrations settings"
                 >
-                  <CardTitle className="text-sm">Integrations</CardTitle>
                   <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                  <CardTitle className="text-sm">Integrations</CardTitle>
                 </button>
               </CollapsibleTrigger>
             </CardHeader>
             <CollapsibleContent>
               <CardContent className="space-y-3">
+                <OpencodeIntegrationPanel title="Opencode" workspaceRoot={workspaceRoot} />
+
                 <JiraIntegrationPanel
                   title="Jira"
                   settings={workspaceMeta?.jiraSettings ?? null}
@@ -934,23 +856,22 @@ export default function SettingsPage() {
                     })();
                   }}
                 />
-                <OpencodeIntegrationPanel title="Opencode" workspaceRoot={workspaceRoot} />
               </CardContent>
             </CollapsibleContent>
           </Card>
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <Card className="gap-0 py-2">
+          <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
                   aria-label="Toggle appearance settings"
                 >
-                  <CardTitle className="text-sm">Appearance</CardTitle>
                   <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                  <CardTitle className="text-sm">Appearance</CardTitle>
                 </button>
               </CollapsibleTrigger>
             </CardHeader>
@@ -965,7 +886,7 @@ export default function SettingsPage() {
                 return (
                   <label
                     key={option.value}
-                    className="flex cursor-pointer items-start gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground transition-colors hover:border-border/80"
+                    className="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 text-sm text-foreground transition-colors hover:border-border/80"
                   >
                     <input
                       type="radio"
@@ -1019,47 +940,21 @@ export default function SettingsPage() {
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <Card className="gap-0 py-2">
+          <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
                   aria-label="Toggle Groove settings"
                 >
-                  <CardTitle className="text-sm">Groove settings</CardTitle>
                   <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                  <CardTitle className="text-sm">Groove settings</CardTitle>
                 </button>
               </CollapsibleTrigger>
             </CardHeader>
             <CollapsibleContent>
               <CardContent className="space-y-3">
-              <div
-                className={`rounded-md border px-3 py-2 ${
-                  isTermSanityHealthy ? "border-emerald-700/30 bg-emerald-500/10" : "border-amber-700/30 bg-amber-500/10"
-                }`}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm text-muted-foreground">TERM sanity: {termSanityLabel}</p>
-                  {shouldShowApplyTermFix ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        void applyTermSanityFix();
-                      }}
-                      disabled={isTermSanityChecking || isTermSanityApplyPending}
-                    >
-                      {isTermSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
-                      <span>Apply TERM fix</span>
-                    </Button>
-                  ) : null}
-                </div>
-                {termSanityStatusMessage ? <p className="mt-1 text-xs text-emerald-700">{termSanityStatusMessage}</p> : null}
-                {termSanityErrorMessage ? <p className="mt-1 text-xs text-destructive">{termSanityErrorMessage}</p> : null}
-              </div>
-
               <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
                 <span className="inline-flex min-w-0 items-center gap-2">
                   <Checkbox

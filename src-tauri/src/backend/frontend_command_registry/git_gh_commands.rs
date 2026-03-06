@@ -1602,6 +1602,221 @@ fn open_external_url(url: String) -> ExternalUrlOpenResponse {
     }
 }
 
+fn encode_gh_compare_segment(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes())
+        .collect::<String>()
+        .replace('+', "%20")
+}
+
+#[tauri::command]
+fn gh_branch_behind(payload: GitPathPayload) -> GhBranchBehindResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GhBranchBehindResponse {
+                request_id,
+                ok: false,
+                path: None,
+                branch: None,
+                behind: 0,
+                has_upstream: false,
+                error: Some(error),
+            }
+        }
+    };
+
+    let current_branch_result =
+        run_git_command_at_path(&worktree_path, &["branch", "--show-current"]);
+    if let Some(error) = current_branch_result.error {
+        return GhBranchBehindResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            branch: None,
+            behind: 0,
+            has_upstream: false,
+            error: Some(error),
+        };
+    }
+    if current_branch_result.exit_code != Some(0) {
+        return GhBranchBehindResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            branch: None,
+            behind: 0,
+            has_upstream: false,
+            error: Some(
+                first_non_empty_line(&current_branch_result.stderr)
+                    .or_else(|| first_non_empty_line(&current_branch_result.stdout))
+                    .unwrap_or_else(|| "git branch --show-current failed".to_string()),
+            ),
+        };
+    }
+
+    let branch = first_non_empty_line(&current_branch_result.stdout)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let Some(current_branch) = branch.clone() else {
+        return GhBranchBehindResponse {
+            request_id,
+            ok: true,
+            path: Some(worktree_path.display().to_string()),
+            branch: None,
+            behind: 0,
+            has_upstream: false,
+            error: None,
+        };
+    };
+
+    let upstream_result = run_git_command_at_path(
+        &worktree_path,
+        &[
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ],
+    );
+    if upstream_result.error.is_some() || upstream_result.exit_code != Some(0) {
+        return GhBranchBehindResponse {
+            request_id,
+            ok: true,
+            path: Some(worktree_path.display().to_string()),
+            branch: Some(current_branch),
+            behind: 0,
+            has_upstream: false,
+            error: None,
+        };
+    }
+
+    let Some(upstream_ref) = first_non_empty_line(&upstream_result.stdout)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    else {
+        return GhBranchBehindResponse {
+            request_id,
+            ok: true,
+            path: Some(worktree_path.display().to_string()),
+            branch: Some(current_branch),
+            behind: 0,
+            has_upstream: false,
+            error: None,
+        };
+    };
+
+    let Some((remote_name, upstream_branch)) = upstream_ref.split_once('/') else {
+        return GhBranchBehindResponse {
+            request_id,
+            ok: true,
+            path: Some(worktree_path.display().to_string()),
+            branch: Some(current_branch),
+            behind: 0,
+            has_upstream: false,
+            error: None,
+        };
+    };
+
+    let remote_result =
+        run_git_command_at_path(&worktree_path, &["remote", "get-url", remote_name]);
+    if remote_result.error.is_some() || remote_result.exit_code != Some(0) {
+        return GhBranchBehindResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            branch: Some(current_branch),
+            behind: 0,
+            has_upstream: true,
+            error: Some(
+                first_non_empty_line(&remote_result.stderr)
+                    .or_else(|| first_non_empty_line(&remote_result.stdout))
+                    .unwrap_or_else(|| {
+                        "Failed to resolve remote URL for upstream branch.".to_string()
+                    }),
+            ),
+        };
+    }
+
+    let Some(remote_url) = first_non_empty_line(&remote_result.stdout) else {
+        return GhBranchBehindResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            branch: Some(current_branch),
+            behind: 0,
+            has_upstream: true,
+            error: Some("Failed to resolve remote URL for upstream branch.".to_string()),
+        };
+    };
+
+    let Some((host, owner, repo)) = normalize_remote_repo_info(&remote_url) else {
+        return GhBranchBehindResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            branch: Some(current_branch),
+            behind: 0,
+            has_upstream: true,
+            error: Some("Could not parse owner/repo from upstream remote URL.".to_string()),
+        };
+    };
+
+    let endpoint = format!(
+        "repos/{owner}/{repo}/compare/{}...{}",
+        encode_gh_compare_segment(upstream_branch),
+        encode_gh_compare_segment(&current_branch),
+    );
+    let mut args = vec!["api", endpoint.as_str(), "--jq", ".behind_by"];
+    if host != "github.com" {
+        args.push("--hostname");
+        args.push(host.as_str());
+    }
+
+    let compare_result = run_capture_command(&worktree_path, "gh", &args);
+    if let Some(error) = compare_result.error {
+        return GhBranchBehindResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            branch: Some(current_branch),
+            behind: 0,
+            has_upstream: true,
+            error: Some(error),
+        };
+    }
+    if compare_result.exit_code != Some(0) {
+        return GhBranchBehindResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            branch: Some(current_branch),
+            behind: 0,
+            has_upstream: true,
+            error: Some(
+                first_non_empty_line(&compare_result.stderr)
+                    .or_else(|| first_non_empty_line(&compare_result.stdout))
+                    .unwrap_or_else(|| "gh api compare failed".to_string()),
+            ),
+        };
+    }
+
+    let behind = first_non_empty_line(&compare_result.stdout)
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .unwrap_or(0);
+
+    GhBranchBehindResponse {
+        request_id,
+        ok: true,
+        path: Some(worktree_path.display().to_string()),
+        branch: Some(current_branch),
+        behind,
+        has_upstream: true,
+        error: None,
+    }
+}
+
 #[tauri::command]
 fn gh_open_branch(payload: GhBranchActionPayload) -> GhBranchActionResponse {
     let request_id = request_id();
@@ -1808,4 +2023,3 @@ fn gh_check_branch_pr(payload: GhBranchActionPayload) -> GhCheckBranchPrResponse
         error: None,
     }
 }
-

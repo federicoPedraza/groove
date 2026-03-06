@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { runConsellourToolLoop } from "@/libs/ai";
 import type {
   ActiveWorkspace,
   RestoreApiResponse,
@@ -28,11 +29,16 @@ import {
   listenGrooveTerminalLifecycle,
   listenWorkspaceChange,
   listenWorkspaceReady,
+  consellourGetRecommendedTask,
+  consellourGetSettings,
+  consellourGetTask,
+  consellourToolCreateTask,
   testingEnvironmentGetStatus,
   testingEnvironmentSetTarget,
   testingEnvironmentStart,
   testingEnvironmentStartSeparateTerminal,
   testingEnvironmentStop,
+  tasksList,
   consellourToolEditTask,
   workspaceClearActive,
   workspaceEvents,
@@ -65,6 +71,12 @@ const MAX_RECENT_DIRECTORIES = 5;
 
 type DashboardWorkspaceSnapshot = {
   activeWorkspace: ActiveWorkspace | null;
+};
+
+type CreateWorktreeActionOptions = {
+  branchOverride?: string;
+  baseOverride?: string;
+  taskPromptOverride?: string;
 };
 
 const dashboardWorkspaceSnapshot: DashboardWorkspaceSnapshot = {
@@ -119,6 +131,10 @@ function buildRecentDirectories(nextDirectory: string, previousDirectories: stri
 
   const deduplicated = previousDirectories.filter((candidate) => candidate !== normalizedDirectory);
   return [normalizedDirectory, ...deduplicated].slice(0, MAX_RECENT_DIRECTORIES);
+}
+
+function deriveWorktreeFolderKeyFromBranch(branch: string): string {
+  return branch.replaceAll("/", "_");
 }
 
 function isSameWorkspaceMeta(left: WorkspaceMeta | null, right: WorkspaceMeta | null): boolean {
@@ -201,6 +217,7 @@ export function useDashboardState() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createBranch, setCreateBranch] = useState("");
   const [createBase, setCreateBase] = useState("");
+  const [createTaskPrompt, setCreateTaskPrompt] = useState("");
   const [isCreatePending, setIsCreatePending] = useState(false);
   const [recentDirectories, setRecentDirectories] = useState<string[]>([]);
   const [gitignoreSanity, setGitignoreSanity] = useState<WorkspaceGitignoreSanityResponse | null>(null);
@@ -872,13 +889,80 @@ export function useDashboardState() {
     [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
-  const runCreateWorktreeAction = useCallback(async (options?: { branchOverride?: string; baseOverride?: string }): Promise<void> => {
+  const createTaskWithConsellour = useCallback(async (prompt: string, options?: { showSuccessToast?: boolean }): Promise<string | null> => {
+    const normalizedPrompt = prompt.trim();
+    if (!normalizedPrompt) {
+      throw new Error("Task details are required.");
+    }
+
+    const settingsResult = await consellourGetSettings();
+    if (!settingsResult.ok || !settingsResult.settings?.openaiApiKey) {
+      throw new Error(settingsResult.error ?? "Add an OpenAI key in Consellour settings before creating a task.");
+    }
+
+    const previousTaskIds = new Set((activeWorkspace?.workspaceMeta.tasks ?? []).map((task) => task.id));
+
+    await runConsellourToolLoop({
+      config: {
+        apiKey: settingsResult.settings.openaiApiKey,
+        model: settingsResult.settings.model,
+        reasoningLevel: settingsResult.settings.reasoningLevel,
+      },
+      systemPrompt: `You are Consellour's task intake assistant.
+
+The user wants to insert the following task in Groove. You must define task fields and create exactly one task via the create_task tool.
+
+Rules:
+- Use the user's request as the source of truth.
+- Fill title and description clearly.
+- Set both priority and consellourPriority based on urgency.
+- Call create_task exactly once.
+- After creating the task, reply with one concise sentence confirming creation.`,
+      userPrompt: normalizedPrompt,
+      toolHandlers: {
+        createTask: consellourToolCreateTask,
+        getAllTasks: tasksList,
+        getTask: consellourGetTask,
+        getRecommendedTask: consellourGetRecommendedTask,
+        editTask: consellourToolEditTask,
+      },
+    });
+
+    const tasksResult = await tasksList();
+    if (!tasksResult.ok) {
+      throw new Error(tasksResult.error ?? "Task was created, but task list refresh failed.");
+    }
+
+    setActiveWorkspace((previous) => {
+      if (!previous) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        workspaceMeta: {
+          ...previous.workspaceMeta,
+          tasks: tasksResult.tasks,
+        },
+      };
+    });
+
+    const createdTask = tasksResult.tasks.find((task) => !previousTaskIds.has(task.id)) ?? null;
+    if (options?.showSuccessToast ?? true) {
+      toast.success(createdTask ? `Created task "${createdTask.title}".` : "Created task.");
+    }
+
+    return createdTask?.id ?? null;
+  }, [activeWorkspace]);
+
+  const runCreateWorktreeAction = useCallback(async (options?: CreateWorktreeActionOptions): Promise<void> => {
     if (!workspaceMeta) {
       return;
     }
 
     const branch = (options?.branchOverride ?? createBranch).trim();
     const base = (options?.baseOverride ?? createBase).trim();
+    const taskPrompt = (options?.taskPromptOverride ?? createTaskPrompt).trim();
     if (!branch) {
       toast.error("Branch name is required.");
       return;
@@ -886,31 +970,104 @@ export function useDashboardState() {
 
     setIsCreatePending(true);
     try {
+      if (!taskPrompt) {
         const result = await grooveNew({
           rootName: workspaceMeta.rootName,
           knownWorktrees,
           workspaceMeta,
           branch,
           ...(base ? { base } : {}),
-      });
-      if (result.ok) {
-        setIsCreateModalOpen(false);
-        setCreateBranch("");
-        setCreateBase("");
-        toast.success("Worktree created.");
-        await rescanWorktrees({ force: true });
-        scheduleRuntimeStateFetch(0);
-        await fetchTestingEnvironmentState();
+        });
+        if (result.ok) {
+          setIsCreateModalOpen(false);
+          setCreateBranch("");
+          setCreateBase("");
+          setCreateTaskPrompt("");
+          toast.success("Worktree created.");
+          await rescanWorktrees({ force: true });
+          scheduleRuntimeStateFetch(0);
+          await fetchTestingEnvironmentState();
+          return;
+        }
+
+        toast.error("Create worktree failed.");
         return;
       }
 
-      toast.error("Create worktree failed.");
+      const [worktreeResult, taskResult] = await Promise.allSettled([
+        grooveNew({
+          rootName: workspaceMeta.rootName,
+          knownWorktrees,
+          workspaceMeta,
+          branch,
+          ...(base ? { base } : {}),
+        }),
+        createTaskWithConsellour(taskPrompt, { showSuccessToast: false }),
+      ]);
+
+      let worktreeCreated = false;
+      let generatedTaskId: string | null = null;
+
+      if (worktreeResult.status === "fulfilled") {
+        worktreeCreated = worktreeResult.value.ok;
+        if (!worktreeCreated) {
+          toast.error("Create worktree failed.");
+        }
+      } else {
+        toast.error("Create worktree request failed.");
+      }
+
+      if (taskResult.status === "fulfilled") {
+        generatedTaskId = taskResult.value;
+        if (!generatedTaskId) {
+          toast.error("Task created, but it could not be auto-assigned.");
+        }
+      } else {
+        const errorMessage = taskResult.reason instanceof Error ? taskResult.reason.message : "Create task failed.";
+        toast.error(errorMessage);
+      }
+
+      if (worktreeCreated && generatedTaskId) {
+        const assignmentResult = await workspaceSetWorktreeTaskAssignment({
+          worktree: deriveWorktreeFolderKeyFromBranch(branch),
+          taskId: generatedTaskId,
+        });
+
+        if (!assignmentResult.ok) {
+          toast.error(assignmentResult.error ?? "Failed to persist task assignment.");
+          await rescanWorktrees({ force: true });
+        } else {
+          applyWorkspaceContext(assignmentResult);
+        }
+      }
+
+      if (worktreeCreated) {
+        setIsCreateModalOpen(false);
+        setCreateBranch("");
+        setCreateBase("");
+        setCreateTaskPrompt("");
+        toast.success(generatedTaskId ? "Worktree and task created." : "Worktree created.");
+        await rescanWorktrees({ force: true });
+        scheduleRuntimeStateFetch(0);
+        await fetchTestingEnvironmentState();
+      }
     } catch {
       toast.error("Create worktree request failed.");
     } finally {
       setIsCreatePending(false);
     }
-  }, [createBase, createBranch, fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta]);
+  }, [
+    applyWorkspaceContext,
+    createBase,
+    createBranch,
+    createTaskPrompt,
+    createTaskWithConsellour,
+    fetchTestingEnvironmentState,
+    knownWorktrees,
+    rescanWorktrees,
+    scheduleRuntimeStateFetch,
+    workspaceMeta,
+  ]);
 
   const runCutGrooveAction = useCallback(
     async (row: WorktreeRow, force = false): Promise<void> => {
@@ -1580,6 +1737,7 @@ export function useDashboardState() {
     isCreateModalOpen,
     createBranch,
     createBase,
+    createTaskPrompt,
     isCreatePending,
     workspaceMeta,
     workspaceRoot,
@@ -1599,6 +1757,7 @@ export function useDashboardState() {
     setUnsetTestingEnvironmentConfirm,
     setCreateBranch,
     setCreateBase,
+    setCreateTaskPrompt,
     pickDirectory,
     openRecentDirectory,
     applyGitignoreSanityPatch,
@@ -1620,6 +1779,7 @@ export function useDashboardState() {
     runStopTestingInstanceAction,
     setWorktreeTaskAssignment,
     assignTaskPr,
+    createTaskWithConsellour,
     closeCurrentWorkspace,
   };
 }

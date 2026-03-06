@@ -5,24 +5,18 @@ import { SOFT_RED_BUTTON_CLASSES } from "@/components/pages/diagnostics/constant
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type DiagnosticsHeaderProps = {
-  isLoadingProcessSnapshots: boolean;
-  hasLoadedProcessSnapshots: boolean;
   isLoadingMostConsumingPrograms: boolean;
   isCleaningAllDevServers: boolean;
-  onLoadProcessSnapshots: () => void;
   onLoadMostConsumingPrograms: () => void;
   onCleanAll: () => void;
 };
 
 export function DiagnosticsHeader({
-  isLoadingProcessSnapshots,
   isLoadingMostConsumingPrograms,
   isCleaningAllDevServers,
-  onLoadProcessSnapshots,
   onLoadMostConsumingPrograms,
   onCleanAll,
 }: DiagnosticsHeaderProps) {
-  const refreshProcessSnapshotsLabel = "Refresh all";
   const cleanAllLabel = isCleaningAllDevServers ? "Cleaning all processes" : "Clean all processes";
 
   return (
@@ -44,22 +38,6 @@ export function DiagnosticsHeader({
             <span>Load top processes</span>
           </Button>
           <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-8 w-8 p-0"
-                  onClick={onLoadProcessSnapshots}
-                  disabled={isLoadingProcessSnapshots}
-                  aria-label={refreshProcessSnapshotsLabel}
-                >
-                  {isLoadingProcessSnapshots ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RefreshCw aria-hidden="true" className="size-4" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{refreshProcessSnapshotsLabel}</TooltipContent>
-            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

@@ -28,7 +28,7 @@ const SUPPORTED_THEME_MODES: [&str; 8] = [
     "dark",
 ];
 const GITIGNORE_GROOVE_COMMENT: &str = "# Groove";
-const GITIGNORE_REQUIRED_ENTRIES: [&str; 2] = [".groove/", ".workspace/"];
+const GITIGNORE_REQUIRED_ENTRIES: [&str; 2] = [".groove/", ".worktrees/"];
 const GROOVE_PLAY_COMMAND_SENTINEL: &str = "__groove_terminal__";
 const GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL: &str = "__groove_terminal_open__";
 const GROOVE_TERMINAL_OUTPUT_EVENT: &str = "groove-terminal-output";

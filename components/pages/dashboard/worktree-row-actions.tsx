@@ -85,6 +85,7 @@ type WorktreeRowActionsProps = {
   selectedTaskId?: string | null;
   onSetTaskAssignment?: (worktree: string, taskId: string | null) => void;
   onAssignTaskPr?: (taskId: string, url: string) => Promise<void>;
+  onCreateTask?: (prompt: string) => Promise<string | null>;
   isTaskAssignmentDisabled?: boolean;
   closeWorktreePending?: boolean;
 };
@@ -128,6 +129,7 @@ export function WorktreeRowActions({
   selectedTaskId = null,
   onSetTaskAssignment,
   onAssignTaskPr,
+  onCreateTask,
   isTaskAssignmentDisabled = false,
   closeWorktreePending = false,
 }: WorktreeRowActionsProps) {
@@ -692,6 +694,7 @@ export function WorktreeRowActions({
 
                   await onAssignTaskPr(taskId, url);
                 }}
+                onCreateTask={onCreateTask}
                 disabled={isTaskAssignmentDisabled}
                 className="h-8"
               />

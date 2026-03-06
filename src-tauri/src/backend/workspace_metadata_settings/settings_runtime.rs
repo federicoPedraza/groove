@@ -44,7 +44,12 @@ fn default_opencode_settings() -> OpencodeSettings {
     OpencodeSettings {
         enabled: false,
         default_model: None,
+        settings_directory: default_opencode_settings_directory(),
     }
+}
+
+fn default_opencode_settings_directory() -> String {
+    "~/.config/opencode".to_string()
 }
 
 fn normalize_opencode_settings(settings: &OpencodeSettings) -> OpencodeSettings {
@@ -55,6 +60,10 @@ fn normalize_opencode_settings(settings: &OpencodeSettings) -> OpencodeSettings 
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string());
+    normalized.settings_directory = settings.settings_directory.trim().to_string();
+    if normalized.settings_directory.is_empty() {
+        normalized.settings_directory = default_opencode_settings_directory();
+    }
     normalized
 }
 
@@ -1165,6 +1174,8 @@ fn ensure_global_settings(app: &AppHandle) -> Result<GlobalSettings, String> {
     let normalized_opencode_settings = normalize_opencode_settings(&settings.opencode_settings);
     if normalized_opencode_settings.enabled != settings.opencode_settings.enabled
         || normalized_opencode_settings.default_model != settings.opencode_settings.default_model
+        || normalized_opencode_settings.settings_directory
+            != settings.opencode_settings.settings_directory
     {
         settings.opencode_settings = normalized_opencode_settings;
         should_write_back = true;
@@ -1690,6 +1701,8 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
             if workspace_meta.opencode_settings.enabled != normalized_opencode_settings.enabled
                 || workspace_meta.opencode_settings.default_model
                     != normalized_opencode_settings.default_model
+                || workspace_meta.opencode_settings.settings_directory
+                    != normalized_opencode_settings.settings_directory
             {
                 workspace_meta.opencode_settings = normalized_opencode_settings;
                 did_update = true;

@@ -1,0 +1,33 @@
+schema: spec-driven
+
+context: |
+  Tech stack: React 19 + TypeScript 5 + Vite 7 frontend, Tauri 2 + Rust 2021 backend shell.
+  Architecture: Route-driven React UI (app/ + components/) with shared lib helpers and IPC bridge to a modular Rust backend (domain modules + command registry).
+  Testing: Vitest (jsdom) + Testing Library for frontend; cargo check for Rust via npm script.
+  Style: ESLint 9 + typescript-eslint, strict TypeScript, alias @/* -> ./*, CI runs lint/typecheck/test/rust-check/build.
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Identify affected modules/packages
+  specs:
+    - Use Given/When/Then format for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group tasks by phase (infrastructure, implementation, testing)
+    - Use hierarchical numbering (1.1, 1.2, etc.)
+    - Keep tasks small enough to complete in one session
+  apply:
+    guidance:
+      - Follow existing code patterns and conventions
+    tdd: false
+    test_command: "npm run test"
+  verify:
+    test_command: "npm run test"
+    build_command: "npm run build"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas (large removals)

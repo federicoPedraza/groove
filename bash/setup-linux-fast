@@ -125,6 +125,21 @@ run_sidecar_check() {
   fail "required Linux sidecar is missing or not executable. place the correct file in src-tauri/binaries/ (for x86_64: groove-x86_64-unknown-linux-gnu, for arm64: groove-aarch64-unknown-linux-gnu) and run: chmod +x src-tauri/binaries/groove-*-unknown-linux-gnu"
 }
 
+setup_agent_teams_lite() {
+  local atl_dir="${AGENT_TEAMS_LITE_DIR:-$HOME/.local/share/agent-teams-lite}"
+  local atl_setup_script="$repo_root/bash/setup-opencode-atl.sh"
+
+  if [[ ! -f "$atl_setup_script" ]]; then
+    warn "ATL setup script not found at $atl_setup_script; skipping Agent Teams Lite provisioning"
+    return
+  fi
+
+  log "ensuring Agent Teams Lite is available in $atl_dir"
+  if ! AGENT_TEAMS_LITE_DIR="$atl_dir" SETUP_OPENCODE_ATL_ALLOW_MISSING_OPENCODE=1 bash "$atl_setup_script" "$repo_root"; then
+    warn "Agent Teams Lite provisioning failed; OpenCode status may still warn until ATL is installed"
+  fi
+}
+
 log "starting Linux fast setup"
 ensure_node_and_npm_prerequisite
 ensure_rust_prerequisite
@@ -132,6 +147,7 @@ install_tauri_linux_deps_best_effort
 
 cd "$repo_root"
 install_project_dependencies
+setup_agent_teams_lite
 run_sanity_check
 run_sidecar_check
 

@@ -119,6 +119,21 @@ run_sidecar_check() {
   fail "required macOS sidecars are missing or not executable. place both files in src-tauri/binaries/ and run: chmod +x src-tauri/binaries/groove-aarch64-apple-darwin src-tauri/binaries/groove-x86_64-apple-darwin"
 }
 
+setup_agent_teams_lite() {
+  local atl_dir="${AGENT_TEAMS_LITE_DIR:-$HOME/Library/Application Support/agent-teams-lite}"
+  local atl_setup_script="$repo_root/bash/setup-opencode-atl.sh"
+
+  if [[ ! -f "$atl_setup_script" ]]; then
+    log "ATL setup script not found at $atl_setup_script; skipping Agent Teams Lite provisioning"
+    return
+  fi
+
+  log "ensuring Agent Teams Lite is available in $atl_dir"
+  if ! AGENT_TEAMS_LITE_DIR="$atl_dir" SETUP_OPENCODE_ATL_ALLOW_MISSING_OPENCODE=1 bash "$atl_setup_script" "$repo_root"; then
+    log "ATL provisioning failed; OpenCode status may still warn until ATL is installed"
+  fi
+}
+
 log "starting macOS fast setup"
 ensure_homebrew
 ensure_brew_in_path
@@ -128,6 +143,7 @@ ensure_create_dmg
 
 cd "$repo_root"
 install_project_dependencies
+setup_agent_teams_lite
 run_sidecar_check
 run_sanity_check
 

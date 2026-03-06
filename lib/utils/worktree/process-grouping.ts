@@ -41,3 +41,27 @@ export function groupRowsByWorktree<T>(rows: T[], getCommand: (row: T) => string
 
   return [...knownGroups, ...unknownGroups];
 }
+
+export function detectTerminalInstanceKind(command: string): string {
+  const trimmedCommand = command.trim();
+  if (!trimmedCommand) {
+    return "Terminal";
+  }
+
+  const firstToken = trimmedCommand.split(/\s+/)[0] ?? "";
+  const executable = firstToken.split(/[\\/]/).pop() ?? "";
+  if (!executable) {
+    return "Terminal";
+  }
+
+  const normalized = executable.toLowerCase();
+  if (normalized === "node" || normalized === "npm" || normalized === "pnpm" || normalized === "yarn") {
+    return "Node";
+  }
+
+  if (normalized === "opencode") {
+    return "OpenCode";
+  }
+
+  return executable.charAt(0).toUpperCase() + executable.slice(1);
+}

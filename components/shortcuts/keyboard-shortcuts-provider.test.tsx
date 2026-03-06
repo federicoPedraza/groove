@@ -37,6 +37,7 @@ const {
     opencodeSettings: {
       enabled: false,
       defaultModel: null,
+      settingsDirectory: "~/.config/opencode",
     },
   } as GlobalSettings,
   subscribeToGlobalSettingsMock: vi.fn((onStoreChange: () => void) => {

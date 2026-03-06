@@ -19,6 +19,7 @@ include!("startup_commands.rs");
 include!("diagnostics_commands.rs");
 include!("events_commands.rs");
 include!("../jira_integration/jira_runtime.rs");
+include!("../opencode_integration/opencode_runtime.rs");
 include!("jira_commands.rs");
 include!("opencode_commands.rs");
 include!("command_entry.rs");

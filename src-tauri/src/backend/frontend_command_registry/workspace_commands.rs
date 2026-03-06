@@ -291,6 +291,114 @@ fn workspace_clear_active(
 }
 
 #[tauri::command]
+fn workspace_term_sanity_check() -> WorkspaceTermSanityResponse {
+    let request_id = request_id();
+    let term_value = std::env::var("TERM")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let (is_usable, error) = evaluate_term_sanity(term_value.as_deref());
+
+    WorkspaceTermSanityResponse {
+        request_id,
+        ok: true,
+        term_value,
+        is_usable,
+        applied: None,
+        fixed_value: None,
+        error,
+    }
+}
+
+#[tauri::command]
+fn workspace_term_sanity_apply() -> WorkspaceTermSanityResponse {
+    let request_id = request_id();
+    let current_term = std::env::var("TERM")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(value) = current_term.as_deref() {
+        let (is_usable, _) = evaluate_term_sanity(Some(value));
+        if is_usable {
+            return WorkspaceTermSanityResponse {
+                request_id,
+                ok: true,
+                term_value: Some(value.to_string()),
+                is_usable: true,
+                applied: Some(false),
+                fixed_value: None,
+                error: None,
+            };
+        }
+    }
+
+    let fixed_value = TERM_SANITY_FALLBACK.to_string();
+    std::env::set_var("TERM", fixed_value.clone());
+
+    WorkspaceTermSanityResponse {
+        request_id,
+        ok: true,
+        term_value: Some(fixed_value.clone()),
+        is_usable: true,
+        applied: Some(true),
+        fixed_value: Some(fixed_value),
+        error: None,
+    }
+}
+
+fn is_usable_term_value(value: &str) -> bool {
+    !matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "" | "dumb" | "unknown"
+    )
+}
+
+fn evaluate_term_sanity(term_value: Option<&str>) -> (bool, Option<String>) {
+    let Some(value) = term_value else {
+        return (false, Some("term_missing".to_string()));
+    };
+
+    if !is_usable_term_value(value) {
+        return (false, Some("term_unusable_value".to_string()));
+    }
+
+    match probe_term_clear(value) {
+        Ok(()) => (true, None),
+        Err(error) => (false, Some(error)),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn probe_term_clear(_term_value: &str) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn probe_term_clear(term_value: &str) -> Result<(), String> {
+    let output = std::process::Command::new("tput")
+        .arg("clear")
+        .env("TERM", term_value)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .output()
+        .map_err(|error| format!("terminfo_probe_failed:{error}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if stderr.is_empty() {
+        Err("terminfo_missing".to_string())
+    } else {
+        Err(format!("terminfo_missing:{stderr}"))
+    }
+}
+
+const TERM_SANITY_FALLBACK: &str = "xterm-256color";
+
+#[tauri::command]
 fn workspace_gitignore_sanity_check(app: AppHandle) -> WorkspaceGitignoreSanityResponse {
     let request_id = request_id();
     let workspace_root = match active_workspace_root_from_state(&app) {
@@ -825,6 +933,10 @@ fn global_settings_update(
         global_settings.opencode_settings = normalize_opencode_settings(&OpencodeSettings {
             enabled: opencode_settings.enabled,
             default_model: opencode_settings.default_model.clone(),
+            settings_directory: opencode_settings
+                .settings_directory
+                .clone()
+                .unwrap_or_else(|| global_settings.opencode_settings.settings_directory.clone()),
         });
     }
     let settings_file = match global_settings_file(&app) {

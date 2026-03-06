@@ -49,6 +49,7 @@ import {
   workspaceGetActive,
 } from "@/src/lib/ipc";
 import { getActiveWorktreeRows } from "@/lib/utils/worktree/status";
+import { buildWorktreeInstanceLabels } from "@/lib/utils/worktree/labels";
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 const NAVIGATION_START_MARKER_KEY = "__grooveNavigationTelemetryStart";
@@ -373,41 +374,27 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const appNameLabel = "GROOVE";
   const hasActiveNavigationWorktrees = navigationWorktrees.length > 0;
   const navigationWorktreeItems = useMemo(() => {
-    const worktreeItems = navigationWorktrees.map((workspaceRow) => {
-      const assignedTaskTitle = workspaceRow.taskId ? navigationTaskTitlesById[workspaceRow.taskId] : undefined;
-      const baseLabel = assignedTaskTitle?.trim() || workspaceRow.worktree;
+    const labelsByWorktree = buildWorktreeInstanceLabels(navigationWorktrees, navigationTaskTitlesById)
+      .reduce<Record<string, { baseLabel: string; displayLabel: string; usesTaskTitle: boolean }>>((itemsByWorktree, item) => {
+        itemsByWorktree[item.worktree] = {
+          baseLabel: item.baseLabel,
+          displayLabel: item.displayLabel,
+          usesTaskTitle: item.usesTaskTitle,
+        };
+        return itemsByWorktree;
+      }, {});
+
+    return navigationWorktrees.map((workspaceRow) => {
+      const labels = labelsByWorktree[workspaceRow.worktree] ?? {
+        baseLabel: workspaceRow.worktree,
+        displayLabel: workspaceRow.worktree,
+        usesTaskTitle: false,
+      };
+
       return {
         workspaceRow,
-        baseLabel,
-        usesTaskTitle: Boolean(assignedTaskTitle?.trim()),
-      };
-    });
-
-    const labelCounts = worktreeItems.reduce<Record<string, number>>((counts, item) => {
-      counts[item.baseLabel] = (counts[item.baseLabel] ?? 0) + 1;
-      return counts;
-    }, {});
-
-    const duplicateIndexesByLabel: Record<string, number> = {};
-
-    return worktreeItems.map((item) => {
-      const duplicateCount = labelCounts[item.baseLabel] ?? 0;
-      if (duplicateCount <= 1) {
-        return {
-          workspaceRow: item.workspaceRow,
-          displayLabel: item.baseLabel,
-          titleLabel: item.usesTaskTitle ? `${item.baseLabel} (${item.workspaceRow.worktree})` : item.baseLabel,
-        };
-      }
-
-      duplicateIndexesByLabel[item.baseLabel] = (duplicateIndexesByLabel[item.baseLabel] ?? 0) + 1;
-      const indexedLabel = `[${String(duplicateIndexesByLabel[item.baseLabel])}] ${item.baseLabel}`;
-      return {
-        workspaceRow: item.workspaceRow,
-        displayLabel: indexedLabel,
-        titleLabel: item.usesTaskTitle
-          ? `${indexedLabel} (${item.workspaceRow.worktree})`
-          : indexedLabel,
+        displayLabel: labels.displayLabel,
+        titleLabel: labels.usesTaskTitle ? `${labels.displayLabel} (${workspaceRow.worktree})` : labels.displayLabel,
       };
     });
   }, [navigationTaskTitlesById, navigationWorktrees]);

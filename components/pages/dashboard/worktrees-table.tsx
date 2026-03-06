@@ -43,6 +43,7 @@ type WorktreesTableProps = {
   onSetTestingTargetAction: (row: WorktreeRow) => void;
   onSetWorktreeTaskAssignment: (worktree: string, taskId: string | null) => void;
   onAssignTaskPr: (taskId: string, url: string) => Promise<void>;
+  onCreateTask?: (prompt: string) => Promise<string | null>;
   onForgetAllDeletedWorktrees: () => void;
   isForgetAllDeletedWorktreesPending: boolean;
 };
@@ -70,6 +71,7 @@ export function WorktreesTable({
   onSetTestingTargetAction,
   onSetWorktreeTaskAssignment,
   onAssignTaskPr,
+  onCreateTask,
   onForgetAllDeletedWorktrees,
   isForgetAllDeletedWorktreesPending,
 }: WorktreesTableProps) {
@@ -171,6 +173,7 @@ export function WorktreesTable({
             selectedTaskId={row.taskId ?? null}
             onTaskChange={onSetWorktreeTaskAssignment}
             onAssignPr={onAssignTaskPr}
+            onCreateTask={onCreateTask}
             disabled={isWorkspaceTasksLoading}
             triggerClassName="h-8"
           />

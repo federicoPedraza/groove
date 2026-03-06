@@ -574,83 +574,52 @@ export default function SettingsPage() {
         {isLoading && <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">Loading active workspace...</p>}
 
         <Collapsible defaultOpen>
-          <Card className="gap-0 py-2">
+          <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
                   aria-label="Toggle workspace settings"
                 >
-                  <CardTitle className="text-sm">Workspace settings</CardTitle>
                   <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                  <CardTitle className="text-sm">Workspace settings</CardTitle>
                 </button>
               </CollapsibleTrigger>
             </CardHeader>
             <CollapsibleContent>
               <CardContent className="space-y-3">
-                <Collapsible className="rounded-md border px-3 py-3">
-                  <CollapsibleTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180"
-                      aria-label="Toggle workspace commands settings"
-                    >
-                      <h3 className="text-sm font-medium text-foreground">Commands</h3>
-                      <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
-                    </button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="pt-3">
-                    <CommandsSettingsForm
-                      playGrooveCommand={playGrooveCommand}
-                      testingPorts={testingPorts}
-                      openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
-                      runLocalCommand={runLocalCommand}
-                      section="commands"
-                      disabled={!workspaceMeta}
-                      disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace command settings." : undefined}
-                      onSave={onSaveCommandSettings}
-                    />
-                  </CollapsibleContent>
-                </Collapsible>
+                <section className="space-y-3">
+                  <h3 className="text-sm font-medium text-foreground">Commands</h3>
+                  <CommandsSettingsForm
+                    playGrooveCommand={playGrooveCommand}
+                    testingPorts={testingPorts}
+                    openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
+                    runLocalCommand={runLocalCommand}
+                    section="commands"
+                    disabled={!workspaceMeta}
+                    disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace command settings." : undefined}
+                    onSave={onSaveCommandSettings}
+                  />
+                </section>
 
-                <Collapsible className="rounded-md border px-3 py-3">
-                  <CollapsibleTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180"
-                      aria-label="Toggle workspace testing ports settings"
-                    >
-                      <h3 className="text-sm font-medium text-foreground">Testing ports</h3>
-                      <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
-                    </button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="pt-3">
-                    <CommandsSettingsForm
-                      playGrooveCommand={playGrooveCommand}
-                      testingPorts={testingPorts}
-                      openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
-                      runLocalCommand={runLocalCommand}
-                      section="testingPorts"
-                      disabled={!workspaceMeta}
-                      disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace testing ports settings." : undefined}
-                      onSave={onSaveCommandSettings}
-                    />
-                  </CollapsibleContent>
-                </Collapsible>
+                <section className="space-y-3">
+                  <h3 className="text-sm font-medium text-foreground">Testing ports</h3>
+                  <CommandsSettingsForm
+                    playGrooveCommand={playGrooveCommand}
+                    testingPorts={testingPorts}
+                    openTerminalAtWorktreeCommand={openTerminalAtWorktreeCommand}
+                    runLocalCommand={runLocalCommand}
+                    section="testingPorts"
+                    disabled={!workspaceMeta}
+                    disabledMessage={!workspaceMeta ? "Connect a repository to edit workspace testing ports settings." : undefined}
+                    onSave={onSaveCommandSettings}
+                  />
+                </section>
 
-                <Collapsible className="rounded-md border px-3 py-3">
+                <section className="space-y-3">
                   <div className="flex items-center justify-between gap-2">
-                    <CollapsibleTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex min-w-0 items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
-                        aria-label="Toggle worktree symlinked paths settings"
-                      >
-                        <h3 className="text-sm font-medium text-foreground">Worktree symlinked paths</h3>
-                        <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
-                      </button>
-                    </CollapsibleTrigger>
+                    <h3 className="text-sm font-medium text-foreground">Worktree symlinked paths</h3>
                     <Button
                       type="button"
                       variant="outline"
@@ -666,43 +635,41 @@ export default function SettingsPage() {
                     </Button>
                   </div>
 
-                  <CollapsibleContent className="space-y-2">
-                    <p className="text-xs text-muted-foreground">Groove symlinks these paths into worktrees when they exist in the repository root.</p>
+                  <p className="text-xs text-muted-foreground">Groove symlinks these paths into worktrees when they exist in the repository root.</p>
 
-                    <ul className="space-y-1 text-sm text-foreground">
-                      {worktreeSymlinkPaths.map((path) => (
-                        <li key={path}>
-                          <code>{path}</code>
-                        </li>
-                      ))}
-                      {worktreeSymlinkPaths.length === 0 && <li className="text-muted-foreground">No configured paths.</li>}
-                    </ul>
+                  <ul className="space-y-1 text-sm text-foreground">
+                    {worktreeSymlinkPaths.map((path) => (
+                      <li key={path}>
+                        <code>{path}</code>
+                      </li>
+                    ))}
+                    {worktreeSymlinkPaths.length === 0 && <li className="text-muted-foreground">No configured paths.</li>}
+                  </ul>
 
-                    {!workspaceMeta && <p className="text-xs text-muted-foreground">Connect a repository to edit this list.</p>}
-                    {worktreeSymlinkMessage && worktreeSymlinkMessageType === "success" && (
-                      <p className="text-xs text-green-800">{worktreeSymlinkMessage}</p>
-                    )}
-                    {worktreeSymlinkMessage && worktreeSymlinkMessageType === "error" && (
-                      <p className="text-xs text-destructive">{worktreeSymlinkMessage}</p>
-                    )}
-                  </CollapsibleContent>
-                </Collapsible>
+                  {!workspaceMeta && <p className="text-xs text-muted-foreground">Connect a repository to edit this list.</p>}
+                  {worktreeSymlinkMessage && worktreeSymlinkMessageType === "success" && (
+                    <p className="text-xs text-green-800">{worktreeSymlinkMessage}</p>
+                  )}
+                  {worktreeSymlinkMessage && worktreeSymlinkMessageType === "error" && (
+                    <p className="text-xs text-destructive">{worktreeSymlinkMessage}</p>
+                  )}
+                </section>
               </CardContent>
             </CollapsibleContent>
           </Card>
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <Card className="gap-0 py-2">
+          <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
                   aria-label="Toggle keyboard shortcuts settings"
                 >
-                  <CardTitle className="text-sm">Keyboard shortcuts</CardTitle>
                   <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                  <CardTitle className="text-sm">Keyboard shortcuts</CardTitle>
                 </button>
               </CollapsibleTrigger>
             </CardHeader>
@@ -773,21 +740,23 @@ export default function SettingsPage() {
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <Card className="gap-0 py-2">
+          <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
                   aria-label="Toggle integrations settings"
                 >
-                  <CardTitle className="text-sm">Integrations</CardTitle>
                   <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                  <CardTitle className="text-sm">Integrations</CardTitle>
                 </button>
               </CollapsibleTrigger>
             </CardHeader>
             <CollapsibleContent>
               <CardContent className="space-y-3">
+                <OpencodeIntegrationPanel title="Opencode" workspaceRoot={workspaceRoot} />
+
                 <JiraIntegrationPanel
                   title="Jira"
                   settings={workspaceMeta?.jiraSettings ?? null}
@@ -887,23 +856,22 @@ export default function SettingsPage() {
                     })();
                   }}
                 />
-                <OpencodeIntegrationPanel title="Opencode" workspaceRoot={workspaceRoot} />
               </CardContent>
             </CollapsibleContent>
           </Card>
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <Card className="gap-0 py-2">
+          <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
                   aria-label="Toggle appearance settings"
                 >
-                  <CardTitle className="text-sm">Appearance</CardTitle>
                   <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                  <CardTitle className="text-sm">Appearance</CardTitle>
                 </button>
               </CollapsibleTrigger>
             </CardHeader>
@@ -918,7 +886,7 @@ export default function SettingsPage() {
                 return (
                   <label
                     key={option.value}
-                    className="flex cursor-pointer items-start gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground transition-colors hover:border-border/80"
+                    className="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 text-sm text-foreground transition-colors hover:border-border/80"
                   >
                     <input
                       type="radio"
@@ -972,16 +940,16 @@ export default function SettingsPage() {
         </Collapsible>
 
         <Collapsible defaultOpen>
-          <Card className="gap-0 py-2">
+          <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="relative flex w-full items-center justify-between gap-2 text-left [&[data-state=open]>svg]:rotate-180 [&[data-state=closed]>h3]:absolute [&[data-state=closed]>h3]:left-1/2 [&[data-state=closed]>h3]:-translate-x-1/2"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
                   aria-label="Toggle Groove settings"
                 >
-                  <CardTitle className="text-sm">Groove settings</CardTitle>
                   <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground transition-transform duration-200" />
+                  <CardTitle className="text-sm">Groove settings</CardTitle>
                 </button>
               </CollapsibleTrigger>
             </CardHeader>

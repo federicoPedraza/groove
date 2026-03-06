@@ -3,6 +3,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, ExternalLink, GitPullRequest, Search } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
@@ -15,6 +17,7 @@ type TaskBadgeProps = {
   selectedTaskId: string | null;
   onTaskChange: (taskId: string | null) => void;
   onAssignPr: (taskId: string, url: string) => Promise<void>;
+  onCreateTask?: (prompt: string) => Promise<string | null>;
   disabled?: boolean;
   className?: string;
 };
@@ -57,6 +60,7 @@ export function TaskBadge({
   selectedTaskId,
   onTaskChange,
   onAssignPr,
+  onCreateTask,
   disabled = false,
   className,
 }: TaskBadgeProps) {
@@ -65,10 +69,15 @@ export function TaskBadge({
   const [query, setQuery] = useState("");
   const [prUrl, setPrUrl] = useState("");
   const [isAssigningPr, setIsAssigningPr] = useState(false);
+  const [isNewTaskDialogOpen, setIsNewTaskDialogOpen] = useState(false);
+  const [newTaskPrompt, setNewTaskPrompt] = useState("");
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
   const searchInputId = useId();
   const prInputId = useId();
+  const newTaskPromptId = useId();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const prInputRef = useRef<HTMLInputElement | null>(null);
+  const newTaskPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const availableTasks = useMemo(() => tasks ?? [], [tasks]);
 
   const selectedTask = useMemo(() => {
@@ -165,59 +174,121 @@ export function TaskBadge({
       });
   };
 
-  return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          aria-label={selectedTask ? `Task assigned to ${selectedTask.title}` : `No task assigned for ${worktree}`}
-          title={selectedTask?.title ?? "no task"}
-          className={cn(
-            "relative inline-flex h-6 min-w-[9rem] max-w-[16rem] items-center justify-center rounded-full border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-            open ? "border-ring/70 bg-accent text-foreground" : null,
-            selectedTask
-              ? "border-border/70 bg-muted/50 text-foreground hover:bg-muted"
-              : "border-border/70 border-dashed bg-transparent text-muted-foreground hover:border-border hover:text-foreground",
-            className,
-          )}
-        >
-          {hasPullRequests ? <GitPullRequest aria-hidden="true" className="pointer-events-none absolute left-2 size-3.5" /> : null}
-          <span className={cn("min-w-0 flex-1 truncate text-center", hasPullRequests ? "px-4" : null)}>{selectedTask?.title ?? "no task"}</span>
-        </button>
-      </DropdownMenuTrigger>
+  const createNewTask = (): void => {
+    const normalizedPrompt = newTaskPrompt.trim();
 
-      <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-2rem)]">
-        {view === "actions" ? (
-          <>
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                setView("tasks");
-              }}
-            >
-              Change task
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!selectedTask}
-              onSelect={(event) => {
-                event.preventDefault();
-                setView("assign-pr");
-              }}
-            >
-              Assign PR
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!selectedTask}
-              onSelect={(event) => {
-                event.preventDefault();
-                setView("prs");
-              }}
-            >
-              Go to PR
-            </DropdownMenuItem>
-          </>
-        ) : null}
+    if (!normalizedPrompt || !onCreateTask || isCreatingTask) {
+      return;
+    }
+
+    setIsCreatingTask(true);
+    void onCreateTask(normalizedPrompt)
+      .then((taskId) => {
+        if (taskId) {
+          onTaskChange(taskId);
+        }
+
+        setNewTaskPrompt("");
+        setIsNewTaskDialogOpen(false);
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : "Failed to create task.");
+      })
+      .finally(() => {
+        setIsCreatingTask(false);
+      });
+  };
+
+  useEffect(() => {
+    if (!isNewTaskDialogOpen) {
+      return;
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      newTaskPromptRef.current?.focus();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [isNewTaskDialogOpen]);
+
+  return (
+    <>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label={selectedTask ? `Task assigned to ${selectedTask.title}` : `No task assigned for ${worktree}`}
+            title={selectedTask?.title ?? "no task"}
+            className={cn(
+              "relative inline-flex h-6 min-w-[9rem] max-w-[16rem] items-center justify-center rounded-full border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+              open ? "border-ring/70 bg-accent text-foreground" : null,
+              selectedTask
+                ? "border-border/70 bg-muted/50 text-foreground hover:bg-muted"
+                : "border-border/70 border-dashed bg-transparent text-muted-foreground hover:border-border hover:text-foreground",
+              className,
+            )}
+          >
+            {hasPullRequests ? <GitPullRequest aria-hidden="true" className="pointer-events-none absolute left-2 size-3.5" /> : null}
+            <span className={cn("min-w-0 flex-1 truncate text-center", hasPullRequests ? "px-4" : null)}>{selectedTask?.title ?? "no task"}</span>
+          </button>
+        </DropdownMenuTrigger>
+
+        <DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-2rem)]">
+          {view === "actions" ? (
+            <>
+              {!selectedTask ? (
+                <>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setOpen(false);
+                      setIsNewTaskDialogOpen(true);
+                    }}
+                  >
+                    New task
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setView("tasks");
+                    }}
+                  >
+                    Set Task
+                  </DropdownMenuItem>
+                </>
+              ) : (
+                <>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setView("tasks");
+                    }}
+                  >
+                    Change task
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setView("assign-pr");
+                    }}
+                  >
+                    Assign PR
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setView("prs");
+                    }}
+                  >
+                    Go to PR
+                  </DropdownMenuItem>
+                </>
+              )}
+            </>
+          ) : null}
 
         {view === "tasks" ? (
           <div className="space-y-2 py-1">
@@ -373,7 +444,70 @@ export function TaskBadge({
             </DropdownMenuItem>
           </div>
         ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog
+        open={isNewTaskDialogOpen}
+        onOpenChange={(nextOpen) => {
+          if (isCreatingTask) {
+            return;
+          }
+
+          setIsNewTaskDialogOpen(nextOpen);
+          if (!nextOpen) {
+            setNewTaskPrompt("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New task</DialogTitle>
+            <DialogDescription>Paste what you want to get done and Consellour will create the task fields.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor={newTaskPromptId} className="sr-only">
+              Task details
+            </label>
+            <textarea
+              id={newTaskPromptId}
+              ref={newTaskPromptRef}
+              value={newTaskPrompt}
+              onChange={(event) => {
+                setNewTaskPrompt(event.target.value);
+              }}
+              rows={8}
+              placeholder="Describe the task for Consellour"
+              className="w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={isCreatingTask}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  createNewTask();
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (isCreatingTask) {
+                  return;
+                }
+                setIsNewTaskDialogOpen(false);
+                setNewTaskPrompt("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={createNewTask} disabled={isCreatingTask || newTaskPrompt.trim().length === 0 || !onCreateTask}>
+              {isCreatingTask ? "Creating..." : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

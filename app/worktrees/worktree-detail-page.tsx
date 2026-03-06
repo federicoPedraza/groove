@@ -12,7 +12,8 @@ import { GrooveWorktreeTerminal } from "@/components/pages/worktrees/groove-work
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { deriveWorktreeStatus } from "@/lib/utils/worktree/status";
+import { buildWorktreeInstanceLabels } from "@/lib/utils/worktree/labels";
+import { deriveWorktreeStatus, getActiveWorktreeRows } from "@/lib/utils/worktree/status";
 import type { RuntimeStateRow, WorktreeRow } from "@/components/pages/dashboard/types";
 import {
   GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
@@ -40,9 +41,11 @@ export default function WorktreeDetailPage() {
     forceCutConfirmRow,
     runtimeStateByWorktree,
     workspaceTasks,
+    testingRunningWorktrees,
     isCreateModalOpen,
     createBranch,
     createBase,
+    createTaskPrompt,
     isCreatePending,
     workspaceMeta,
     workspaceRoot,
@@ -54,6 +57,7 @@ export default function WorktreeDetailPage() {
     setIsCreateModalOpen,
     setCreateBranch,
     setCreateBase,
+    setCreateTaskPrompt,
     pickDirectory,
     openRecentDirectory,
     runRestoreAction,
@@ -65,6 +69,7 @@ export default function WorktreeDetailPage() {
     runOpenTestingTerminalAction,
     setWorktreeTaskAssignment,
     assignTaskPr,
+    createTaskWithConsellour,
     isTestingInstancePending,
     closeCurrentWorkspace,
   } = useDashboardState();
@@ -95,6 +100,30 @@ export default function WorktreeDetailPage() {
   const playPending = pendingPlayActions.includes(playActionKey);
   const rowPending = restorePending || cutPending || stopPending || playPending;
   const hasConnectedRepository = Boolean(activeWorkspace?.workspaceRoot);
+  const worktreeTaskTitlesById = useMemo(
+    () => workspaceTasks.reduce<Record<string, string>>((titlesById, task) => {
+      titlesById[task.id] = task.title;
+      return titlesById;
+    }, {}),
+    [workspaceTasks],
+  );
+  const activeWorktreeRows = useMemo(
+    () => getActiveWorktreeRows(worktreeRows, runtimeStateByWorktree, testingRunningWorktrees),
+    [runtimeStateByWorktree, testingRunningWorktrees, worktreeRows],
+  );
+  const selectedWorktreeInspectionLabel = useMemo(() => {
+    if (!selectedWorktreeName) {
+      return "Worktree";
+    }
+
+    const labelsByWorktree = buildWorktreeInstanceLabels(activeWorktreeRows, worktreeTaskTitlesById)
+      .reduce<Record<string, string>>((itemsByWorktree, item) => {
+        itemsByWorktree[item.worktree] = item.displayLabel;
+        return itemsByWorktree;
+      }, {});
+
+    return labelsByWorktree[selectedWorktreeName] ?? selectedWorktreeName;
+  }, [activeWorktreeRows, selectedWorktreeName, worktreeTaskTitlesById]);
   const knownWorktrees = useMemo(
     () => worktreeRows.filter((candidateRow) => candidateRow.status !== "deleted").map((candidateRow) => candidateRow.worktree),
     [worktreeRows],
@@ -144,7 +173,7 @@ export default function WorktreeDetailPage() {
       {!activeWorkspace ? null : (
         <div className="space-y-3">
           <header className="flex items-center justify-between gap-3 rounded-xl border bg-card p-4 shadow-xs">
-            <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">Worktree: {selectedWorktreeName || "Worktree"}</h1>
+            <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">Worktree: {selectedWorktreeInspectionLabel}</h1>
             <Link to="/worktrees" className={buttonVariants({ size: "sm", variant: "outline" })}>
               Back to Worktrees
             </Link>
@@ -206,6 +235,7 @@ export default function WorktreeDetailPage() {
                       setWorktreeTaskAssignment(worktree, taskId);
                     }}
                     onAssignTaskPr={assignTaskPr}
+                    onCreateTask={createTaskWithConsellour}
                     isTaskAssignmentDisabled={false}
                     closeWorktreePending={isClosingWorktree}
                   />
@@ -261,9 +291,11 @@ export default function WorktreeDetailPage() {
             setIsCreateModalOpen={setIsCreateModalOpen}
             createBranch={createBranch}
             createBase={createBase}
+            createTaskPrompt={createTaskPrompt}
             isCreatePending={isCreatePending}
             setCreateBranch={setCreateBranch}
             setCreateBase={setCreateBase}
+            setCreateTaskPrompt={setCreateTaskPrompt}
             onRunCutGrooveAction={(targetRow, force) => {
               void runCutGrooveAction(targetRow, force);
             }}

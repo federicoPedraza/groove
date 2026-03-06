@@ -5,11 +5,9 @@ import { Loader2, RefreshCw, Settings2 } from "lucide-react";
 
 import { OpencodeSettingsModal } from "@/components/opencode/opencode-settings-modal";
 import { Button } from "@/components/ui/button";
-import { parseImportedOpencodeSettings } from "@/src/lib/opencode-config-artifact";
 import {
+  DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
   opencodeIntegrationStatus,
-  opencodeUpdateGlobalSettings,
-  opencodeUpdateWorkspaceSettings,
   type OpencodeSettings,
 } from "@/src/lib/ipc";
 
@@ -21,14 +19,13 @@ type OpencodeIntegrationPanelProps = {
 const DEFAULT_SETTINGS: OpencodeSettings = {
   enabled: false,
   defaultModel: null,
+  settingsDirectory: DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
 };
 
 export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeIntegrationPanelProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [workspaceSavePending, setWorkspaceSavePending] = useState(false);
-  const [globalSavePending, setGlobalSavePending] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [workspaceScopeAvailable, setWorkspaceScopeAvailable] = useState(false);
   const [globalScopeAvailable, setGlobalScopeAvailable] = useState(false);
@@ -118,126 +115,19 @@ export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeInteg
 
       <OpencodeSettingsModal
         open={isModalOpen}
-        workspaceScopeAvailable={workspaceScopeAvailable}
-        globalScopeAvailable={globalScopeAvailable}
+        workspaceRoot={workspaceRoot}
         effectiveScope={effectiveScope}
         workspaceSettings={workspaceSettings}
         globalSettings={globalSettings}
-        workspaceSavePending={workspaceSavePending}
-        globalSavePending={globalSavePending}
         statusMessage={statusMessage}
         errorMessage={errorMessage}
+        onSettingsSaved={(message) => {
+          setStatusMessage(message);
+          setErrorMessage(null);
+          void refreshStatus();
+        }}
         onOpenChange={(open) => {
-          if (workspaceSavePending || globalSavePending) {
-            return;
-          }
           setIsModalOpen(open);
-        }}
-        onSaveWorkspace={(payload) => {
-          setWorkspaceSavePending(true);
-          setStatusMessage(null);
-          setErrorMessage(null);
-
-          void (async () => {
-            try {
-              const response = await opencodeUpdateWorkspaceSettings(payload);
-              if (!response.ok || !response.settings) {
-                setErrorMessage(response.error ?? "Failed to save workspace Opencode settings.");
-                return;
-              }
-
-              setWorkspaceSettings(response.settings);
-              setStatusMessage("Workspace Opencode settings saved.");
-              await refreshStatus();
-            } catch {
-              setErrorMessage("Failed to save workspace Opencode settings.");
-            } finally {
-              setWorkspaceSavePending(false);
-            }
-          })();
-        }}
-        onImportWorkspace={(file) => {
-          setWorkspaceSavePending(true);
-          setStatusMessage(null);
-          setErrorMessage(null);
-
-          void (async () => {
-            try {
-              const rawText = await file.text();
-              const parsed = parseImportedOpencodeSettings(rawText, "workspace");
-              if (!parsed.ok) {
-                setErrorMessage(parsed.error);
-                return;
-              }
-
-              const response = await opencodeUpdateWorkspaceSettings(parsed.settings);
-              if (!response.ok || !response.settings) {
-                setErrorMessage(response.error ?? "Failed to import workspace Opencode settings.");
-                return;
-              }
-
-              setWorkspaceSettings(response.settings);
-              setStatusMessage("Workspace Opencode settings imported.");
-              await refreshStatus();
-            } catch {
-              setErrorMessage("Failed to import workspace Opencode settings.");
-            } finally {
-              setWorkspaceSavePending(false);
-            }
-          })();
-        }}
-        onSaveGlobal={(payload) => {
-          setGlobalSavePending(true);
-          setStatusMessage(null);
-          setErrorMessage(null);
-
-          void (async () => {
-            try {
-              const response = await opencodeUpdateGlobalSettings(payload);
-              if (!response.ok || !response.settings) {
-                setErrorMessage(response.error ?? "Failed to save global Opencode settings.");
-                return;
-              }
-
-              setGlobalSettings(response.settings);
-              setStatusMessage("Global Opencode settings saved.");
-              await refreshStatus();
-            } catch {
-              setErrorMessage("Failed to save global Opencode settings.");
-            } finally {
-              setGlobalSavePending(false);
-            }
-          })();
-        }}
-        onImportGlobal={(file) => {
-          setGlobalSavePending(true);
-          setStatusMessage(null);
-          setErrorMessage(null);
-
-          void (async () => {
-            try {
-              const rawText = await file.text();
-              const parsed = parseImportedOpencodeSettings(rawText, "global");
-              if (!parsed.ok) {
-                setErrorMessage(parsed.error);
-                return;
-              }
-
-              const response = await opencodeUpdateGlobalSettings(parsed.settings);
-              if (!response.ok || !response.settings) {
-                setErrorMessage(response.error ?? "Failed to import global Opencode settings.");
-                return;
-              }
-
-              setGlobalSettings(response.settings);
-              setStatusMessage("Global Opencode settings imported.");
-              await refreshStatus();
-            } catch {
-              setErrorMessage("Failed to import global Opencode settings.");
-            } finally {
-              setGlobalSavePending(false);
-            }
-          })();
         }}
       />
     </div>

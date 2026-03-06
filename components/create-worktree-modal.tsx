@@ -21,11 +21,13 @@ type CreateWorktreeModalProps = {
   workspaceRoot: string | null;
   branch: string;
   base: string;
+  taskPrompt: string;
   loading: boolean;
   onOpenChange: (open: boolean) => void;
   onBranchChange: (value: string) => void;
   onBaseChange: (value: string) => void;
-  onSubmit: (options?: { branchOverride?: string; baseOverride?: string }) => void;
+  onTaskPromptChange: (value: string) => void;
+  onSubmit: (options?: { branchOverride?: string; baseOverride?: string; taskPromptOverride?: string }) => void;
   onCancel: () => void;
 };
 
@@ -34,10 +36,12 @@ function CreateWorktreeModal({
   workspaceRoot,
   branch,
   base,
+  taskPrompt,
   loading,
   onOpenChange,
   onBranchChange,
   onBaseChange,
+  onTaskPromptChange,
   onSubmit,
   onCancel,
 }: CreateWorktreeModalProps) {
@@ -138,7 +142,7 @@ function CreateWorktreeModal({
               }
 
               setSelectionError(null);
-              onSubmit({ baseOverride: selectedBranch });
+              onSubmit({ baseOverride: selectedBranch, taskPromptOverride: taskPrompt });
             }
           }}
         >
@@ -185,6 +189,23 @@ function CreateWorktreeModal({
             {!isExistingBranchesLoading && !existingBranchesError && existingBranches.length === 0 ? (
               <p className="text-xs text-muted-foreground">No branches were found in this repository.</p>
             ) : null}
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="create-worktree-task-prompt" className="text-sm font-medium">
+              Generate task (optional)
+            </label>
+            <textarea
+              id="create-worktree-task-prompt"
+              value={taskPrompt}
+              onChange={(event) => {
+                onTaskPromptChange(event.target.value);
+              }}
+              placeholder="Describe the task to generate while creating this worktree"
+              disabled={loading}
+              rows={4}
+              className="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            />
           </div>
 
           <DialogFooter>

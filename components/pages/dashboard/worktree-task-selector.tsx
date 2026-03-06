@@ -7,6 +7,7 @@ type WorktreeTaskSelectorProps = {
   selectedTaskId: string | null;
   onTaskChange: (worktree: string, taskId: string | null) => void;
   onAssignPr: (taskId: string, url: string) => Promise<void>;
+  onCreateTask?: (prompt: string) => Promise<string | null>;
   disabled?: boolean;
   triggerClassName?: string;
 };
@@ -17,6 +18,7 @@ export function WorktreeTaskSelector({
   selectedTaskId,
   onTaskChange,
   onAssignPr,
+  onCreateTask,
   disabled = false,
   triggerClassName,
 }: WorktreeTaskSelectorProps) {
@@ -29,6 +31,7 @@ export function WorktreeTaskSelector({
         onTaskChange(worktree, taskId);
       }}
       onAssignPr={onAssignPr}
+      onCreateTask={onCreateTask}
       disabled={disabled}
       className={triggerClassName}
     />

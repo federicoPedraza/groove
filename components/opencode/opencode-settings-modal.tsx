@@ -29,6 +29,10 @@ type OpencodeSettingsModalProps = {
   onOpenChange: (open: boolean) => void;
 };
 
+type SkillListItem = OpencodeSkillScope["skills"][number] & {
+  virtualIncoming: boolean;
+};
+
 
 function defaultGlobalSkillsPathFromSettingsDirectory(settingsDirectory: string): string {
   const normalized = settingsDirectory.trim();
@@ -396,9 +400,12 @@ export function OpencodeSettingsModal({
                   {globalSkillsScope.skills.length > 0 ? (
                     <div className="min-h-56 max-h-56 overflow-y-auto rounded-md border border-border/60 p-2">
                       <ul className="space-y-1">
-                        {Array.from(new Map([
-                          ...globalSkillsScope.skills.map((skill) => [skill.name, { ...skill, virtualIncoming: false }]),
-                          ...workspaceMarkedSkills.map((name) => [
+                        {Array.from(new Map<string, SkillListItem>([
+                          ...globalSkillsScope.skills.map((skill): [string, SkillListItem] => [
+                            skill.name,
+                            { ...skill, virtualIncoming: false },
+                          ]),
+                          ...workspaceMarkedSkills.map((name): [string, SkillListItem] => [
                             name,
                             {
                               name,
@@ -426,7 +433,7 @@ export function OpencodeSettingsModal({
                               key={skill.path}
                               className={className}
                               onClick={() => {
-                                if ((skill as { virtualIncoming?: boolean }).virtualIncoming) {
+                                if (skill.virtualIncoming) {
                                   return;
                                 }
                                 setGlobalMarkedSkills((current) =>
@@ -461,9 +468,12 @@ export function OpencodeSettingsModal({
                   {workspaceSkillsScope.skills.length > 0 ? (
                     <div className="min-h-56 max-h-56 overflow-y-auto rounded-md border border-border/60 p-2">
                       <ul className="space-y-1">
-                        {Array.from(new Map([
-                          ...workspaceSkillsScope.skills.map((skill) => [skill.name, { ...skill, virtualIncoming: false }]),
-                          ...globalMarkedSkills.map((name) => [
+                        {Array.from(new Map<string, SkillListItem>([
+                          ...workspaceSkillsScope.skills.map((skill): [string, SkillListItem] => [
+                            skill.name,
+                            { ...skill, virtualIncoming: false },
+                          ]),
+                          ...globalMarkedSkills.map((name): [string, SkillListItem] => [
                             name,
                             {
                               name,
@@ -491,7 +501,7 @@ export function OpencodeSettingsModal({
                               key={skill.path}
                               className={className}
                               onClick={() => {
-                                if ((skill as { virtualIncoming?: boolean }).virtualIncoming) {
+                                if (skill.virtualIncoming) {
                                   return;
                                 }
                                 setWorkspaceMarkedSkills((current) =>

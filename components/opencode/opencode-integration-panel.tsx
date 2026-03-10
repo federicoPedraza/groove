@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw, Settings2 } from "lucide-react";
 
 import { OpencodeSettingsModal } from "@/components/opencode/opencode-settings-modal";
@@ -27,8 +27,6 @@ export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeInteg
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
-  const [workspaceScopeAvailable, setWorkspaceScopeAvailable] = useState(false);
-  const [globalScopeAvailable, setGlobalScopeAvailable] = useState(false);
   const [effectiveScope, setEffectiveScope] = useState<"workspace" | "global" | "none">("none");
   const [workspaceSettings, setWorkspaceSettings] = useState<OpencodeSettings>({ ...DEFAULT_SETTINGS });
   const [globalSettings, setGlobalSettings] = useState<OpencodeSettings>({ ...DEFAULT_SETTINGS });
@@ -43,8 +41,6 @@ export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeInteg
         return;
       }
 
-      setWorkspaceScopeAvailable(response.workspaceScopeAvailable);
-      setGlobalScopeAvailable(response.globalScopeAvailable);
       setEffectiveScope(response.effectiveScope);
       setWorkspaceSettings(response.workspaceSettings ?? { ...DEFAULT_SETTINGS });
       setGlobalSettings(response.globalSettings ?? { ...DEFAULT_SETTINGS });
@@ -58,13 +54,6 @@ export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeInteg
   useEffect(() => {
     void refreshStatus();
   }, [refreshStatus, workspaceRoot]);
-
-  const statusLine = useMemo(() => {
-    const scope = effectiveScope === "none" ? "None" : effectiveScope === "workspace" ? "Workspace" : "Global";
-    const enabledSettings = effectiveScope === "workspace" ? workspaceSettings : globalSettings;
-    const enabled = effectiveScope !== "none" && enabledSettings.enabled;
-    return `Effective scope: ${scope}. Status: ${enabled ? "Enabled" : "Disabled"}.`;
-  }, [effectiveScope, globalSettings, workspaceSettings]);
 
   return (
     <div className="space-y-3 rounded-md border px-3 py-3">
@@ -102,12 +91,6 @@ export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeInteg
             <span>Settings</span>
           </Button>
         </div>
-      </div>
-
-      <div className="space-y-1 text-xs text-muted-foreground">
-        <p>{statusLine}</p>
-        <p>Workspace scope available: {workspaceScopeAvailable ? "Yes" : "No"}</p>
-        <p>Global scope available: {globalScopeAvailable ? "Yes" : "No"}</p>
       </div>
 
       {statusMessage ? <p className="text-xs text-green-800">{statusMessage}</p> : null}

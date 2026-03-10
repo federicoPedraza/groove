@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "feature": "diagnostics-recovery",
+  "source": "help/diagnostics-recovery/diagnostics-recovery.md",
+  "model": "text-embedding-3-small",
+  "chunkWordTarget": 180,
+  "chunkWordOverlap": 40,
+  "contentSha256": "manual-seed",
+  "chunks": [
+    {
+      "id": "diagnostics-recovery-001",
+      "index": 0,
+      "heading": "Purpose",
+      "text": "Diagnostics helps investigate broken workspace, worktree, and runtime states. Use it when actions fail, status is inconsistent, or a worktree looks corrupted.",
+      "tokens": ["diagnostics", "broken", "runtime", "status", "corrupted"],
+      "embedding": []
+    },
+    {
+      "id": "diagnostics-recovery-002",
+      "index": 1,
+      "heading": "Recovery actions",
+      "text": "Use built-in recovery flows to repair metadata mismatches and command failures. Prefer guided recovery before manual filesystem edits.",
+      "tokens": ["recovery", "repair", "metadata", "failures", "guided"],
+      "embedding": []
+    },
+    {
+      "id": "diagnostics-recovery-003",
+      "index": 2,
+      "heading": "Corrupted worktree handling",
+      "text": "If a worktree is corrupted, save important local changes, inspect diagnostics output, and recreate the worktree if repair cannot restore a clean state.",
+      "tokens": ["worktree", "corrupted", "save", "recreate", "clean"],
+      "embedding": []
+    }
+  ]
+}

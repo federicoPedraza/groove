@@ -40,6 +40,7 @@ type WorktreesTableProps = {
   onCutConfirm: (row: WorktreeRow) => void;
   onStopAction: (row: WorktreeRow, runtimeRow: RuntimeStateRow | undefined) => void;
   onPlayAction: (row: WorktreeRow) => void;
+  onOpenTerminalAction: (worktree: string) => void;
   onSetTestingTargetAction: (row: WorktreeRow) => void;
   onSetWorktreeTaskAssignment: (worktree: string, taskId: string | null) => void;
   onAssignTaskPr: (taskId: string, url: string) => Promise<void>;
@@ -68,6 +69,7 @@ export function WorktreesTable({
   onCutConfirm,
   onStopAction,
   onPlayAction,
+  onOpenTerminalAction,
   onSetTestingTargetAction,
   onSetWorktreeTaskAssignment,
   onAssignTaskPr,
@@ -148,7 +150,7 @@ export function WorktreesTable({
     const isTestingRunning = testingRunningWorktrees.includes(row.worktree);
 
     return (
-      <TableRow key={item.key}>
+      <TableRow key={item.key} className="hover:bg-transparent">
         <TableCell className="w-[30%] md:w-[24%]">
           <div className="flex items-center gap-2 px-2 py-1">
             <span className="min-w-0 flex-1 truncate select-text">{row.branchGuess}</span>
@@ -202,6 +204,7 @@ export function WorktreesTable({
               repositoryRemoteUrl={repositoryRemoteUrl}
               onRepair={onRestoreAction}
               onPlay={onPlayAction}
+              onOpenTerminal={onOpenTerminalAction}
               onStop={onStopAction}
               onSetTestingTarget={onSetTestingTargetAction}
               showTestingTargetButton={false}
@@ -214,7 +217,7 @@ export function WorktreesTable({
   };
 
   return (
-    <div role="region" aria-label="Groove worktrees table" className="rounded-lg border">
+    <div role="region" aria-label="Groove worktrees table" className="rounded-lg border bg-card">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">

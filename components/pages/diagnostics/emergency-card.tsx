@@ -13,11 +13,14 @@ const KILL_ANIMATION_FRAME_WIDTH_PX = 100;
 const KILL_ANIMATION_FRAME_HEIGHT_PX = 100;
 
 type EmergencyCardProps = {
-  isKillingAllNonWorktreeOpencode: boolean;
-  onKillAllNonWorktreeOpencode: () => void;
+  isKillingAllNodeAndOpencodeInstances: boolean;
+  onKillAllNodeAndOpencodeInstances: () => void;
 };
 
-export function EmergencyCard({ isKillingAllNonWorktreeOpencode, onKillAllNonWorktreeOpencode }: EmergencyCardProps) {
+export function EmergencyCard({
+  isKillingAllNodeAndOpencodeInstances,
+  onKillAllNodeAndOpencodeInstances,
+}: EmergencyCardProps) {
   const [frameIndex, setFrameIndex] = useState(0);
   const [isKillButtonHovered, setIsKillButtonHovered] = useState(false);
   const [spriteScale, setSpriteScale] = useState(1);
@@ -73,24 +76,24 @@ export function EmergencyCard({ isKillingAllNonWorktreeOpencode, onKillAllNonWor
           <div className="space-y-1.5">
             <CardTitle>Emergency</CardTitle>
             <CardDescription>
-              Kill all OpenCode processes that are not worktree-related. This is intended for stuck global sessions only.
+              Kill all Node and OpenCode processes with no exceptions. Use only when you need to force-reset all local dev sessions.
             </CardDescription>
           </div>
           <Button
             type="button"
             variant="outline"
             className={SOFT_RED_BUTTON_CLASSES}
-            onClick={onKillAllNonWorktreeOpencode}
+            onClick={onKillAllNodeAndOpencodeInstances}
             onMouseEnter={() => {
               setIsKillButtonHovered(true);
             }}
             onMouseLeave={() => {
               setIsKillButtonHovered(false);
             }}
-            disabled={isKillingAllNonWorktreeOpencode}
+            disabled={isKillingAllNodeAndOpencodeInstances}
           >
-            {isKillingAllNonWorktreeOpencode ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <OctagonX aria-hidden="true" className="size-4" />}
-            <span>Kill non-worktree OpenCode</span>
+            {isKillingAllNodeAndOpencodeInstances ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <OctagonX aria-hidden="true" className="size-4" />}
+            <span>Kill all Node + OpenCode</span>
           </Button>
         </div>
         <div

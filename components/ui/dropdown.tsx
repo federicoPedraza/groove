@@ -88,7 +88,13 @@ export function Dropdown({
         <DropdownMenuTrigger asChild>{triggerButton}</DropdownMenuTrigger>
       )}
 
-      <DropdownMenuContent align={align} className={cn("w-80 max-w-[calc(100vw-2rem)]", contentClassName)}>
+      <DropdownMenuContent
+        align={align}
+        className={cn(
+          "w-[var(--radix-dropdown-menu-trigger-width)] max-w-[min(var(--radix-dropdown-menu-content-available-width),calc(100vw-2rem))] max-h-[var(--radix-dropdown-menu-content-available-height)]",
+          contentClassName,
+        )}
+      >
         {menuHeader}
         {options.length === 0 ? (
           <p className="px-2 py-1.5 text-sm text-muted-foreground">{emptyLabel}</p>

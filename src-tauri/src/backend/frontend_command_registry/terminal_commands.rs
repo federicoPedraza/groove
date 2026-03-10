@@ -1,7 +1,6 @@
 #[tauri::command]
 fn workspace_open_terminal(
     app: AppHandle,
-    terminal_state: State<GrooveTerminalState>,
     payload: TestingEnvironmentStartPayload,
 ) -> GrooveCommandResponse {
     let request_id = request_id();
@@ -95,38 +94,7 @@ fn workspace_open_terminal(
         }
     };
 
-    let launched_command = if workspace_meta
-        .open_terminal_at_worktree_command
-        .as_deref()
-        .map(str::trim)
-        .is_some_and(is_groove_terminal_open_command)
-    {
-        match open_groove_terminal_session(
-            &app,
-            &terminal_state,
-            &workspace_root,
-            worktree,
-            &worktree_path,
-            GrooveTerminalOpenMode::Plain,
-            None,
-            None,
-            None,
-            false,
-            true,
-        ) {
-            Ok(session) => session.command,
-            Err(error) => {
-                return GrooveCommandResponse {
-                    request_id,
-                    ok: false,
-                    exit_code: None,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                    error: Some(error),
-                }
-            }
-        }
-    } else {
+    let launched_command =
         match launch_open_terminal_at_worktree_command(&worktree_path, &workspace_meta) {
             Ok(command) => command,
             Err(error) => {
@@ -139,8 +107,7 @@ fn workspace_open_terminal(
                     error: Some(error),
                 }
             }
-        }
-    };
+        };
 
     if let Err(error) = record_worktree_last_executed_at(&app, &workspace_root, worktree) {
         return GrooveCommandResponse {
@@ -218,19 +185,20 @@ fn workspace_open_workspace_terminal(
         }
     };
 
-    let launched_command = match launch_open_terminal_at_worktree_command(&workspace_root, &workspace_meta) {
-        Ok(command) => command,
-        Err(error) => {
-            return GrooveCommandResponse {
-                request_id,
-                ok: false,
-                exit_code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                error: Some(error),
+    let launched_command =
+        match launch_open_terminal_at_worktree_command(&workspace_root, &workspace_meta) {
+            Ok(command) => command,
+            Err(error) => {
+                return GrooveCommandResponse {
+                    request_id,
+                    ok: false,
+                    exit_code: None,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    error: Some(error),
+                }
             }
-        }
-    };
+        };
 
     GrooveCommandResponse {
         request_id,
@@ -372,7 +340,9 @@ fn groove_terminal_write(
                 request_id,
                 ok: false,
                 session: None,
-                error: Some(format!("Failed to acquire Groove terminal state lock: {error}")),
+                error: Some(format!(
+                    "Failed to acquire Groove terminal state lock: {error}"
+                )),
             }
         }
     };
@@ -407,7 +377,9 @@ fn groove_terminal_write(
             request_id,
             ok: false,
             session: None,
-            error: Some(format!("Failed to write to Groove terminal session: {error}")),
+            error: Some(format!(
+                "Failed to write to Groove terminal session: {error}"
+            )),
         };
     }
 
@@ -462,7 +434,9 @@ fn groove_terminal_resize(
                 request_id,
                 ok: false,
                 session: None,
-                error: Some(format!("Failed to acquire Groove terminal state lock: {error}")),
+                error: Some(format!(
+                    "Failed to acquire Groove terminal state lock: {error}"
+                )),
             }
         }
     };
@@ -563,7 +537,9 @@ fn groove_terminal_close(
                 request_id,
                 ok: false,
                 session: None,
-                error: Some(format!("Failed to acquire Groove terminal state lock: {error}")),
+                error: Some(format!(
+                    "Failed to acquire Groove terminal state lock: {error}"
+                )),
             }
         }
     };
@@ -633,7 +609,9 @@ fn groove_terminal_close(
         &workspace_root_rendered,
         worktree,
         "closed",
-        Some(format!("Terminal session closed by request ({close_detail}).")),
+        Some(format!(
+            "Terminal session closed by request ({close_detail})."
+        )),
     );
 
     GrooveTerminalResponse {
@@ -687,7 +665,9 @@ fn groove_terminal_get_session(
                 request_id,
                 ok: false,
                 session: None,
-                error: Some(format!("Failed to acquire Groove terminal state lock: {error}")),
+                error: Some(format!(
+                    "Failed to acquire Groove terminal state lock: {error}"
+                )),
             }
         }
     };
@@ -754,7 +734,9 @@ fn groove_terminal_list_sessions(
                 request_id,
                 ok: false,
                 sessions: Vec::new(),
-                error: Some(format!("Failed to acquire Groove terminal state lock: {error}")),
+                error: Some(format!(
+                    "Failed to acquire Groove terminal state lock: {error}"
+                )),
             }
         }
     };
@@ -766,4 +748,3 @@ fn groove_terminal_list_sessions(
         error: None,
     }
 }
-

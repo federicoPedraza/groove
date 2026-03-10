@@ -12,13 +12,11 @@ import { GrooveWorktreeTerminal } from "@/components/pages/worktrees/groove-work
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { toast } from "@/lib/toast";
 import { buildWorktreeInstanceLabels } from "@/lib/utils/worktree/labels";
 import { deriveWorktreeStatus, getActiveWorktreeRows } from "@/lib/utils/worktree/status";
 import type { RuntimeStateRow, WorktreeRow } from "@/components/pages/dashboard/types";
-import {
-  GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
-  GROOVE_PLAY_COMMAND_SENTINEL,
-} from "@/src/lib/ipc";
+import { grooveTerminalOpen } from "@/src/lib/ipc";
 
 export default function WorktreeDetailPage() {
   const { worktree: worktreeParam } = useParams();
@@ -47,7 +45,6 @@ export default function WorktreeDetailPage() {
     createBase,
     createTaskPrompt,
     isCreatePending,
-    workspaceMeta,
     workspaceRoot,
     recentDirectories,
     forceCutConfirmLoading,
@@ -66,12 +63,12 @@ export default function WorktreeDetailPage() {
     runPlayGrooveAction,
     runCreateWorktreeAction,
     copyBranchName,
-    runOpenTestingTerminalAction,
     setWorktreeTaskAssignment,
     assignTaskPr,
     createTaskWithConsellour,
     isTestingInstancePending,
     closeCurrentWorkspace,
+    workspaceMeta,
   } = useDashboardState();
   const [isClosingWorktree, setIsClosingWorktree] = useState(false);
   const [pauseConfirmRow, setPauseConfirmRow] = useState<WorktreeRow | null>(null);
@@ -128,9 +125,6 @@ export default function WorktreeDetailPage() {
     () => worktreeRows.filter((candidateRow) => candidateRow.status !== "deleted").map((candidateRow) => candidateRow.worktree),
     [worktreeRows],
   );
-  const isGrooveMode =
-    workspaceMeta?.playGrooveCommand?.trim() === GROOVE_PLAY_COMMAND_SENTINEL ||
-    workspaceMeta?.openTerminalAtWorktreeCommand?.trim() === GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL;
   const branchCopied = row ? copiedBranchPath === row.path : false;
   const pauseConfirmActionKey = pauseConfirmRow ? `${pauseConfirmRow.path}:stop` : null;
   const pauseConfirmLoading = pauseConfirmActionKey !== null && pendingStopActions.includes(pauseConfirmActionKey);
@@ -166,6 +160,36 @@ export default function WorktreeDetailPage() {
       }
     },
     [isClosingWorktree, navigate, runStopAction],
+  );
+
+  const handleOpenInAppTerminal = useCallback(
+    async (worktree: string): Promise<void> => {
+      if (!workspaceMeta) {
+        toast.error("Select a workspace before opening a terminal.");
+        return;
+      }
+
+      try {
+        const result = await grooveTerminalOpen({
+          rootName: workspaceMeta.rootName,
+          knownWorktrees,
+          workspaceMeta,
+          worktree,
+          openMode: "plain",
+          openNew: true,
+        });
+
+        if (result.ok) {
+          toast.success("Opened in-app terminal.");
+          return;
+        }
+
+        toast.error(result.error ? `Failed to open in-app terminal: ${result.error}` : "Failed to open in-app terminal.");
+      } catch {
+        toast.error("In-app terminal open request failed.");
+      }
+    },
+    [knownWorktrees, workspaceMeta],
   );
 
   return (
@@ -227,7 +251,7 @@ export default function WorktreeDetailPage() {
                     variant="worktree-detail"
                     isTestingInstancePending={isTestingInstancePending}
                     onOpenTerminal={(worktree) => {
-                      void runOpenTestingTerminalAction(worktree);
+                      void handleOpenInAppTerminal(worktree);
                     }}
                     workspaceTasks={workspaceTasks}
                     selectedTaskId={row.taskId ?? null}
@@ -242,17 +266,16 @@ export default function WorktreeDetailPage() {
                 </TooltipProvider>
               </div>
 
-              {isGrooveMode ? (
-                workspaceRoot && workspaceMeta ? (
-                  <GrooveWorktreeTerminal
-                    workspaceRoot={workspaceRoot}
-                    workspaceMeta={workspaceMeta}
-                    knownWorktrees={knownWorktrees}
-                    worktree={row.worktree}
-                    runningSessionIds={[]}
-                  />
-                ) : null
+              {workspaceRoot && workspaceMeta ? (
+                <GrooveWorktreeTerminal
+                  workspaceRoot={workspaceRoot}
+                  workspaceMeta={workspaceMeta}
+                  knownWorktrees={knownWorktrees}
+                  worktree={row.worktree}
+                  runningSessionIds={[]}
+                />
               ) : null}
+
             </>
           ) : (
             <Card>

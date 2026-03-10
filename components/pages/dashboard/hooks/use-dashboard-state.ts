@@ -912,9 +912,11 @@ export function useDashboardState() {
 
 The user wants to insert the following task in Groove. You must define task fields and create exactly one task via the create_task tool.
 
-Rules:
+ Rules:
 - Use the user's request as the source of truth.
 - Fill title and description clearly.
+- Make the title problem-focused: name the issue itself, not the action to take.
+- Avoid verb-led titles such as "investigar" or "ask for".
 - Set both priority and consellourPriority based on urgency.
 - Call create_task exactly once.
 - After creating the task, reply with one concise sentence confirming creation.`,
@@ -1440,9 +1442,9 @@ Rules:
     }
   }, [fetchTestingEnvironmentState, knownWorktrees, testingTargetWorktrees.length, workspaceMeta]);
 
-  const runOpenTestingTerminalAction = useCallback(async (worktree?: string): Promise<void> => {
+  const runOpenWorktreeTerminalAction = useCallback(async (worktree?: string): Promise<void> => {
     if (!workspaceMeta || !worktree) {
-      toast.error("Select a testing target before opening a terminal.");
+      toast.error("Select a worktree before opening a terminal.");
       return;
     }
 
@@ -1774,7 +1776,7 @@ Rules:
     onSelectTestingTarget,
     runStartTestingInstanceAction,
     runStartTestingInstanceSeparateTerminalAction,
-    runOpenTestingTerminalAction,
+    runOpenWorktreeTerminalAction,
     runOpenWorkspaceTerminalAction,
     runStopTestingInstanceAction,
     setWorktreeTaskAssignment,

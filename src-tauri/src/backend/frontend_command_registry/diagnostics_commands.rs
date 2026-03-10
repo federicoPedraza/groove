@@ -111,11 +111,11 @@ fn diagnostics_stop_all_opencode_instances() -> DiagnosticsStopAllResponse {
 }
 
 #[tauri::command]
-fn diagnostics_stop_all_non_worktree_opencode_instances() -> DiagnosticsStopAllResponse {
+fn diagnostics_kill_all_node_and_opencode_instances() -> DiagnosticsStopAllResponse {
     let request_id = request_id();
 
-    let rows = match list_non_worktree_opencode_process_rows() {
-        Ok(rows) => rows,
+    let (snapshot_rows, _warning) = match list_process_snapshot_rows() {
+        Ok(value) => value,
         Err(error) => {
             return DiagnosticsStopAllResponse {
                 request_id,
@@ -130,8 +130,12 @@ fn diagnostics_stop_all_non_worktree_opencode_instances() -> DiagnosticsStopAllR
         }
     };
 
-    let unique_pids = rows
+    let unique_pids = snapshot_rows
         .into_iter()
+        .filter(|row| {
+            is_opencode_process(row.process_name.as_deref(), &row.command)
+                || is_likely_node_command(row.process_name.as_deref(), &row.command)
+        })
         .map(|row| row.pid)
         .collect::<HashSet<_>>()
         .into_iter()
@@ -149,7 +153,10 @@ fn diagnostics_stop_all_non_worktree_opencode_instances() -> DiagnosticsStopAllR
         failed,
         errors,
         error: if has_errors {
-            Some(format!("Failed to stop {} process(es).", failed))
+            Some(format!(
+                "Failed to stop {} Node/OpenCode process(es).",
+                failed
+            ))
         } else {
             None
         },
@@ -272,7 +279,9 @@ fn diagnostics_clean_all_dev_servers(app: AppHandle) -> DiagnosticsStopAllRespon
 }
 
 #[tauri::command]
-fn diagnostics_get_msot_consuming_programs(app: AppHandle) -> DiagnosticsMostConsumingProgramsResponse {
+fn diagnostics_get_msot_consuming_programs(
+    app: AppHandle,
+) -> DiagnosticsMostConsumingProgramsResponse {
     let started_at = Instant::now();
     let request_id = request_id();
     let telemetry_enabled = telemetry_enabled_for_app(&app);
@@ -341,4 +350,3 @@ fn diagnostics_get_system_overview(app: AppHandle) -> DiagnosticsSystemOverviewR
 
     response
 }
-

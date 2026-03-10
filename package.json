@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "setup": "node ./scripts/setup.mjs",
+    "help:embeddings": "node ./scripts/generate-help-embeddings.mjs",
     "setup:macos": "./bash/setup-macos-fast",
     "sidecar:check:macos": "./bash/check-macos-sidecars",
     "setup:linux": "./bash/setup-linux-fast",
@@ -11,7 +12,7 @@
     "setup:windows": "powershell -ExecutionPolicy Bypass -File ./powershell/setup-windows-fast.ps1",
     "sidecar:check:windows": "powershell -ExecutionPolicy Bypass -File ./powershell/check-windows-sidecars.ps1",
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run help:embeddings && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

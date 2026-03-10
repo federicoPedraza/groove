@@ -1,20 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { Hammer, Loader2, X } from "lucide-react";
 
 import { DiagnosticsHeader } from "@/components/pages/diagnostics/diagnostics-header";
 import { DiagnosticsSystemSidebar } from "@/components/pages/diagnostics/diagnostics-system-sidebar";
 import { EmergencyCard } from "@/components/pages/diagnostics/emergency-card";
 import { useAppLayout } from "@/components/pages/use-app-layout";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/lib/toast";
 import { appendRequestId } from "@/lib/utils/common/request-id";
 import {
   diagnosticsCleanAllDevServers,
   diagnosticsGetSystemOverview,
   diagnosticsGetMsotConsumingPrograms,
-  diagnosticsStopAllNonWorktreeOpencodeInstances,
+  diagnosticsKillAllNodeAndOpencodeInstances,
   isTelemetryEnabled,
   type DiagnosticsMostConsumingProgramsResponse,
   type DiagnosticsSystemOverview,
@@ -41,7 +42,7 @@ function logDiagnosticsTelemetry(event: string, payload: Record<string, unknown>
 export default function DiagnosticsPage() {
   const diagnosticsEnterPerfMsRef = useRef<number>(performance.now());
   const isSystemOverviewRequestInFlightRef = useRef(false);
-  const [isKillingAllNonWorktreeOpencode, setIsKillingAllNonWorktreeOpencode] = useState(false);
+  const [isKillingAllNodeAndOpencodeInstances, setIsKillingAllNodeAndOpencodeInstances] = useState(false);
   const [isCleaningAllDevServers, setIsCleaningAllDevServers] = useState(false);
   const [mostConsumingProgramsOutput, setMostConsumingProgramsOutput] = useState<string | null>(null);
   const [mostConsumingProgramsError, setMostConsumingProgramsError] = useState<string | null>(null);
@@ -308,19 +309,19 @@ export default function DiagnosticsPage() {
     }
   };
 
-  const runKillAllNonWorktreeOpencodeAction = async (): Promise<void> => {
-    setIsKillingAllNonWorktreeOpencode(true);
+  const runKillAllNodeAndOpencodeInstancesAction = async (): Promise<void> => {
+    setIsKillingAllNodeAndOpencodeInstances(true);
 
     try {
-      const result = (await diagnosticsStopAllNonWorktreeOpencodeInstances()) as DiagnosticsStopAllResponse;
+      const result = (await diagnosticsKillAllNodeAndOpencodeInstances()) as DiagnosticsStopAllResponse;
       if (!result.ok) {
-        toast.error("Failed to kill non-worktree OpenCode processes.", {
+        toast.error("Failed to kill all Node and OpenCode processes.", {
           description: appendRequestId(result.error, result.requestId),
         });
         return;
       }
 
-      toast.success("Emergency kill completed for non-worktree OpenCode processes.", {
+      toast.success("Emergency kill completed for all Node and OpenCode processes.", {
         description: appendRequestId(
           `attempted=${String(result.attempted)}, stopped=${String(result.stopped)}, alreadyStopped=${String(result.alreadyStopped)}, failed=${String(result.failed)}`,
           result.requestId,
@@ -329,7 +330,7 @@ export default function DiagnosticsPage() {
     } catch {
       toast.error("Emergency kill request failed.");
     } finally {
-      setIsKillingAllNonWorktreeOpencode(false);
+      setIsKillingAllNodeAndOpencodeInstances(false);
     }
   };
 
@@ -379,12 +380,17 @@ export default function DiagnosticsPage() {
       gitignoreSanity.missingEntries.length === 0,
   );
   const shouldShowApplyTermPatch = Boolean(termSanity && !termSanity.isUsable);
+  const gitignoreNeedsRepair = shouldShowApplyPatch;
+  const termNeedsRepair = shouldShowApplyTermPatch;
+  const isGitignoreApplyNowDisabled = isGitignoreSanityChecking || isGitignoreSanityApplyPending || !gitignoreNeedsRepair;
+  const isTermApplyNowDisabled = isTermSanityChecking || isTermSanityApplyPending || !termNeedsRepair;
   const isTermSanityHealthy = Boolean(
     !isTermSanityChecking &&
       !termSanityErrorMessage &&
       termSanity?.isUsable,
   );
-  const isGrooveSanityHealthy = isGitignoreSanityHealthy && isTermSanityHealthy;
+  const gitignoreApplyButtonLabel = "Apply fix for .gitignore includes Groove entries";
+  const termApplyButtonLabel = "Apply fix for TERM is missing or unusable";
 
   let gitignoreSanityLabel = "Checking .gitignore sanity...";
   if (!hasActiveWorkspace && !isGitignoreSanityChecking) {
@@ -441,50 +447,61 @@ export default function DiagnosticsPage() {
       />
 
       {shouldShowGitignoreSanityPanel ? (
-        <div
-          className={`rounded-md border px-3 py-2 ${
-            isGrooveSanityHealthy ? "border-emerald-700/30 bg-emerald-500/10" : "border-amber-700/30 bg-amber-500/10"
-          }`}
-        >
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <p className="text-sm text-muted-foreground">Groove sanity checks:</p>
-              <ol className="mt-1 list-decimal pl-5 text-sm text-muted-foreground">
-                <li>.gitignore: {gitignoreSanityLabel}</li>
-                <li>TERM: {termSanityLabel}</li>
-              </ol>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {shouldShowApplyPatch ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    void applyGitignoreSanityPatch();
-                  }}
-                  disabled={isGitignoreSanityChecking || isGitignoreSanityApplyPending}
-                >
-                  {isGitignoreSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
-                  <span>Apply Patch</span>
-                </Button>
-              ) : null}
-              {shouldShowApplyTermPatch ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    void applyTermSanityPatch();
-                  }}
-                  disabled={isTermSanityChecking || isTermSanityApplyPending}
-                >
-                  {isTermSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
-                  <span>Fix TERM</span>
-                </Button>
-              ) : null}
-            </div>
-          </div>
+        <div role="region" aria-label="Groove sanity checks table" className="rounded-lg border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Check</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Details</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow className={`hover:bg-transparent ${gitignoreNeedsRepair ? "bg-amber-500/10" : ""}`}>
+                <TableCell className="font-medium">.gitignore includes Groove entries</TableCell>
+                <TableCell>{isGitignoreSanityHealthy ? "Healthy" : "Needs attention"}</TableCell>
+                <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">{gitignoreSanityLabel}</TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      void applyGitignoreSanityPatch();
+                    }}
+                    disabled={isGitignoreApplyNowDisabled}
+                    aria-label={gitignoreApplyButtonLabel}
+                    title={gitignoreApplyButtonLabel}
+                    className="size-8 p-0"
+                  >
+                    {isGitignoreSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Hammer aria-hidden="true" className="size-4" />}
+                  </Button>
+                </TableCell>
+              </TableRow>
+              <TableRow className={`hover:bg-transparent ${termNeedsRepair ? "bg-amber-500/10" : ""}`}>
+                <TableCell className="font-medium">TERM is missing or unusable</TableCell>
+                <TableCell>{isTermSanityHealthy ? "Healthy" : "Needs attention"}</TableCell>
+                <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">{termSanityLabel}</TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      void applyTermSanityPatch();
+                    }}
+                    disabled={isTermApplyNowDisabled}
+                    aria-label={termApplyButtonLabel}
+                    title={termApplyButtonLabel}
+                    className="size-8 p-0"
+                  >
+                    {isTermSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Hammer aria-hidden="true" className="size-4" />}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
           {gitignoreSanityStatusMessage ? <p className="mt-1 text-xs text-emerald-700">{gitignoreSanityStatusMessage}</p> : null}
           {gitignoreSanityErrorMessage ? <p className="mt-1 text-xs text-destructive">{gitignoreSanityErrorMessage}</p> : null}
           {termSanityStatusMessage ? <p className="mt-1 text-xs text-emerald-700">{termSanityStatusMessage}</p> : null}
@@ -518,9 +535,9 @@ export default function DiagnosticsPage() {
       )}
 
       <EmergencyCard
-        isKillingAllNonWorktreeOpencode={isKillingAllNonWorktreeOpencode}
-        onKillAllNonWorktreeOpencode={() => {
-          void runKillAllNonWorktreeOpencodeAction();
+        isKillingAllNodeAndOpencodeInstances={isKillingAllNodeAndOpencodeInstances}
+        onKillAllNodeAndOpencodeInstances={() => {
+          void runKillAllNodeAndOpencodeInstancesAction();
         }}
       />
     </>

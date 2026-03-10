@@ -673,6 +673,29 @@ export function WorktreeRowActions({
     </DropdownMenu>
   );
 
+  const openTerminalAction = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={`h-8 w-8 p-0 ${SOFT_ORANGE_BUTTON_CLASSES}`}
+          onClick={() => {
+            if (onOpenTerminal) {
+              onOpenTerminal(row.worktree);
+            }
+          }}
+          disabled={!onOpenTerminal || rowPending}
+          aria-label={`Open terminal for ${row.worktree}`}
+        >
+          <Terminal aria-hidden="true" className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>Open terminal</TooltipContent>
+    </Tooltip>
+  );
+
   return (
     <>
       <div className="flex items-center justify-end gap-1">
@@ -760,7 +783,7 @@ export function WorktreeRowActions({
             </TooltipTrigger>
             <TooltipContent>Repair</TooltipContent>
           </Tooltip>
-          {gitAction}
+          {openTerminalAction}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -871,7 +894,7 @@ export function WorktreeRowActions({
               <TooltipContent>{testingTooltipLabel}</TooltipContent>
             </Tooltip>
           ) : null}
-          {gitAction}
+          {openTerminalAction}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -942,7 +965,7 @@ export function WorktreeRowActions({
               <TooltipContent>{testingTooltipLabel}</TooltipContent>
             </Tooltip>
           ) : null}
-          {gitAction}
+          {openTerminalAction}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

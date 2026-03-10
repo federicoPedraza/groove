@@ -126,7 +126,7 @@ flowchart TB
 ### Diagnostics and cleanup
 - Inspect OpenCode / Node-related runtime processes.
 - Stop individual processes or bulk process groups.
-- Emergency kill for non-worktree OpenCode processes.
+- Emergency kill for all Node and OpenCode processes.
 - System overview + top-consuming programs query.
 - `.gitignore` sanity check + optional patch.
 

@@ -6,7 +6,6 @@ import { useNavigate } from "react-router-dom";
 
 import { DirectoryBehindIndicator } from "@/components/pages/dashboard/directory-behind-indicator";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Dropdown } from "@/components/ui/dropdown";
 import { DashboardHeader } from "@/components/pages/dashboard/dashboard-header";
 import { DashboardModals } from "@/components/pages/dashboard/dashboard-modals";
@@ -105,6 +104,7 @@ export default function Home() {
     runForgetAllDeletedWorktreesAction,
     runStopAction,
     runPlayGrooveAction,
+    runOpenWorktreeTerminalAction,
     onSelectTestingTarget,
     setWorktreeTaskAssignment,
     assignTaskPr,
@@ -286,74 +286,75 @@ export default function Home() {
             }}
           />
 
-          <Card>
-            <CardContent className="space-y-3">
-              {!hasWorktreesDirectory ? (
-                <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-                  No <code>.worktrees</code> directory found under this workspace root yet.
-                </p>
-              ) : worktreeRows.length === 0 ? (
-                <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-                  <code>.worktrees</code> exists, but no worktree directories were found.
-                </p>
-              ) : (
-                <WorktreesTable
-                  groupedWorktreeItems={groupedWorktreeItems}
-                  copiedBranchPath={copiedBranchPath}
-                  pendingRestoreActions={pendingRestoreActions}
-                  pendingCutGrooveActions={pendingCutGrooveActions}
-                  pendingStopActions={pendingStopActions}
-                  pendingPlayActions={pendingPlayActions}
-                  pendingTestActions={pendingTestActions}
-                  runtimeStateByWorktree={runtimeStateByWorktree}
-                  workspaceTasks={workspaceTasks}
-                  isWorkspaceTasksLoading={isWorkspaceTasksLoading}
-                  testingTargetWorktrees={testingTargetWorktrees}
-                  testingRunningWorktrees={testingRunningWorktrees}
-                  hasConnectedRepository={Boolean(activeWorkspace?.workspaceRoot)}
-                  repositoryRemoteUrl={activeWorkspace?.repositoryRemoteUrl}
-                  onCopyBranchName={(row) => {
-                    void copyBranchName(row);
-                  }}
-                  onRestoreAction={(row) => {
-                    void runRestoreAction(row);
-                  }}
-                  onCutConfirm={(row) => {
-                    setCutConfirmRow(row);
-                  }}
-                  onStopAction={(row) => {
-                    setPauseConfirmRow(row);
-                  }}
-                  onPlayAction={(row) => {
-                    void runPlayGrooveAction(row);
-                  }}
-                  onSetTestingTargetAction={(row) => {
-                    onSelectTestingTarget(row);
-                  }}
-                  onSetWorktreeTaskAssignment={(worktree, taskId) => {
-                    setWorktreeTaskAssignment(worktree, taskId);
-                  }}
-                  onAssignTaskPr={assignTaskPr}
-                  onCreateTask={createTaskWithConsellour}
-                  onForgetAllDeletedWorktrees={() => {
-                    const shouldForgetAll = window.confirm("Forget all deleted worktrees forever from Groove local state?");
-                    if (!shouldForgetAll) {
-                      return;
-                    }
-                    void runForgetAllDeletedWorktreesAction();
-                  }}
-                  isForgetAllDeletedWorktreesPending={isForgetAllDeletedWorktreesPending}
-                />
-              )}
+          <div className="space-y-3">
+            {!hasWorktreesDirectory ? (
+              <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                No <code>.worktrees</code> directory found under this workspace root yet.
+              </p>
+            ) : worktreeRows.length === 0 ? (
+              <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                <code>.worktrees</code> exists, but no worktree directories were found.
+              </p>
+            ) : (
+              <WorktreesTable
+                groupedWorktreeItems={groupedWorktreeItems}
+                copiedBranchPath={copiedBranchPath}
+                pendingRestoreActions={pendingRestoreActions}
+                pendingCutGrooveActions={pendingCutGrooveActions}
+                pendingStopActions={pendingStopActions}
+                pendingPlayActions={pendingPlayActions}
+                pendingTestActions={pendingTestActions}
+                runtimeStateByWorktree={runtimeStateByWorktree}
+                workspaceTasks={workspaceTasks}
+                isWorkspaceTasksLoading={isWorkspaceTasksLoading}
+                testingTargetWorktrees={testingTargetWorktrees}
+                testingRunningWorktrees={testingRunningWorktrees}
+                hasConnectedRepository={Boolean(activeWorkspace?.workspaceRoot)}
+                repositoryRemoteUrl={activeWorkspace?.repositoryRemoteUrl}
+                onCopyBranchName={(row) => {
+                  void copyBranchName(row);
+                }}
+                onRestoreAction={(row) => {
+                  void runRestoreAction(row);
+                }}
+                onCutConfirm={(row) => {
+                  setCutConfirmRow(row);
+                }}
+                onStopAction={(row) => {
+                  setPauseConfirmRow(row);
+                }}
+                onPlayAction={(row) => {
+                  void runPlayGrooveAction(row);
+                }}
+                onOpenTerminalAction={(worktree) => {
+                  void runOpenWorktreeTerminalAction(worktree);
+                }}
+                onSetTestingTargetAction={(row) => {
+                  onSelectTestingTarget(row);
+                }}
+                onSetWorktreeTaskAssignment={(worktree, taskId) => {
+                  setWorktreeTaskAssignment(worktree, taskId);
+                }}
+                onAssignTaskPr={assignTaskPr}
+                onCreateTask={createTaskWithConsellour}
+                onForgetAllDeletedWorktrees={() => {
+                  const shouldForgetAll = window.confirm("Forget all deleted worktrees forever from Groove local state?");
+                  if (!shouldForgetAll) {
+                    return;
+                  }
+                  void runForgetAllDeletedWorktreesAction();
+                }}
+                isForgetAllDeletedWorktreesPending={isForgetAllDeletedWorktreesPending}
+              />
+            )}
 
-              {statusMessage && (
-                <p className="rounded-md border border-emerald-600/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">{statusMessage}</p>
-              )}
-              {errorMessage && (
-                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{errorMessage}</p>
-              )}
-            </CardContent>
-          </Card>
+            {statusMessage && (
+              <p className="rounded-md border border-emerald-600/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">{statusMessage}</p>
+            )}
+            {errorMessage && (
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{errorMessage}</p>
+            )}
+          </div>
         </div>
       )}
 

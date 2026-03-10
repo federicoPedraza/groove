@@ -9,7 +9,7 @@ export const CONSELLOUR_TOOL_DEFINITIONS: AiToolDefinition[] = [
       additionalProperties: false,
       required: ["title", "description", "priority", "consellourPriority"],
       properties: {
-        title: { type: "string" },
+        title: { type: "string", description: "Problem-focused task title; name the issue, not an action like investigar or ask for." },
         description: { type: "string" },
         priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
         consellourPriority: { type: "string", enum: ["low", "medium", "high", "urgent"] },

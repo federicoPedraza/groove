@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pencil, RefreshCw, Settings2, Sparkles, Trash2, X } from "lucide-react";
 
 import { runConsellourToolLoop } from "@/libs/ai";
@@ -9,10 +9,13 @@ import { JiraIntegrationPanel } from "@/components/jira/jira-integration-panel";
 import { useDashboardState } from "@/components/pages/dashboard/hooks/use-dashboard-state";
 import { useAppLayout } from "@/components/pages/use-app-layout";
 import { ConsellourSettingsModal } from "@/components/consellour-settings-modal";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { Dropdown, type DropdownOption } from "@/components/ui/dropdown";
 import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   consellourGetRecommendedTask,
   consellourGetSettings,
@@ -28,6 +31,8 @@ import {
   tasksList,
   type ConsellourSettings,
   type JiraSettings,
+  type TaskOrigin,
+  type TaskPriority,
   type WorkspaceTask,
 } from "@/src/lib/ipc";
 
@@ -114,6 +119,60 @@ function TypewriterText({ text, animate, onProgress }: { text: string; animate: 
   return <p className="whitespace-pre-wrap">{visibleText}</p>;
 }
 
+const TASK_PRIORITY_BADGE_CLASSES: Record<TaskPriority, string> = {
+  low: "border-green-700/30 bg-green-500/15 text-green-800 dark:border-green-400/70 dark:text-white",
+  medium: "border-yellow-700/35 bg-yellow-500/15 text-yellow-900 dark:border-yellow-400/70 dark:text-white",
+  high: "border-orange-700/35 bg-orange-500/15 text-orange-900 dark:border-orange-400/70 dark:text-white",
+  urgent: "border-rose-700/35 bg-rose-500/15 text-rose-900 dark:border-rose-400/70 dark:text-white",
+};
+
+function getTaskPriorityBadgeClasses(priority: TaskPriority): string {
+  return TASK_PRIORITY_BADGE_CLASSES[priority];
+}
+
+const TASK_PRIORITY_FILTER_OPTIONS: DropdownOption[] = [
+  { value: "all", label: "All priorities" },
+  { value: "urgent", label: "Urgent" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
+];
+
+const TASK_ORIGIN_FILTER_OPTIONS: DropdownOption[] = [
+  { value: "all", label: "All origins" },
+  { value: "consellourTool", label: "Consellour" },
+  { value: "externalSync", label: "External sync" },
+];
+
+const TASK_ORDER_OPTIONS: DropdownOption[] = [
+  { value: "updatedDesc", label: "Updated (newest)" },
+  { value: "updatedAsc", label: "Updated (oldest)" },
+  { value: "priorityDesc", label: "Priority (highest)" },
+  { value: "priorityAsc", label: "Priority (lowest)" },
+  { value: "nameAsc", label: "Name (A-Z)" },
+  { value: "nameDesc", label: "Name (Z-A)" },
+];
+
+const TASK_PRIORITY_SORT_WEIGHT: Record<TaskPriority, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  urgent: 4,
+};
+
+type TaskPriorityFilter = "all" | TaskPriority;
+type TaskOriginFilter = "all" | TaskOrigin;
+type TaskOrder = (typeof TASK_ORDER_OPTIONS)[number]["value"];
+
+function getTaskOriginLabel(origin: TaskOrigin): string {
+  return origin === "externalSync" ? "External sync" : "Consellour";
+}
+
+function getTaskTimestampValue(timestamp: string): number {
+  const parsedTimestamp = Date.parse(timestamp);
+  return Number.isNaN(parsedTimestamp) ? 0 : parsedTimestamp;
+}
+
 export default function TasksPage() {
   const {
     activeWorkspace,
@@ -153,6 +212,10 @@ export default function TasksPage() {
   const [removeTaskTarget, setRemoveTaskTarget] = useState<WorkspaceTask | null>(null);
   const [isRemovingTask, setIsRemovingTask] = useState(false);
   const [removeTaskError, setRemoveTaskError] = useState<string | null>(null);
+  const [taskSearchQuery, setTaskSearchQuery] = useState("");
+  const [taskPriorityFilter, setTaskPriorityFilter] = useState<TaskPriorityFilter>("all");
+  const [taskOriginFilter, setTaskOriginFilter] = useState<TaskOriginFilter>("all");
+  const [taskOrder, setTaskOrder] = useState<TaskOrder>("updatedDesc");
 
   useAppLayout({
     noDirectoryOpenState: {
@@ -285,13 +348,58 @@ export default function TasksPage() {
     scrollChatToBottom();
   }, [chatRows.length, scrollChatToBottom]);
 
+  const visibleTasks = useMemo<WorkspaceTask[]>(() => {
+    const normalizedSearchQuery = taskSearchQuery.trim().toLowerCase();
+
+    const searchedTasks = normalizedSearchQuery.length
+      ? tasks.filter((task) => {
+          return [task.title, task.origin, getTaskOriginLabel(task.origin)].some((candidate) =>
+            candidate.toLowerCase().includes(normalizedSearchQuery),
+          );
+        })
+      : tasks;
+
+    const filteredTasks = searchedTasks.filter((task) => {
+      if (taskPriorityFilter !== "all" && task.priority !== taskPriorityFilter) {
+        return false;
+      }
+
+      if (taskOriginFilter !== "all" && task.origin !== taskOriginFilter) {
+        return false;
+      }
+
+      return true;
+    });
+
+    const sortedTasks = [...filteredTasks];
+    sortedTasks.sort((leftTask, rightTask) => {
+      switch (taskOrder) {
+        case "updatedAsc":
+          return getTaskTimestampValue(leftTask.updatedAt) - getTaskTimestampValue(rightTask.updatedAt);
+        case "priorityDesc":
+          return TASK_PRIORITY_SORT_WEIGHT[rightTask.priority] - TASK_PRIORITY_SORT_WEIGHT[leftTask.priority];
+        case "priorityAsc":
+          return TASK_PRIORITY_SORT_WEIGHT[leftTask.priority] - TASK_PRIORITY_SORT_WEIGHT[rightTask.priority];
+        case "nameAsc":
+          return leftTask.title.localeCompare(rightTask.title, undefined, { sensitivity: "base" });
+        case "nameDesc":
+          return rightTask.title.localeCompare(leftTask.title, undefined, { sensitivity: "base" });
+        case "updatedDesc":
+        default:
+          return getTaskTimestampValue(rightTask.updatedAt) - getTaskTimestampValue(leftTask.updatedAt);
+      }
+    });
+
+    return sortedTasks;
+  }, [taskOrder, taskOriginFilter, taskPriorityFilter, taskSearchQuery, tasks]);
+
   return (
     <>
       {!activeWorkspace ? null : (
         <div className="space-y-3">
           <header className="flex flex-wrap items-start justify-between gap-3 rounded-xl border bg-card p-4 shadow-xs">
             <div className="space-y-1">
-              <h1 className="text-xl font-semibold tracking-tight">Tasks + Consellour</h1>
+              <h1 className="text-xl font-semibold tracking-tight">Tasks</h1>
               <p className="text-sm text-muted-foreground">
                 Workspace tasks are created and updated only through the Consellour tool flow.
               </p>
@@ -309,84 +417,86 @@ export default function TasksPage() {
           </header>
 
           <div className="space-y-3">
-            <JiraIntegrationPanel
-              title="Jira"
-              settings={jiraSettings}
-              connected={jiraConnected}
-              statusMessage={jiraStatusMessage}
-              errorMessage={jiraErrorMessage}
-              syncPending={isJiraSyncPending}
-              connectPending={isJiraConnectPending}
-              disconnectPending={isJiraDisconnectPending}
-              onConnect={(payload) => {
-                setIsJiraConnectPending(true);
-                setJiraStatusMessage(null);
-                setJiraErrorMessage(null);
+            {jiraConnected ? (
+              <JiraIntegrationPanel
+                title="Jira"
+                settings={jiraSettings}
+                connected={jiraConnected}
+                statusMessage={jiraStatusMessage}
+                errorMessage={jiraErrorMessage}
+                syncPending={isJiraSyncPending}
+                connectPending={isJiraConnectPending}
+                disconnectPending={isJiraDisconnectPending}
+                onConnect={(payload) => {
+                  setIsJiraConnectPending(true);
+                  setJiraStatusMessage(null);
+                  setJiraErrorMessage(null);
 
-                void (async () => {
-                  try {
-                    const response = await jiraConnectApiToken(payload);
-                    if (!response.ok || !response.settings) {
-                      setJiraErrorMessage(response.error ?? response.jiraError?.message ?? "Failed to connect Jira.");
-                      return;
+                  void (async () => {
+                    try {
+                      const response = await jiraConnectApiToken(payload);
+                      if (!response.ok || !response.settings) {
+                        setJiraErrorMessage(response.error ?? response.jiraError?.message ?? "Failed to connect Jira.");
+                        return;
+                      }
+                      setJiraSettings(response.settings);
+                      setJiraConnected(true);
+                      setJiraStatusMessage(response.accountDisplayName ? `Connected as ${response.accountDisplayName}.` : "Jira connected.");
+                    } catch {
+                      setJiraErrorMessage("Failed to connect Jira.");
+                    } finally {
+                      setIsJiraConnectPending(false);
                     }
-                    setJiraSettings(response.settings);
-                    setJiraConnected(true);
-                    setJiraStatusMessage(response.accountDisplayName ? `Connected as ${response.accountDisplayName}.` : "Jira connected.");
-                  } catch {
-                    setJiraErrorMessage("Failed to connect Jira.");
-                  } finally {
-                    setIsJiraConnectPending(false);
-                  }
-                })();
-              }}
-              onDisconnect={() => {
-                setIsJiraDisconnectPending(true);
-                setJiraStatusMessage(null);
-                setJiraErrorMessage(null);
+                  })();
+                }}
+                onDisconnect={() => {
+                  setIsJiraDisconnectPending(true);
+                  setJiraStatusMessage(null);
+                  setJiraErrorMessage(null);
 
-                void (async () => {
-                  try {
-                    const response = await jiraDisconnect();
-                    if (!response.ok || !response.settings) {
-                      setJiraErrorMessage(response.error ?? "Failed to disconnect Jira.");
-                      return;
+                  void (async () => {
+                    try {
+                      const response = await jiraDisconnect();
+                      if (!response.ok || !response.settings) {
+                        setJiraErrorMessage(response.error ?? "Failed to disconnect Jira.");
+                        return;
+                      }
+                      setJiraSettings(response.settings);
+                      setJiraConnected(false);
+                      setJiraStatusMessage("Jira disconnected.");
+                    } catch {
+                      setJiraErrorMessage("Failed to disconnect Jira.");
+                    } finally {
+                      setIsJiraDisconnectPending(false);
                     }
-                    setJiraSettings(response.settings);
-                    setJiraConnected(false);
-                    setJiraStatusMessage("Jira disconnected.");
-                  } catch {
-                    setJiraErrorMessage("Failed to disconnect Jira.");
-                  } finally {
-                    setIsJiraDisconnectPending(false);
-                  }
-                })();
-              }}
-              onSyncNow={() => {
-                setIsJiraSyncPending(true);
-                setJiraStatusMessage(null);
-                setJiraErrorMessage(null);
+                  })();
+                }}
+                onSyncNow={() => {
+                  setIsJiraSyncPending(true);
+                  setJiraStatusMessage(null);
+                  setJiraErrorMessage(null);
 
-                void (async () => {
-                  try {
-                    const response = await jiraSyncPull({});
-                    if (!response.ok) {
-                      setJiraErrorMessage(response.error ?? response.jiraError?.message ?? "Jira sync failed.");
-                      return;
+                  void (async () => {
+                    try {
+                      const response = await jiraSyncPull({});
+                      if (!response.ok) {
+                        setJiraErrorMessage(response.error ?? response.jiraError?.message ?? "Jira sync failed.");
+                        return;
+                      }
+                      setJiraSettings(response.settings ?? null);
+                      setJiraStatusMessage(
+                        `Synced ${response.importedCount + response.updatedCount} issues (${response.importedCount} imported, ${response.updatedCount} updated).`,
+                      );
+                      await refreshData();
+                    } catch {
+                      setJiraErrorMessage("Jira sync failed.");
+                    } finally {
+                      setIsJiraSyncPending(false);
                     }
-                    setJiraSettings(response.settings ?? null);
-                    setJiraStatusMessage(
-                      `Synced ${response.importedCount + response.updatedCount} issues (${response.importedCount} imported, ${response.updatedCount} updated).`,
-                    );
-                    await refreshData();
-                  } catch {
-                    setJiraErrorMessage("Jira sync failed.");
-                  } finally {
-                    setIsJiraSyncPending(false);
-                  }
-                })();
-              }}
-            />
+                  })();
+                }}
+              />
+            ) : null}
 
             {!isConsellourVisible ? (
               <Card className="py-2">
@@ -466,77 +576,171 @@ export default function TasksPage() {
               </div>
             )}
 
-            <Card className="gap-2 py-4">
-              <CardHeader>
-                <CardTitle className="text-base">Tasks</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {isLoading ? <p className="text-sm text-muted-foreground">Loading tasks...</p> : null}
-                {!isLoading && tasks.length === 0 ? (
-                  <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">No tasks yet. Ask Consellour to create one.</p>
-                ) : null}
-                {tasks.map((task) => (
-                  <div
-                    key={task.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedTaskId(task.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setSelectedTaskId(task.id);
-                      }
+            <section className="space-y-2">
+              <h2 className="text-base font-semibold tracking-tight">Tasks</h2>
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2">
+                <div className="flex min-w-[220px] flex-1 items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Search</span>
+                  <Input
+                    value={taskSearchQuery}
+                    onChange={(event) => {
+                      setTaskSearchQuery(event.target.value);
                     }}
-                    className={`w-full cursor-pointer rounded-md border px-3 py-2 text-left text-sm transition-colors ${
-                      selectedTaskId === task.id ? "border-foreground/40 bg-muted" : "border-border"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate font-medium">{task.title}</span>
-                      <div className="flex items-center gap-1">
-                        {recommendedTaskId === task.id ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-amber-700">
-                            <Sparkles aria-hidden="true" className="size-3" />
-                            recommended
-                          </span>
-                        ) : null}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0"
-                          aria-label={`Edit task ${task.title}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setEditingTask(task);
-                            setEditTaskError(null);
-                            setIsEditTaskModalOpen(true);
-                          }}
-                        >
-                          <Pencil aria-hidden="true" className="size-3.5" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                          aria-label={`Remove task ${task.title}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setRemoveTaskTarget(task);
-                            setRemoveTaskError(null);
-                          }}
-                        >
-                          <Trash2 aria-hidden="true" className="size-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.description}</p>
-                  </div>
-                ))}
-                {removeTaskError ? <p className="text-xs text-destructive">{removeTaskError}</p> : null}
-              </CardContent>
-            </Card>
+                    placeholder="Task title or origin"
+                    className="h-8"
+                    aria-label="Search tasks"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Priority</span>
+                  <Dropdown
+                    ariaLabel="Filter by task priority"
+                    options={TASK_PRIORITY_FILTER_OPTIONS}
+                    value={taskPriorityFilter}
+                    placeholder="All priorities"
+                    onValueChange={(nextValue) => {
+                      setTaskPriorityFilter(nextValue as TaskPriorityFilter);
+                    }}
+                    triggerClassName="h-8 min-w-[170px]"
+                    contentClassName="w-56"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Origin</span>
+                  <Dropdown
+                    ariaLabel="Filter by task origin"
+                    options={TASK_ORIGIN_FILTER_OPTIONS}
+                    value={taskOriginFilter}
+                    placeholder="All origins"
+                    onValueChange={(nextValue) => {
+                      setTaskOriginFilter(nextValue as TaskOriginFilter);
+                    }}
+                    triggerClassName="h-8 min-w-[170px]"
+                    contentClassName="w-56"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Order by</span>
+                  <Dropdown
+                    ariaLabel="Order tasks"
+                    options={TASK_ORDER_OPTIONS}
+                    value={taskOrder}
+                    placeholder="Updated (newest)"
+                    onValueChange={(nextValue) => {
+                      setTaskOrder(nextValue as TaskOrder);
+                    }}
+                    triggerClassName="h-8 min-w-[190px]"
+                    contentClassName="w-56"
+                  />
+                </div>
+              </div>
+              <div role="region" aria-label="Workspace tasks table" className="rounded-lg border bg-card">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-[45%]">Task</TableHead>
+                      <TableHead className="w-[140px]">Priority</TableHead>
+                      <TableHead className="w-[160px]">Origin</TableHead>
+                      <TableHead className="w-[180px]">Updated</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {isLoading ? (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={5} className="py-3 text-sm text-muted-foreground">
+                          Loading tasks...
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                    {!isLoading && tasks.length === 0 ? (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={5} className="py-3 text-sm text-muted-foreground">
+                          No tasks yet. Ask Consellour to create one.
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                    {!isLoading && tasks.length > 0 && visibleTasks.length === 0 ? (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={5} className="py-3 text-sm text-muted-foreground">
+                          No tasks match the current controls.
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                    {!isLoading
+                      ? visibleTasks.map((task) => (
+                          <TableRow
+                            key={task.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setSelectedTaskId(task.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setSelectedTaskId(task.id);
+                              }
+                            }}
+                            className={selectedTaskId === task.id ? "bg-muted/50 hover:bg-muted/50" : undefined}
+                          >
+                            <TableCell className="max-w-0">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate font-medium">{task.title}</span>
+                                {recommendedTaskId === task.id ? (
+                                  <span className="inline-flex items-center gap-1 text-xs text-amber-700">
+                                    <Sparkles aria-hidden="true" className="size-3" />
+                                    recommended
+                                  </span>
+                                ) : null}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={getTaskPriorityBadgeClasses(task.priority)}>
+                                {task.priority}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">{getTaskOriginLabel(task.origin)}</TableCell>
+                            <TableCell className="text-muted-foreground">{new Date(task.updatedAt).toLocaleString()}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0"
+                                  aria-label={`Edit task ${task.title}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setEditingTask(task);
+                                    setEditTaskError(null);
+                                    setIsEditTaskModalOpen(true);
+                                  }}
+                                >
+                                  <Pencil aria-hidden="true" className="size-3.5" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                  aria-label={`Remove task ${task.title}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setRemoveTaskTarget(task);
+                                    setRemoveTaskError(null);
+                                  }}
+                                >
+                                  <Trash2 aria-hidden="true" className="size-3.5" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      : null}
+                  </TableBody>
+                </Table>
+              </div>
+              {removeTaskError ? <p className="text-xs text-destructive">{removeTaskError}</p> : null}
+            </section>
 
           </div>
 

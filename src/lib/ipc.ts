@@ -1224,7 +1224,7 @@ export type GrooveTerminalOpenPayload = {
   workspaceMeta?: WorkspaceMeta;
   worktree: string;
   target?: string;
-  openMode?: "opencode" | "runLocal";
+  openMode?: "opencode" | "runLocal" | "plain";
   cols?: number;
   rows?: number;
   forceRestart?: boolean;
@@ -1938,8 +1938,8 @@ export function diagnosticsStopAllOpencodeInstances(): Promise<DiagnosticsStopAl
   return invokeCommand<DiagnosticsStopAllResponse>("diagnostics_stop_all_opencode_instances");
 }
 
-export function diagnosticsStopAllNonWorktreeOpencodeInstances(): Promise<DiagnosticsStopAllResponse> {
-  return invokeCommand<DiagnosticsStopAllResponse>("diagnostics_stop_all_non_worktree_opencode_instances");
+export function diagnosticsKillAllNodeAndOpencodeInstances(): Promise<DiagnosticsStopAllResponse> {
+  return invokeCommand<DiagnosticsStopAllResponse>("diagnostics_kill_all_node_and_opencode_instances");
 }
 
 export function diagnosticsListWorktreeNodeApps(): Promise<DiagnosticsNodeAppsResponse> {

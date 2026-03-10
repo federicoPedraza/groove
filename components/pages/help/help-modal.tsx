@@ -1,16 +1,22 @@
-import type { WorktreeStatus } from "@/components/pages/dashboard/types";
-import { getWorktreeStatusBadgeClasses, getWorktreeStatusIcon, getWorktreeStatusTitle } from "@/components/pages/dashboard/worktree-status";
-import { Badge } from "@/components/ui/badge";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { Loader2, SendHorizonal } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { runHelpChatTurn, type HelpChatMessage } from "@/libs/help/chat";
+import { hasHelpKnowledgeBase } from "@/libs/help/retrieval";
+import { consellourGetSettings, type ConsellourSettings } from "@/src/lib/ipc";
 
-const WORKTREE_STATUSES: WorktreeStatus[] = ["ready", "paused", "closing", "deleted", "corrupted"];
+type HelpChatRow = HelpChatMessage & {
+  citations?: Array<{ feature: string; heading: string }>;
+};
 
 type HelpModalProps = {
   open: boolean;
@@ -18,105 +24,198 @@ type HelpModalProps = {
 };
 
 export function HelpModal({ open, onOpenChange }: HelpModalProps) {
+  const [isLoadingSettings, setIsLoadingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [consellourSettings, setConsellourSettings] = useState<ConsellourSettings | null>(null);
+  const [hasOpenAiKey, setHasOpenAiKey] = useState(false);
+  const [chatRows, setChatRows] = useState<HelpChatRow[]>([
+    {
+      role: "assistant",
+      text: "Ask me how to use Groove features and I will answer using the local Help docs.",
+    },
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [isResponding, setIsResponding] = useState(false);
+  const chatHistoryRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollChatToBottom = useCallback(() => {
+    if (!chatHistoryRef.current) {
+      return;
+    }
+    chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+  }, []);
+
+  const loadConsellourSettings = useCallback(async () => {
+    setIsLoadingSettings(true);
+    setSettingsError(null);
+
+    try {
+      const response = await consellourGetSettings();
+      if (!response.ok) {
+        setHasOpenAiKey(false);
+        setConsellourSettings(null);
+        setSettingsError(response.error ?? "Could not load Consellour settings.");
+        return;
+      }
+
+      const openAiApiKey = response.settings?.openaiApiKey?.trim() ?? "";
+      setConsellourSettings(response.settings ?? null);
+      setHasOpenAiKey(openAiApiKey.length > 0);
+    } catch {
+      setHasOpenAiKey(false);
+      setConsellourSettings(null);
+      setSettingsError("Could not load Consellour settings.");
+    } finally {
+      setIsLoadingSettings(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    void loadConsellourSettings();
+  }, [open, loadConsellourSettings]);
+
+  useEffect(() => {
+    scrollChatToBottom();
+  }, [chatRows.length, scrollChatToBottom]);
+
+  const runHelpChat = useCallback(async () => {
+    const prompt = chatInput.trim();
+    if (!prompt || isResponding || !consellourSettings?.openaiApiKey) {
+      return;
+    }
+
+    const requestHistory = chatRows.map(({ role, text }) => ({ role, text }));
+
+    setChatRows((current) => [...current, { role: "user", text: prompt }]);
+    setChatInput("");
+    setIsResponding(true);
+
+    try {
+      const result = await runHelpChatTurn({
+        apiKey: consellourSettings.openaiApiKey,
+        model: consellourSettings.model,
+        reasoningLevel: consellourSettings.reasoningLevel,
+        history: requestHistory,
+        prompt,
+      });
+
+      setChatRows((current) => [
+        ...current,
+        {
+          role: "assistant",
+          text: result.answer,
+          citations: result.chunks.map((chunk) => ({
+            feature: chunk.feature,
+            heading: chunk.heading,
+          })),
+        },
+      ]);
+    } catch (error) {
+      setChatRows((current) => [
+        ...current,
+        {
+          role: "assistant",
+          text: error instanceof Error ? error.message : "Help could not complete the request.",
+        },
+      ]);
+    } finally {
+      setIsResponding(false);
+    }
+  }, [chatInput, chatRows, consellourSettings, isResponding]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Groove Help</DialogTitle>
-          <DialogDescription>Quick guide for daily worktree and Groove flows.</DialogDescription>
-        </DialogHeader>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Help</DialogTitle>
+          </DialogHeader>
 
-        <section className="space-y-2 text-sm">
-          <h2 className="font-medium">Getting started</h2>
-          <p className="text-muted-foreground">
-            Start by connecting a repository root with <span className="font-medium text-foreground">Select new directory</span> (or <span className="font-medium text-foreground">Change directory</span> once a workspace is open).
-          </p>
-          <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-            <li>Use <span className="font-medium text-foreground">Recent directories</span> to reopen common repos quickly.</li>
-            <li>On the Dashboard, use <span className="font-medium text-foreground">Create worktree</span> to add a branch workspace and <span className="font-medium text-foreground">Refresh</span> to rescan.</li>
-          </ul>
-        </section>
+        {isLoadingSettings ? (
+          <section className="flex min-h-[320px] flex-col items-center justify-center gap-3 rounded-lg border bg-muted/20 px-6 text-center">
+            <Loader2 aria-hidden="true" className="size-8 animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">Loading Consellour settings...</p>
+          </section>
+        ) : settingsError ? (
+          <section className="space-y-4 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-6 text-center">
+            <p className="text-sm font-medium text-destructive">Could not load Consellour settings.</p>
+            <p className="text-sm text-muted-foreground">{settingsError}</p>
+            <div className="flex justify-center">
+              <Button type="button" variant="outline" onClick={() => void loadConsellourSettings()}>
+                Retry
+              </Button>
+            </div>
+          </section>
+        ) : hasOpenAiKey ? (
+          <div className="space-y-3">
+            <div className="rounded-lg border bg-card">
+              <div ref={chatHistoryRef} className="min-h-[380px] max-h-[50vh] space-y-3 overflow-y-auto p-3">
+                {chatRows.map((row, index) => (
+                  <div key={`${row.role}-${String(index)}`} className={`flex ${row.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`max-w-[92%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
+                        row.role === "user" ? "bg-primary text-primary-foreground" : "border bg-muted/40"
+                      }`}
+                    >
+                      {row.text}
+                      {row.role === "assistant" && row.citations && row.citations.length > 0 ? (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {row.citations.slice(0, 3).map((citation) => `${citation.feature}/${citation.heading}`).join(", ")}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
 
-        <section className="space-y-2 border-t pt-3 text-sm">
-          <h2 className="font-medium">Workspace structure</h2>
-          <p className="text-muted-foreground">
-            Groove expects worktree folders under <code>.worktrees</code> in your repository root.
-          </p>
-          <p className="text-muted-foreground">
-            Groove also keeps workspace metadata in <code>.groove/workspace.json</code> so it can restore workspace context and known worktrees.
-          </p>
-        </section>
+                {isResponding ? (
+                  <div className="flex justify-start">
+                    <div className="inline-flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                      <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                      Thinking...
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
 
-        <section className="space-y-2 border-t pt-3 text-sm">
-          <h2 className="font-medium">Daily workflow</h2>
-          <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-            <li>Create a branch worktree with <span className="font-medium text-foreground">Create worktree</span>.</li>
-            <li>Start a paused row with <span className="font-medium text-foreground">Play groove</span>; stop runtime with <span className="font-medium text-foreground">Pause Groove</span>.</li>
-            <li>Open the row from the Worktrees page with <span className="font-medium text-foreground">Open details</span>.</li>
-            <li>From details/testing controls, run your app with <span className="font-medium text-foreground">Run local</span>.</li>
-          </ul>
-        </section>
+            <div className="flex gap-2">
+              <Input
+                value={chatInput}
+                onChange={(event) => {
+                  setChatInput(event.target.value);
+                }}
+                placeholder="Ask anything"
+                disabled={isResponding || !hasHelpKnowledgeBase()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void runHelpChat();
+                  }
+                }}
+              />
+              <Button type="button" disabled={isResponding || chatInput.trim().length === 0 || !hasHelpKnowledgeBase()} onClick={() => void runHelpChat()}>
+                <SendHorizonal aria-hidden="true" className="size-4" />
+                <span>Send</span>
+              </Button>
+            </div>
 
-        <section className="space-y-2 border-t pt-3 text-sm">
-          <h2 className="font-medium">Status meanings and actions</h2>
-          <ul className="space-y-2">
-            {WORKTREE_STATUSES.map((status) => (
-              <li key={status} className="flex items-start gap-2">
-                <Badge variant="outline" className={getWorktreeStatusBadgeClasses(status)} title={getWorktreeStatusTitle(status)}>
-                  {getWorktreeStatusIcon(status)}
-                  {status}
-                </Badge>
-                <span className="pt-0.5 text-muted-foreground">{getWorktreeStatusTitle(status)}</span>
-              </li>
-            ))}
-          </ul>
-          <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-            <li><span className="font-medium text-foreground">ready</span>: active runtime; use <span className="font-medium text-foreground">Pause Groove</span> to stop it.</li>
-            <li><span className="font-medium text-foreground">paused</span>: stopped runtime; use <span className="font-medium text-foreground">Play groove</span> to resume.</li>
-            <li><span className="font-medium text-foreground">corrupted</span>: use <span className="font-medium text-foreground">Repair</span>.</li>
-            <li><span className="font-medium text-foreground">deleted</span>: use <span className="font-medium text-foreground">Restore</span> (or remove the stale row).</li>
-          </ul>
-        </section>
-
-        <section className="space-y-2 border-t pt-3 text-sm">
-          <h2 className="font-medium">Process and terminal controls</h2>
-          <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-            <li>Use <span className="font-medium text-foreground">Open terminal</span> for an in-app terminal on a worktree.</li>
-            <li>Use <span className="font-medium text-foreground">New split</span> to start another in-app terminal session for the same worktree.</li>
-            <li><span className="font-medium text-foreground">Pause Groove</span> closes all in-app terminal sessions tied to that worktree.</li>
-          </ul>
-        </section>
-
-        <section className="space-y-2 border-t pt-3 text-sm">
-          <h2 className="font-medium">Testing targets and ports</h2>
-          <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-            <li>Use <span className="font-medium text-foreground">Set testing target</span> on a worktree to include it in Testing Environments.</li>
-            <li>From Testing Environments or worktree details, use <span className="font-medium text-foreground">Run local</span> and <span className="font-medium text-foreground">Stop local</span>.</li>
-            <li>Configure preferred local ports in <span className="font-medium text-foreground">Settings</span> - <span className="font-medium text-foreground">Workspace settings</span> - <span className="font-medium text-foreground">Testing ports</span>.</li>
-          </ul>
-        </section>
-
-        <section className="space-y-2 border-t pt-3 text-sm">
-          <h2 className="font-medium">Git actions in each worktree row</h2>
-          <p className="text-muted-foreground">
-            Open <span className="font-medium text-foreground">Git actions</span> to run row-scoped operations like <span className="font-medium text-foreground">Refresh status</span>, <span className="font-medium text-foreground">Commit</span>, <span className="font-medium text-foreground">Pull</span>, <span className="font-medium text-foreground">Push</span>, <span className="font-medium text-foreground">Open branch</span>, and PR actions when a remote is available.
-          </p>
-        </section>
-
-        <section className="space-y-2 border-t pt-3 text-sm">
-          <h2 className="font-medium">Troubleshooting</h2>
-          <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-            <li>If a row is inconsistent, try <span className="font-medium text-foreground">Repair</span> or <span className="font-medium text-foreground">Restore</span> first.</li>
-            <li>If automatic updates lag or are unavailable, use <span className="font-medium text-foreground">Refresh</span> for a manual rescan.</li>
-            <li>If state still looks stale, reopen the workspace directory from <span className="font-medium text-foreground">Recent directories</span> or <span className="font-medium text-foreground">Change directory</span>.</li>
-          </ul>
-        </section>
-
-        <div className="flex justify-end">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-        </div>
+            {!hasHelpKnowledgeBase() ? (
+              <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
+                Help docs were not bundled. Run build embedding generation and reopen this modal.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <section className="flex min-h-[320px] flex-col items-center justify-center gap-4 rounded-lg border border-dashed bg-muted/20 px-6 text-center">
+            <img src="/consellour/consellour.svg" alt="Consellour" className="h-24 w-24 opacity-90" />
+            <h2 className="text-base font-medium">No Consellour OpenAI API key configured</h2>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Set an OpenAI API key in Consellour settings to use Help chat.
+            </p>
+          </section>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -10,8 +10,26 @@ vi.mock("@/components/pages/dashboard/worktree-task-selector", () => ({
 }));
 
 vi.mock("@/components/pages/dashboard/worktree-row-actions", () => ({
-  WorktreeRowActions: ({ row, hasConnectedRepository }: { row: WorktreeRow; hasConnectedRepository: boolean }) => (
-    <span data-testid={`row-actions-${row.worktree}`} data-has-connected-repository={String(hasConnectedRepository)} />
+  WorktreeRowActions: ({
+    row,
+    hasConnectedRepository,
+    onOpenTerminal,
+  }: {
+    row: WorktreeRow;
+    hasConnectedRepository: boolean;
+    onOpenTerminal?: (worktree: string) => void;
+  }) => (
+    <div data-testid={`row-actions-${row.worktree}`} data-has-connected-repository={String(hasConnectedRepository)}>
+      <button
+        type="button"
+        data-testid={`open-terminal-${row.worktree}`}
+        onClick={() => {
+          onOpenTerminal?.(row.worktree);
+        }}
+      >
+        Open terminal
+      </button>
+    </div>
   ),
 }));
 
@@ -31,6 +49,7 @@ function renderWorktreesTable(options: {
   onForgetAllDeletedWorktrees?: () => void;
   isForgetAllDeletedWorktreesPending?: boolean;
   hasConnectedRepository?: boolean;
+  onOpenTerminalAction?: (worktree: string) => void;
 }) {
   render(
     <WorktreesTable
@@ -53,6 +72,7 @@ function renderWorktreesTable(options: {
       onCutConfirm={() => {}}
       onStopAction={() => {}}
       onPlayAction={() => {}}
+      onOpenTerminalAction={options.onOpenTerminalAction ?? (() => {})}
       onSetTestingTargetAction={() => {}}
       onSetWorktreeTaskAssignment={() => {}}
       onAssignTaskPr={async () => {}}
@@ -160,5 +180,22 @@ describe("WorktreesTable", () => {
     });
 
     expect(screen.getByTestId("row-actions-today").getAttribute("data-has-connected-repository")).toBe("false");
+  });
+
+  it("passes the worktree terminal action through to row actions", () => {
+    const onOpenTerminalAction = vi.fn();
+    const groupedWorktreeItems: GroupedWorktreeItem[] = [
+      { type: "section", label: "Today", key: "section:Today" },
+      { type: "row", key: "row:/worktrees/today", row: buildRow({ worktree: "today", branchGuess: "feature/today", path: "/worktrees/today" }) },
+    ];
+
+    renderWorktreesTable({
+      groupedWorktreeItems,
+      onOpenTerminalAction,
+    });
+
+    fireEvent.click(screen.getByTestId("open-terminal-today"));
+
+    expect(onOpenTerminalAction).toHaveBeenCalledWith("today");
   });
 });

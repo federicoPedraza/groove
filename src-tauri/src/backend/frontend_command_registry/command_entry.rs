@@ -98,7 +98,7 @@ pub(crate) fn run() {
             diagnostics_list_opencode_instances,
             diagnostics_stop_process,
             diagnostics_stop_all_opencode_instances,
-            diagnostics_stop_all_non_worktree_opencode_instances,
+            diagnostics_kill_all_node_and_opencode_instances,
             diagnostics_list_worktree_node_apps,
             diagnostics_clean_all_dev_servers,
             diagnostics_get_msot_consuming_programs,

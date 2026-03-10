@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Dropdown } from "@/components/ui/dropdown";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ConsellourSettings } from "@/src/lib/ipc";
 
 const MODEL_OPTIONS = [
@@ -37,6 +38,7 @@ export function ConsellourSettingsModal({
   const [openAiKeyDraft, setOpenAiKeyDraft] = useState("");
   const [modelDraft, setModelDraft] = useState("gpt-5.3-codex");
   const [reasoningDraft, setReasoningDraft] = useState<"low" | "medium" | "high">("medium");
+  const isOpenAiKeyConfigured = Boolean(settings?.openaiApiKey);
 
   useEffect(() => {
     if (!open) {
@@ -84,17 +86,45 @@ export function ConsellourSettingsModal({
 
           <div className="space-y-2">
             <label htmlFor="consellour-openai-key" className="text-sm font-medium">Replace OpenAI key</label>
-            <Input
-              id="consellour-openai-key"
-              type="password"
-              value={openAiKeyDraft}
-              onChange={(event) => {
-                setOpenAiKeyDraft(event.target.value);
-              }}
-              placeholder={settings?.openaiApiKey ? "Current key is set" : "sk-..."}
-              autoComplete="off"
-              disabled={savePending}
-            />
+            <div className="flex w-full">
+              <Input
+                id="consellour-openai-key"
+                type="password"
+                value={openAiKeyDraft}
+                onChange={(event) => {
+                  setOpenAiKeyDraft(event.target.value);
+                }}
+                placeholder="sk-proj-..."
+                autoComplete="off"
+                disabled={savePending}
+                className="rounded-r-none border-r-0"
+              />
+              <div
+                className={`inline-flex shrink-0 items-center justify-center rounded-l-none rounded-r-md border border-input px-3 ${
+                  isOpenAiKeyConfigured ? "bg-primary/20" : "bg-primary/10"
+                } ${savePending ? "opacity-60" : "opacity-100"}`}
+              >
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={isOpenAiKeyConfigured ? "Connected" : "Not connected"}
+                        className="relative h-3 w-3 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                      >
+                        {isOpenAiKeyConfigured ? <span className="absolute inset-0 rounded-full bg-primary/20 animate-ping" /> : null}
+                        <span
+                          className={`relative z-10 block h-full w-full rounded-full ${
+                            isOpenAiKeyConfigured ? "bg-primary/90" : "bg-primary/40"
+                          }`}
+                        />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>{isOpenAiKeyConfigured ? "Connected" : "Not connected"}</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-2">

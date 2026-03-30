@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - src-tauri/binaries/groove-x86_64-unknown-linux-gnu
+      - src-tauri/binaries/groove-x86_64-pc-windows-msvc.exe
+      - src-tauri/binaries/groove-aarch64-pc-windows-msvc.exe
       - .github/workflows/publish-sidecars.yml
       - .github/sidecar-release.env
   workflow_dispatch:

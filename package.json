@@ -22,6 +22,7 @@
     "tauri:build": "tauri build",
     "tauri:build:linux": "tauri build --bundles appimage,deb",
     "tauri:build:macos": "tauri build --bundles dmg",
+    "tauri:build:windows": "tauri build --bundles msi",
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {

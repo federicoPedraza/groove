@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 usage:
-  ./bash/download-sidecars-from-release [linux|macos|all]
+  ./bash/download-sidecars-from-release [linux|macos|windows|all]
 
 downloads Groove sidecar binaries from a GitHub release into src-tauri/binaries.
 
@@ -38,7 +38,7 @@ fi
 
 platform="${1:-all}"
 case "$platform" in
-  linux|macos|all) ;;
+  linux|macos|windows|all) ;;
   *)
     usage
     fail "unsupported platform '$platform'"
@@ -113,6 +113,12 @@ case "$platform" in
     assets=(
       "groove-aarch64-apple-darwin"
       "groove-x86_64-apple-darwin"
+    )
+    ;;
+  windows)
+    assets=(
+      "groove-x86_64-pc-windows-msvc.exe"
+      "groove-aarch64-pc-windows-msvc.exe"
     )
     ;;
   all)

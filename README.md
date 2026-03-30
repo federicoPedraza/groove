@@ -369,6 +369,7 @@ npm run tauri:dev
 npm run tauri:build
 npm run tauri:build:linux
 npm run tauri:build:macos
+npm run tauri:build:windows
 ```
 
 ---
@@ -387,11 +388,13 @@ Desktop bundles:
 npm run tauri:build
 npm run tauri:build:linux
 npm run tauri:build:macos
+npm run tauri:build:windows
 ```
 
 Current packaging targets:
 - Linux: AppImage + deb
 - macOS: dmg
+- Windows: msi
 
 Release workflow publishes bundles on version tags (`v*.*.*`).
 
@@ -403,7 +406,7 @@ GitHub Actions workflows:
 
 - `build-desktop.yml`
   - lint, typecheck, tests, rust check
-  - Linux + macOS desktop builds
+  - Linux + macOS + Windows desktop builds
   - artifact upload
 - `release-desktop.yml`
   - tag-triggered release build and publish

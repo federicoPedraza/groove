@@ -30,7 +30,8 @@
     "targets": [
       "appimage",
       "deb",
-      "dmg"
+      "dmg",
+      "msi"
     ],
     "publisher": "Groove",
     "shortDescription": "Desktop workspace manager for groove worktrees.",

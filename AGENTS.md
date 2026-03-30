@@ -34,6 +34,7 @@ npm run tauri:dev
 npm run tauri:build
 npm run tauri:build:linux
 npm run tauri:build:macos
+npm run tauri:build:windows
 npm run check:rust
 ```
 
@@ -132,6 +133,7 @@ Use packaging builds only when relevant to the task:
 - `npm run tauri:build`
 - `npm run tauri:build:linux`
 - `npm run tauri:build:macos`
+- `npm run tauri:build:windows`
 
 ## Definition of Done
 A task is done when all of the following are true:

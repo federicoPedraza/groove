@@ -21,7 +21,7 @@ function Toaster(props: ToasterProps) {
         unstyled: true,
         classNames: {
           toast: cn(
-            "rounded-md border bg-card px-3 py-2 shadow-sm",
+            "rounded-md border bg-card px-3 py-2",
             "flex min-h-0 w-[23rem] max-w-[calc(100vw-2rem)] items-start gap-2",
           ),
           content: "grid min-w-0 flex-1 gap-0.5",

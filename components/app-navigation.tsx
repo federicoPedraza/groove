@@ -794,7 +794,7 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
       <Collapsible
         open={isMobileSidebarOpen}
         onOpenChange={setIsMobileSidebarOpen}
-        className="rounded-xl border bg-card p-2 md:hidden"
+        className="rounded-lg border bg-card p-2 md:hidden"
       >
         <CollapsibleTrigger className="inline-flex h-9 w-full items-center justify-start gap-2 rounded-md px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none">
           <PanelLeft aria-hidden="true" className="size-4" />

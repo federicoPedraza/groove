@@ -397,7 +397,7 @@ export default function TasksPage() {
     <>
       {!activeWorkspace ? null : (
         <div className="space-y-3">
-          <header className="flex flex-wrap items-start justify-between gap-3 rounded-xl border bg-card p-4 shadow-xs">
+          <header className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-card p-4">
             <div className="space-y-1">
               <h1 className="text-xl font-semibold tracking-tight">Tasks</h1>
               <p className="text-sm text-muted-foreground">

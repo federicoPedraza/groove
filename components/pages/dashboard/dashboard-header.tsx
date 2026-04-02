@@ -17,7 +17,7 @@ export function DashboardHeader({
   onRefresh,
 }: DashboardHeaderProps) {
   return (
-    <header className="flex flex-wrap items-start justify-between gap-3 rounded-xl border bg-card p-4 shadow-xs">
+    <header className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-card p-4">
       <div className="space-y-1">
         <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
         <p className="text-sm text-muted-foreground">Manage worktrees and runtime state.</p>

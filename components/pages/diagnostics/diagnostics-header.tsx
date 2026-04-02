@@ -20,7 +20,7 @@ export function DiagnosticsHeader({
   const cleanAllLabel = isCleaningAllDevServers ? "Cleaning all processes" : "Clean all processes";
 
   return (
-    <header className="rounded-xl border bg-card p-4 shadow-xs">
+    <header className="rounded-lg border bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Diagnostics</h1>

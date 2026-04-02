@@ -196,7 +196,7 @@ export default function WorktreeDetailPage() {
     <>
       {!activeWorkspace ? null : (
         <div className="space-y-3">
-          <header className="flex items-center justify-between gap-3 rounded-xl border bg-card p-4 shadow-xs">
+          <header className="flex items-center justify-between gap-3 rounded-lg border bg-card p-4">
             <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">Worktree: {selectedWorktreeInspectionLabel}</h1>
             <Link to="/worktrees" className={buttonVariants({ size: "sm", variant: "outline" })}>
               Back to Worktrees

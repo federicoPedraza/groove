@@ -23,7 +23,7 @@
   --border: oklch(0.87 0.01 120);
   --input: oklch(0.87 0.01 120);
   --ring: oklch(0.62 0.03 140);
-  --radius: 0.625rem;
+  --radius: 0.25rem;
 }
 
 [data-theme="groove"] {
@@ -229,7 +229,6 @@ body {
   min-height: 100%;
   font-family: "Segoe UI", "Helvetica Neue", sans-serif;
   line-height: 1.5;
-  background-image: radial-gradient(circle at top, color-mix(in oklch, var(--background) 92%, white) 0%, var(--background) 40%, color-mix(in oklch, var(--background) 94%, black) 100%);
 }
 
 code {

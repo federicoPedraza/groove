@@ -143,25 +143,6 @@ fn list_opencode_process_rows() -> Result<Vec<DiagnosticsProcessRow>, String> {
     Ok(rows)
 }
 
-fn list_non_worktree_opencode_process_rows() -> Result<Vec<DiagnosticsProcessRow>, String> {
-    let (snapshot_rows, _warning) = list_process_snapshot_rows()?;
-    let mut rows = snapshot_rows
-        .into_iter()
-        .filter(|row| {
-            is_opencode_process(row.process_name.as_deref(), &row.command)
-                && !command_mentions_worktrees(&row.command)
-        })
-        .map(|row| DiagnosticsProcessRow {
-            pid: row.pid,
-            process_name: row.process_name.unwrap_or_else(|| "unknown".to_string()),
-            command: row.command,
-        })
-        .collect::<Vec<_>>();
-
-    rows.sort_by(|left, right| left.pid.cmp(&right.pid));
-    Ok(rows)
-}
-
 fn list_worktree_node_app_rows() -> Result<(Vec<DiagnosticsNodeAppRow>, Option<String>), String> {
     let (snapshot_rows, warning) = list_process_snapshot_rows()?;
     let mut rows = snapshot_rows
@@ -721,4 +702,3 @@ fn collect_system_overview() -> DiagnosticsSystemOverview {
         hostname,
     }
 }
-

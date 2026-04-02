@@ -216,19 +216,22 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
     return currentEntries.flatMap((entry) => entry.worktreeDetailActionables);
   }, [currentEntries, dashboardWorktreeDetailActionables, fallbackWorktreeDetailActionables]);
 
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
   const refreshFallbackWorktreeDetailActionables = useCallback(async () => {
     try {
       const workspaceResult = await workspaceGetActive();
       if (!workspaceResult.ok) {
-        setFallbackWorktreeDetailActionables([]);
+        setFallbackWorktreeDetailActionables((prev) => (prev.length === 0 ? prev : []));
         return;
       }
 
-      setFallbackWorktreeDetailActionables(buildGlobalWorktreeDetailActionables(workspaceResult.rows, navigate));
+      setFallbackWorktreeDetailActionables(buildGlobalWorktreeDetailActionables(workspaceResult.rows, navigateRef.current));
     } catch {
-      setFallbackWorktreeDetailActionables([]);
+      setFallbackWorktreeDetailActionables((prev) => (prev.length === 0 ? prev : []));
     }
-  }, [navigate]);
+  }, []);
 
   useEffect(() => {
     let isClosed = false;

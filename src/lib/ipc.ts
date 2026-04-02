@@ -16,6 +16,7 @@ export type CommandIntent = "blocking" | "background";
 
 export const DEFAULT_PLAY_GROOVE_COMMAND = "x-terminal-emulator -e bash -lc \"cd \\\"{worktree}\\\" && opencode\"";
 export const GROOVE_PLAY_COMMAND_SENTINEL = "__groove_terminal__";
+export const GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL = "__groove_terminal_claude__";
 export const GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL = "__groove_terminal_open__";
 export const DEFAULT_OPENCODE_SETTINGS_DIRECTORY = "~/.config/opencode";
 export const DEFAULT_RUN_LOCAL_COMMAND = "pnpm run dev";
@@ -45,6 +46,7 @@ export type WorkspaceMeta = {
   opencodeSettings?: OpencodeSettings;
   tasks?: WorkspaceTask[];
   worktreeTaskAssignments?: Record<string, string>;
+  worktreeRecords?: Record<string, WorktreeRecord>;
 };
 
 export type OpencodeSettings = {
@@ -597,8 +599,14 @@ export type GlobalSettingsResponse = {
   error?: string;
 };
 
+export type WorktreeRecord = {
+  id: string;
+  createdAt: string;
+};
+
 export type WorkspaceRow = {
   worktree: string;
+  worktreeId?: string | null;
   branchGuess: string;
   path: string;
   status: "paused" | "closing" | "ready" | "corrupted" | "deleted";
@@ -1433,6 +1441,7 @@ function isThemeMode(value: unknown): value is ThemeMode {
     value === "light" ||
     value === "groove" ||
     value === "ice" ||
+    value === "gum" ||
     value === "lava" ||
     value === "earth" ||
     value === "wind" ||
@@ -1991,17 +2000,36 @@ export function listenGrooveTerminalLifecycle(
 }
 
 export function workspacePickAndOpen(): Promise<WorkspaceContextResponse> {
+  invalidateWorkspaceGetActiveCache();
   return invokeCommand<WorkspaceContextResponse>("workspace_pick_and_open");
 }
 
 export function workspaceOpen(workspaceRoot: string): Promise<WorkspaceContextResponse> {
+  invalidateWorkspaceGetActiveCache();
   return invokeCommand<WorkspaceContextResponse>("workspace_open", { workspaceRoot });
 }
 
+let workspaceGetActiveCachedResult: WorkspaceContextResponse | null = null;
+let workspaceGetActiveCachedAt = 0;
+const WORKSPACE_GET_ACTIVE_CACHE_TTL_MS = 400;
+
 export function workspaceGetActive(): Promise<WorkspaceContextResponse> {
+  const now = Date.now();
+  if (workspaceGetActiveCachedResult && now - workspaceGetActiveCachedAt < WORKSPACE_GET_ACTIVE_CACHE_TTL_MS) {
+    return Promise.resolve(workspaceGetActiveCachedResult);
+  }
   return invokeCommand<WorkspaceContextResponse>("workspace_get_active", undefined, {
     intent: "background",
+  }).then((result) => {
+    workspaceGetActiveCachedResult = result;
+    workspaceGetActiveCachedAt = Date.now();
+    return result;
   });
+}
+
+export function invalidateWorkspaceGetActiveCache(): void {
+  workspaceGetActiveCachedResult = null;
+  workspaceGetActiveCachedAt = 0;
 }
 
 export function workspaceTermSanityCheck(): Promise<WorkspaceTermSanityResponse> {
@@ -2035,6 +2063,7 @@ export function grooveBinRepair(): Promise<GrooveBinRepairResponse> {
 }
 
 export function workspaceClearActive(): Promise<WorkspaceContextResponse> {
+  invalidateWorkspaceGetActiveCache();
   return invokeCommand<WorkspaceContextResponse>("workspace_clear_active");
 }
 

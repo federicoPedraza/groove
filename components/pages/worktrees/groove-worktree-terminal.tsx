@@ -1,6 +1,6 @@
 import "@xterm/xterm/css/xterm.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { X } from "lucide-react";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
@@ -80,6 +80,7 @@ type GrooveTerminalPaneProps = {
   worktree: string;
   sessionId: string;
   themeMode: ThemeMode;
+  autoFocus?: boolean;
 };
 
 type SplitTerminalPaneProps = {
@@ -92,6 +93,7 @@ type SplitTerminalPaneProps = {
   themeMode: ThemeMode;
   isClosing: boolean;
   onClose: (sessionId: string) => void;
+  autoFocus?: boolean;
 };
 
 type DecoratedSession = {
@@ -100,12 +102,7 @@ type DecoratedSession = {
 };
 
 const DESKTOP_BREAKPOINT_QUERY = "(min-width: 768px)";
-const HORIZONTAL_HANDLE_SIZE = 10;
-const MIN_COLUMN_WIDTH_PX = 240;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
+const MIN_TERMINAL_HEIGHT_PX = 320;
 
 function useIsDesktop(): boolean {
   const [isDesktop, setIsDesktop] = useState(() => {
@@ -149,6 +146,7 @@ function GrooveTerminalPane({
   worktree,
   sessionId,
   themeMode,
+  autoFocus = false,
 }: GrooveTerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -254,29 +252,57 @@ function GrooveTerminalPane({
     if (container) {
       terminal.open(container);
       fitAddon.fit();
+      if (autoFocus) {
+        terminal.focus();
+      }
     }
 
     terminal.attachCustomKeyEventHandler((event) => {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "c" || event.shiftKey) {
+      if (event.type !== "keydown") {
         return true;
       }
 
-      if (!terminal.hasSelection()) {
+      const isModified = event.ctrlKey || event.metaKey;
+      if (!isModified) {
         return true;
       }
 
-      const selectedText = terminal.getSelection();
-      if (typeof navigator.clipboard?.writeText !== "function") {
-        console.warn("Clipboard API unavailable; terminal selection was not copied");
+      if ((event.key === "=" || event.key === "+") && !event.shiftKey) {
+        const nextSize = Math.min((terminal.options.fontSize ?? 12) + 1, 28);
+        terminal.options.fontSize = nextSize;
+        fitAddon.fit();
         return false;
       }
 
-      void navigator.clipboard.writeText(selectedText).then(() => {
-        terminal.clearSelection();
-      }).catch((error: unknown) => {
-        console.warn("Failed to copy terminal selection", { error });
-      });
-      return false;
+      if (event.key === "-" && !event.shiftKey) {
+        const nextSize = Math.max((terminal.options.fontSize ?? 12) - 1, 6);
+        terminal.options.fontSize = nextSize;
+        fitAddon.fit();
+        return false;
+      }
+
+      if (event.key === "0" && !event.shiftKey) {
+        terminal.options.fontSize = 12;
+        fitAddon.fit();
+        return false;
+      }
+
+      if (event.key.toLowerCase() === "c" && !event.shiftKey && terminal.hasSelection()) {
+        const selectedText = terminal.getSelection();
+        if (typeof navigator.clipboard?.writeText !== "function") {
+          console.warn("Clipboard API unavailable; terminal selection was not copied");
+          return false;
+        }
+
+        void navigator.clipboard.writeText(selectedText).then(() => {
+          terminal.clearSelection();
+        }).catch((error: unknown) => {
+          console.warn("Failed to copy terminal selection", { error });
+        });
+        return false;
+      }
+
+      return true;
     });
 
     const openTerminalUrl = (url: string) => {
@@ -449,8 +475,29 @@ function GrooveTerminalPane({
     applyInitialResize();
     observer.observe(container);
 
+    const visibilityObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            terminal.refresh(0, terminal.rows - 1);
+            fitAddon.fit();
+          }
+        }
+      },
+      { threshold: 0.1 },
+    );
+    visibilityObserver.observe(container);
+
+    const onFocus = () => {
+      terminal.refresh(0, terminal.rows - 1);
+      fitAddon.fit();
+    };
+    container.addEventListener("focusin", onFocus);
+
     return () => {
       observer.disconnect();
+      visibilityObserver.disconnect();
+      container.removeEventListener("focusin", onFocus);
       if (resizeTimeout !== null) {
         window.clearTimeout(resizeTimeout);
       }
@@ -543,6 +590,7 @@ function SplitTerminalPane({
   themeMode,
   isClosing,
   onClose,
+  autoFocus = false,
 }: SplitTerminalPaneProps) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border">
@@ -570,6 +618,7 @@ function SplitTerminalPane({
           worktree={worktree}
           sessionId={session.sessionId}
           themeMode={themeMode}
+          autoFocus={autoFocus}
         />
       </div>
     </div>
@@ -585,9 +634,7 @@ export function GrooveWorktreeTerminal({
 }: GrooveWorktreeTerminalProps) {
   const [sessions, setSessions] = useState<GrooveTerminalSession[]>([]);
   const [closingSessionIds, setClosingSessionIds] = useState<string[]>([]);
-  const [horizontalRatiosByRow, setHorizontalRatiosByRow] = useState<Record<string, number>>({});
   const stableKnownWorktreesRef = useRef<string[]>(knownWorktrees);
-  const splitRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const knownWorktreesKey = knownWorktrees.join("\0");
   const stableKnownWorktreesKey = stableKnownWorktreesRef.current.join("\0");
   if (knownWorktreesKey !== stableKnownWorktreesKey) {
@@ -700,99 +747,6 @@ export function GrooveWorktreeTerminal({
     });
   }, [sessions]);
 
-  const sessionRows = useMemo(() => {
-    const rows: { key: string; sessions: DecoratedSession[] }[] = [];
-    for (let index = 0; index < decoratedSessions.length; index += 2) {
-      const rowSessions = decoratedSessions.slice(index, index + 2);
-      const key = rowSessions.map((entry) => entry.session.sessionId).join("|");
-      rows.push({
-        key,
-        sessions: rowSessions,
-      });
-    }
-    return rows;
-  }, [decoratedSessions]);
-
-  useEffect(() => {
-    setHorizontalRatiosByRow((previous) => {
-      const next: Record<string, number> = {};
-      let changed = false;
-
-      for (const row of sessionRows) {
-        if (row.sessions.length !== 2) {
-          continue;
-        }
-        const existingRatio = previous[row.key];
-        next[row.key] = existingRatio ?? 0.5;
-        if (existingRatio === undefined) {
-          changed = true;
-        }
-      }
-
-      if (!changed) {
-        const previousKeys = Object.keys(previous);
-        const nextKeys = Object.keys(next);
-        if (previousKeys.length !== nextKeys.length) {
-          changed = true;
-        } else {
-          for (const key of nextKeys) {
-            if (previous[key] !== next[key]) {
-              changed = true;
-              break;
-            }
-          }
-        }
-      }
-
-      return changed ? next : previous;
-    });
-  }, [sessionRows]);
-
-  const handleHorizontalResizeStart = useCallback(
-    (rowKey: string, event: ReactPointerEvent<HTMLDivElement>) => {
-      const container = splitRowRefs.current[rowKey];
-      if (!container) {
-        return;
-      }
-
-      const availableWidth = container.clientWidth - HORIZONTAL_HANDLE_SIZE;
-      if (availableWidth <= 0) {
-        return;
-      }
-
-      const minRatio = clamp(MIN_COLUMN_WIDTH_PX / availableWidth, 0.1, 0.45);
-      const maxRatio = 1 - minRatio;
-      const startX = event.clientX;
-      const startRatio = horizontalRatiosByRow[rowKey] ?? 0.5;
-      const pointerId = event.pointerId;
-
-      const onPointerMove = (pointerEvent: PointerEvent) => {
-        const deltaRatio = (pointerEvent.clientX - startX) / availableWidth;
-        const nextRatio = clamp(startRatio + deltaRatio, minRatio, maxRatio);
-        setHorizontalRatiosByRow((previous) => {
-          if (previous[rowKey] === nextRatio) {
-            return previous;
-          }
-          return {
-            ...previous,
-            [rowKey]: nextRatio,
-          };
-        });
-      };
-
-      const onPointerUp = () => {
-        window.removeEventListener("pointermove", onPointerMove);
-        window.removeEventListener("pointerup", onPointerUp);
-        window.removeEventListener("pointercancel", onPointerUp);
-      };
-
-      event.currentTarget.setPointerCapture(pointerId);
-      window.addEventListener("pointermove", onPointerMove);
-      window.addEventListener("pointerup", onPointerUp, { once: true });
-      window.addEventListener("pointercancel", onPointerUp, { once: true });
-    },
-    [horizontalRatiosByRow],
-  );
 
   return (
     <div className="groove-worktree-terminal space-y-2">
@@ -800,7 +754,7 @@ export function GrooveWorktreeTerminal({
         <div className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">No active in-app sessions for this worktree.</div>
       ) : !isDesktop ? (
         <div className="space-y-3">
-          {decoratedSessions.map((entry) => (
+          {decoratedSessions.map((entry, index) => (
             <div key={entry.session.sessionId} className="h-[75vh] min-h-[280px]">
               <SplitTerminalPane
                 workspaceRoot={workspaceRoot}
@@ -814,97 +768,31 @@ export function GrooveWorktreeTerminal({
                 onClose={(sessionId) => {
                   void handleCloseSplit(sessionId);
                 }}
+                autoFocus={index === 0}
               />
             </div>
           ))}
         </div>
       ) : (
-        <div className="flex h-[75vh] min-h-[320px] min-w-0 flex-col gap-2">
-          {sessionRows.map((row) => {
-            if (row.sessions.length === 1) {
-              const onlySession = row.sessions[0];
-              return (
-                <div key={row.key} className="min-h-0 min-w-0 flex-1">
-                  <SplitTerminalPane
-                    workspaceRoot={workspaceRoot}
-                    workspaceMeta={workspaceMeta}
-                    knownWorktrees={stableKnownWorktrees}
-                    worktree={worktree}
-                    session={onlySession.session}
-                    instanceLabel={onlySession.instanceLabel}
-                    themeMode={themeMode}
-                    isClosing={closingSessionIds.includes(onlySession.session.sessionId)}
-                    onClose={(sessionId) => {
-                      void handleCloseSplit(sessionId);
-                    }}
-                  />
-                </div>
-              );
-            }
-
-            const leftSession = row.sessions[0];
-            const rightSession = row.sessions[1];
-            const horizontalRatio = horizontalRatiosByRow[row.key] ?? 0.5;
-            const leftColumnBasis = `calc((100% - ${HORIZONTAL_HANDLE_SIZE}px) * ${horizontalRatio})`;
-            const rightColumnBasis = `calc((100% - ${HORIZONTAL_HANDLE_SIZE}px) * ${1 - horizontalRatio})`;
-
-            return (
-              <div
-                key={row.key}
-                ref={(element) => {
-                  if (element) {
-                    splitRowRefs.current[row.key] = element;
-                    return;
-                  }
-                  delete splitRowRefs.current[row.key];
+        <div className="max-h-[75vh] space-y-2 overflow-y-auto">
+          {decoratedSessions.map((entry, index) => (
+            <div key={entry.session.sessionId} style={{ minHeight: `${MIN_TERMINAL_HEIGHT_PX}px`, height: "60vh" }}>
+              <SplitTerminalPane
+                workspaceRoot={workspaceRoot}
+                workspaceMeta={workspaceMeta}
+                knownWorktrees={stableKnownWorktrees}
+                worktree={worktree}
+                session={entry.session}
+                instanceLabel={entry.instanceLabel}
+                themeMode={themeMode}
+                isClosing={closingSessionIds.includes(entry.session.sessionId)}
+                onClose={(sessionId) => {
+                  void handleCloseSplit(sessionId);
                 }}
-                className="flex min-h-0 min-w-0 flex-1"
-              >
-                <div className="min-h-0 min-w-0" style={{ flexBasis: leftColumnBasis }}>
-                  <SplitTerminalPane
-                    workspaceRoot={workspaceRoot}
-                    workspaceMeta={workspaceMeta}
-                    knownWorktrees={stableKnownWorktrees}
-                    worktree={worktree}
-                    session={leftSession.session}
-                    instanceLabel={leftSession.instanceLabel}
-                    themeMode={themeMode}
-                    isClosing={closingSessionIds.includes(leftSession.session.sessionId)}
-                    onClose={(sessionId) => {
-                      void handleCloseSplit(sessionId);
-                    }}
-                  />
-                </div>
-                <div
-                  className="group relative shrink-0 cursor-col-resize touch-none py-1"
-                  style={{ width: `${HORIZONTAL_HANDLE_SIZE}px` }}
-                  onPointerDown={(event) => {
-                    handleHorizontalResizeStart(row.key, event);
-                  }}
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="Resize terminal columns"
-                >
-                  <div className="absolute inset-y-1 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary/50" />
-                </div>
-                <div className="min-h-0 min-w-0" style={{ flexBasis: rightColumnBasis }}>
-                  <SplitTerminalPane
-                    workspaceRoot={workspaceRoot}
-                    workspaceMeta={workspaceMeta}
-                    knownWorktrees={stableKnownWorktrees}
-                    worktree={worktree}
-                    session={rightSession.session}
-                    instanceLabel={rightSession.instanceLabel}
-                    themeMode={themeMode}
-                    isClosing={closingSessionIds.includes(rightSession.session.sessionId)}
-                    onClose={(sessionId) => {
-                      void handleCloseSplit(sessionId);
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          })}
+                autoFocus={index === 0}
+              />
+            </div>
+          ))}
         </div>
       )}
     </div>

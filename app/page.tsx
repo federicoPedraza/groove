@@ -169,8 +169,8 @@ export default function Home() {
 
   useAppLayout({
     noDirectoryOpenState: {
-      isVisible: !isWorkspaceHydrating && !activeWorkspace,
-      isBusy,
+      isVisible: !activeWorkspace,
+      isBusy: isWorkspaceHydrating || isBusy,
       statusMessage,
       errorMessage,
       onSelectDirectory: pickDirectory,

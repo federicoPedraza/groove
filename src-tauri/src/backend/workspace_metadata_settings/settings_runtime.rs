@@ -805,6 +805,32 @@ fn task_by_id_mut<'a>(tasks: &'a mut [WorkspaceTask], id: &str) -> Option<&'a mu
     tasks.iter_mut().find(|task| task.id == id)
 }
 
+/// Returns `(worktree_id, is_existing)` — `is_existing` is `true` when the
+/// record already existed before this call.
+fn register_worktree_record(
+    workspace_root: &Path,
+    worktree: &str,
+) -> Result<(String, bool), String> {
+    let (mut workspace_meta, _) = ensure_workspace_meta(workspace_root)?;
+    if let Some(existing) = workspace_meta.worktree_records.get(worktree) {
+        return Ok((existing.id.clone(), true));
+    }
+
+    let id = Uuid::new_v4().to_string();
+    workspace_meta.worktree_records.insert(
+        worktree.to_string(),
+        WorktreeRecord {
+            id: id.clone(),
+            created_at: now_iso(),
+        },
+    );
+    workspace_meta.updated_at = now_iso();
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    write_workspace_meta_file(&workspace_json, &workspace_meta)?;
+    Ok((id, false))
+}
+
 fn normalize_worktree_task_assignments(
     assignments: &HashMap<String, String>,
     tasks: &[WorkspaceTask],
@@ -1452,6 +1478,7 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         opencode_settings: default_opencode_settings(),
         tasks: Vec::new(),
         worktree_task_assignments: HashMap::new(),
+        worktree_records: HashMap::new(),
     }
 }
 

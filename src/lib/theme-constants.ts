@@ -1,4 +1,4 @@
-export type ThemeMode = "light" | "groove" | "ice" | "lava" | "earth" | "wind" | "dark-groove" | "dark";
+export type ThemeMode = "light" | "groove" | "ice" | "gum" | "lava" | "earth" | "wind" | "dark-groove" | "dark";
 
 export const DEFAULT_THEME_MODE: ThemeMode = "groove";
 export const THEME_STORAGE_KEY = "groove.theme-mode";
@@ -18,6 +18,11 @@ export const THEME_MODE_OPTIONS: Array<{ value: ThemeMode; label: string; descri
     value: "ice",
     label: "Ice",
     description: "Crisp cool palette with glacial blue highlights.",
+  },
+  {
+    value: "gum",
+    label: "Gum",
+    description: "Warm pink palette with bubblegum rose accents.",
   },
   {
     value: "lava",

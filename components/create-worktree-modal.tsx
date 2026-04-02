@@ -151,61 +151,46 @@ function CreateWorktreeModal({
             <DialogDescription>Enter a branch name and choose the base branch.</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2">
-            <label htmlFor="create-worktree-branch" className="text-sm font-medium">
-              Branch name
-            </label>
-            <Input
-              id="create-worktree-branch"
-              type="text"
-              value={branch}
-              onChange={(event) => {
-                onBranchChange(event.target.value);
-              }}
-              placeholder="feature/my-branch"
-              required
-              autoFocus
-              disabled={loading}
-            />
-          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label htmlFor="create-worktree-branch" className="text-sm font-medium">
+                Branch name
+              </label>
+              <Input
+                id="create-worktree-branch"
+                type="text"
+                value={branch}
+                onChange={(event) => {
+                  onBranchChange(event.target.value);
+                }}
+                placeholder="feature/my-branch"
+                required
+                autoFocus
+                disabled={loading}
+              />
+            </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Base branch</label>
-            <SearchDropdown
-              ariaLabel="Select base branch"
-              searchAriaLabel="Search existing branches"
-              options={existingBranchOptions}
-              value={base}
-              placeholder={isExistingBranchesLoading ? "Loading branches..." : "Select an existing branch"}
-              searchPlaceholder="Filter branches"
-              onValueChange={(nextValue) => {
-                setSelectionError(null);
-                onBaseChange(nextValue);
-              }}
-              disabled={loading || isExistingBranchesLoading || existingBranches.length === 0}
-            />
-            {existingBranchesError ? <p className="text-xs text-destructive">{existingBranchesError}</p> : null}
-            {!existingBranchesError && selectionError ? <p className="text-xs text-destructive">{selectionError}</p> : null}
-            {!isExistingBranchesLoading && !existingBranchesError && existingBranches.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No branches were found in this repository.</p>
-            ) : null}
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="create-worktree-task-prompt" className="text-sm font-medium">
-              Generate task (optional)
-            </label>
-            <textarea
-              id="create-worktree-task-prompt"
-              value={taskPrompt}
-              onChange={(event) => {
-                onTaskPromptChange(event.target.value);
-              }}
-              placeholder="Describe the task to generate while creating this worktree"
-              disabled={loading}
-              rows={4}
-              className="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            />
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Base branch</label>
+              <SearchDropdown
+                ariaLabel="Select base branch"
+                searchAriaLabel="Search existing branches"
+                options={existingBranchOptions}
+                value={base}
+                placeholder={isExistingBranchesLoading ? "Loading branches..." : "Select a branch"}
+                searchPlaceholder="Filter branches"
+                onValueChange={(nextValue) => {
+                  setSelectionError(null);
+                  onBaseChange(nextValue);
+                }}
+                disabled={loading || isExistingBranchesLoading || existingBranches.length === 0}
+              />
+              {existingBranchesError ? <p className="text-xs text-destructive">{existingBranchesError}</p> : null}
+              {!existingBranchesError && selectionError ? <p className="text-xs text-destructive">{selectionError}</p> : null}
+              {!isExistingBranchesLoading && !existingBranchesError && existingBranches.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No branches were found in this repository.</p>
+              ) : null}
+            </div>
           </div>
 
           <DialogFooter>

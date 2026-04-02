@@ -7,6 +7,7 @@ function isThemeMode(value: string): value is ThemeMode {
     value === "light" ||
     value === "groove" ||
     value === "ice" ||
+    value === "gum" ||
     value === "lava" ||
     value === "earth" ||
     value === "wind" ||

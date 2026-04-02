@@ -376,7 +376,7 @@ export function useDashboardState() {
         if (!result.workspaceRoot) {
           setActiveWorkspace(null);
           setHasWorktreesDirectory(null);
-          setWorktreeRows([]);
+          setWorktreeRows((prev) => (prev.length === 0 ? prev : []));
           return;
         }
         applyWorkspaceContext(result);
@@ -708,13 +708,24 @@ export function useDashboardState() {
     }
   }, [knownWorktrees, workspaceMeta, workspaceRoot]);
 
-  useEffect(() => {
-    scheduleRuntimeStateFetch(0);
-  }, [knownWorktreesKey, scheduleRuntimeStateFetch, workspaceMeta?.rootName, workspaceMeta?.updatedAt, workspaceRoot]);
+  const rescanWorktreesRef = useRef(rescanWorktrees);
+  rescanWorktreesRef.current = rescanWorktrees;
+  const scheduleRuntimeStateFetchRef = useRef(scheduleRuntimeStateFetch);
+  scheduleRuntimeStateFetchRef.current = scheduleRuntimeStateFetch;
+  const fetchTestingEnvironmentStateRef = useRef(fetchTestingEnvironmentState);
+  fetchTestingEnvironmentStateRef.current = fetchTestingEnvironmentState;
+  const knownWorktreesRef = useRef(knownWorktrees);
+  knownWorktreesRef.current = knownWorktrees;
+  const workspaceMetaRef = useRef(workspaceMeta);
+  workspaceMetaRef.current = workspaceMeta;
 
   useEffect(() => {
-    void fetchTestingEnvironmentState();
-  }, [fetchTestingEnvironmentState, knownWorktreesKey, workspaceMeta?.rootName, workspaceMeta?.updatedAt, workspaceRoot]);
+    scheduleRuntimeStateFetchRef.current(0);
+  }, [knownWorktreesKey, workspaceMeta?.rootName, workspaceMeta?.updatedAt, workspaceRoot]);
+
+  useEffect(() => {
+    void fetchTestingEnvironmentStateRef.current();
+  }, [knownWorktreesKey, workspaceMeta?.rootName, workspaceMeta?.updatedAt, workspaceRoot]);
 
   useEffect(() => {
     if (!workspaceRoot || !workspaceMeta || realtimeUnavailableRef.current) {
@@ -757,12 +768,15 @@ export function useDashboardState() {
       eventRescanTimeoutRef.current = window.setTimeout(() => {
         eventRescanTimeoutRef.current = null;
         void (async () => {
-          await rescanWorktrees();
-          scheduleRuntimeStateFetch(0);
-          await fetchTestingEnvironmentState();
+          await rescanWorktreesRef.current();
+          scheduleRuntimeStateFetchRef.current(0);
+          await fetchTestingEnvironmentStateRef.current();
         })();
       }, delayMs);
     };
+
+    const currentWorkspaceMeta = workspaceMeta;
+    const currentKnownWorktrees = knownWorktreesRef.current;
 
     void (async () => {
       try {
@@ -778,9 +792,9 @@ export function useDashboardState() {
         trackUnlisten(unlistenChange);
 
         const response = await workspaceEvents({
-          rootName: workspaceMeta.rootName,
-          knownWorktrees,
-          workspaceMeta,
+          rootName: currentWorkspaceMeta.rootName,
+          knownWorktrees: currentKnownWorktrees,
+          workspaceMeta: currentWorkspaceMeta,
         });
         if (!response.ok) {
           throw new Error(response.error ?? "Workspace events unavailable.");
@@ -802,7 +816,7 @@ export function useDashboardState() {
         eventRescanTimeoutRef.current = null;
       }
     };
-  }, [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, workspaceRoot]);
+  }, [workspaceMeta?.rootName, workspaceRoot]);
 
   useEffect(() => {
     if (!workspaceRoot || !workspaceMeta) {

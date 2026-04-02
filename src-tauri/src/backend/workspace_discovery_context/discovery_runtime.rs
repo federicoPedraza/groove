@@ -2,6 +2,7 @@ fn scan_workspace_worktrees(
     app: &AppHandle,
     workspace_root: &Path,
     worktree_task_assignments: &HashMap<String, String>,
+    worktree_records: &HashMap<String, WorktreeRecord>,
 ) -> Result<(bool, Vec<WorkspaceScanRow>), String> {
     let worktrees_dir = workspace_root.join(".worktrees");
     if !path_is_directory(&worktrees_dir) {
@@ -42,6 +43,7 @@ fn scan_workspace_worktrees(
         };
 
         rows.push(WorkspaceScanRow {
+            worktree_id: worktree_records.get(&worktree).map(|record| record.id.clone()),
             branch_guess: branch_guess_from_worktree_name(&worktree),
             path: path.display().to_string(),
             status: status.to_string(),
@@ -79,6 +81,7 @@ fn scan_workspace_worktrees(
 
             rows.push(WorkspaceScanRow {
                 worktree: worktree.clone(),
+                worktree_id: worktree_records.get(worktree).map(|record| record.id.clone()),
                 branch_guess,
                 path: tombstone.worktree_path.clone(),
                 status: "deleted".to_string(),
@@ -164,6 +167,7 @@ fn build_workspace_context(
         app,
         workspace_root,
         &workspace_meta.worktree_task_assignments,
+        &workspace_meta.worktree_records,
     ) {
         Ok(result) => result,
         Err(error) => {
@@ -311,6 +315,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
     let opencode_settings = None;
     let tasks = None;
     let worktree_task_assignments = None;
+    let worktree_records = None;
 
     if version.is_none()
         && root_name.is_none()
@@ -331,6 +336,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         && opencode_settings.is_none()
         && tasks.is_none()
         && worktree_task_assignments.is_none()
+        && worktree_records.is_none()
     {
         return None;
     }
@@ -355,6 +361,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         opencode_settings,
         tasks,
         worktree_task_assignments,
+        worktree_records,
     })
 }
 

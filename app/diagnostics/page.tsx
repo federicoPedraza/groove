@@ -434,7 +434,7 @@ export default function DiagnosticsPage() {
   });
 
   return (
-    <>
+    <div className="space-y-3">
       <DiagnosticsHeader
         isLoadingMostConsumingPrograms={isLoadingMostConsumingPrograms}
         isCleaningAllDevServers={isCleaningAllDevServers}
@@ -540,6 +540,6 @@ export default function DiagnosticsPage() {
           void runKillAllNodeAndOpencodeInstancesAction();
         }}
       />
-    </>
+    </div>
   );
 }

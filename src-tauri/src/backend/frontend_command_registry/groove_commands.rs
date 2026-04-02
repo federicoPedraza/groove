@@ -906,13 +906,18 @@ fn groove_restore(
             .as_str(),
         );
         if is_groove_terminal_play_command(command_template) {
+            let terminal_open_mode = if is_groove_terminal_claude_code_command(command_template) {
+                GrooveTerminalOpenMode::ClaudeCode
+            } else {
+                GrooveTerminalOpenMode::Opencode
+            };
             match open_groove_terminal_session(
                 &app,
                 &terminal_state,
                 &workspace_root,
                 &worktree,
                 &expected_worktree_path,
-                GrooveTerminalOpenMode::Opencode,
+                terminal_open_mode,
                 Some(play_target.as_str()),
                 None,
                 None,
@@ -1293,6 +1298,16 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
     let ok = result.exit_code == Some(0) && result.error.is_none();
     if ok {
         let stamped_worktree = branch.replace('/', "_");
+        if let Err(error) = register_worktree_record(&workspace_root, &stamped_worktree).map(|_| ()) {
+            return GrooveCommandResponse {
+                request_id,
+                ok: false,
+                exit_code: result.exit_code,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                error: Some(error),
+            };
+        }
         if let Err(error) =
             record_worktree_last_executed_at(&app, &workspace_root, &stamped_worktree)
         {

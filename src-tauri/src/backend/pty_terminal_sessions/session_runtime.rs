@@ -15,7 +15,7 @@ fn default_theme_mode() -> String {
 }
 
 fn default_play_groove_command() -> String {
-    DEFAULT_PLAY_GROOVE_COMMAND_TEMPLATE.to_string()
+    GROOVE_PLAY_COMMAND_SENTINEL.to_string()
 }
 
 fn default_keyboard_shortcut_leader() -> String {
@@ -36,7 +36,12 @@ fn normalize_terminal_dimension(value: Option<u16>, default: u16) -> u16 {
 }
 
 fn is_groove_terminal_play_command(command: &str) -> bool {
-    command.trim() == GROOVE_PLAY_COMMAND_SENTINEL
+    let trimmed = command.trim();
+    trimmed == GROOVE_PLAY_COMMAND_SENTINEL || trimmed == GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL
+}
+
+fn is_groove_terminal_claude_code_command(command: &str) -> bool {
+    command.trim() == GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL
 }
 
 fn is_groove_terminal_open_command(command: &str) -> bool {
@@ -275,6 +280,14 @@ fn resolve_opencode_bin() -> String {
         .unwrap_or_else(|| "opencode".to_string())
 }
 
+fn resolve_claude_code_bin() -> String {
+    std::env::var("CLAUDE_CODE_BIN")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "claude".to_string())
+}
+
 fn resolve_terminal_worktree_context(
     app: &AppHandle,
     root_name: &Option<String>,
@@ -350,6 +363,16 @@ fn open_groove_terminal_session(
 
     let (program, args) = match open_mode {
         GrooveTerminalOpenMode::Opencode => (resolve_opencode_bin(), Vec::new()),
+        GrooveTerminalOpenMode::ClaudeCode => {
+            let (worktree_id, is_existing) =
+                register_worktree_record(workspace_root, worktree)?;
+            let args = if is_existing {
+                vec!["--resume".to_string(), worktree_id]
+            } else {
+                vec!["--session-id".to_string(), worktree_id]
+            };
+            (resolve_claude_code_bin(), args)
+        }
         GrooveTerminalOpenMode::RunLocal => {
             let run_local_command = run_local_command_for_workspace(workspace_root);
             let command_template = run_local_command

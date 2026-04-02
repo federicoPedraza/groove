@@ -15,6 +15,7 @@ import {
   DEFAULT_PLAY_GROOVE_COMMAND,
   DEFAULT_RUN_LOCAL_COMMAND,
   GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
+  GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL,
   GROOVE_PLAY_COMMAND_SENTINEL,
 } from "@/src/lib/ipc";
 
@@ -39,7 +40,8 @@ type CommandsSettingsFormProps = {
 const CUSTOM_TEMPLATE_VALUE = "__custom__";
 
 const PLAY_GROOVE_TEMPLATE_COMMANDS = {
-  groove: GROOVE_PLAY_COMMAND_SENTINEL,
+  grooveOpencode: GROOVE_PLAY_COMMAND_SENTINEL,
+  grooveClaudeCode: GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL,
   system: DEFAULT_PLAY_GROOVE_COMMAND,
   ghostty: "ghostty --working-directory={worktree} -e opencode",
   warp: "warp --working-directory {worktree} --command opencode",
@@ -49,7 +51,8 @@ const PLAY_GROOVE_TEMPLATE_COMMANDS = {
 } as const;
 
 const PLAY_GROOVE_COMMAND_TEMPLATES: Array<{ value: keyof typeof PLAY_GROOVE_TEMPLATE_COMMANDS; label: string }> = [
-  { value: "groove", label: "Groove" },
+  { value: "grooveOpencode", label: "Groove: Opencode" },
+  { value: "grooveClaudeCode", label: "Groove: Claude Code" },
   { value: "system", label: "System default" },
   { value: "ghostty", label: "Ghostty" },
   { value: "warp", label: "Warp" },

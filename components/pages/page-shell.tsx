@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 
 import { AppNavigation } from "@/components/app-navigation";
@@ -419,6 +419,9 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
     }
   }, [hasOpenWorkspace]);
 
+  const refreshActiveWorkspaceDirectoryNameRef = useRef(refreshActiveWorkspaceDirectoryName);
+  refreshActiveWorkspaceDirectoryNameRef.current = refreshActiveWorkspaceDirectoryName;
+
   useEffect(() => {
     let isClosed = false;
     const unlistenHandlers: Array<() => void> = [];
@@ -437,7 +440,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
       if (isClosed) {
         return;
       }
-      void refreshActiveWorkspaceDirectoryName();
+      void refreshActiveWorkspaceDirectoryNameRef.current();
     };
 
     refreshIfOpen();
@@ -465,7 +468,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
       isClosed = true;
       cleanupListeners();
     };
-  }, [refreshActiveWorkspaceDirectoryName]);
+  }, [hasOpenWorkspace]);
 
   useEffect(() => {
     const nextTitle = buildAppTitle(activeWorkspaceDirectoryName);
@@ -493,6 +496,9 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
     };
   }, [activeWorkspaceDirectoryName]);
 
+  const refreshDiagnosticsSanityWarningRef = useRef(refreshDiagnosticsSanityWarning);
+  refreshDiagnosticsSanityWarningRef.current = refreshDiagnosticsSanityWarning;
+
   useEffect(() => {
     if (!hasOpenWorkspace) {
       setHasDiagnosticsSanityWarning(false);
@@ -516,7 +522,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
       if (isClosed) {
         return;
       }
-      void refreshDiagnosticsSanityWarning();
+      void refreshDiagnosticsSanityWarningRef.current();
     };
 
     refreshIfOpen();
@@ -544,7 +550,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
       isClosed = true;
       cleanupListeners();
     };
-  }, [hasOpenWorkspace, refreshDiagnosticsSanityWarning]);
+  }, [hasOpenWorkspace]);
 
   useEffect(() => {
     if (!shouldAppendDiagnosticsSidebar) {
@@ -605,13 +611,15 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
   return (
     <main className="min-h-screen w-full p-4 md:p-6">
       <div className="mx-auto flex w-full max-w-7xl gap-4">
-        <AppNavigation
-          hasOpenWorkspace={hasOpenWorkspace}
-          hasDiagnosticsSanityWarning={hasDiagnosticsSanityWarning}
-          isHelpOpen={isHelpModalOpen}
-          onHelpClick={() => setIsHelpModalOpen(true)}
-          pageSidebar={resolvedNavigationSidebar}
-        />
+        {hasOpenWorkspace && (
+          <AppNavigation
+            hasOpenWorkspace={hasOpenWorkspace}
+            hasDiagnosticsSanityWarning={hasDiagnosticsSanityWarning}
+            isHelpOpen={isHelpModalOpen}
+            onHelpClick={() => setIsHelpModalOpen(true)}
+            pageSidebar={resolvedNavigationSidebar}
+          />
+        )}
         <div className="min-w-0 flex-1 space-y-4">
           {showGrooveBinWarning && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-700/30 bg-amber-500/10 px-3 py-2">
@@ -623,7 +631,7 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
               </Button>
             </div>
           )}
-          {noDirectoryOpenState?.isVisible ? (
+          {noDirectoryOpenState?.isVisible && (
             <section aria-live="polite" className="flex min-h-[calc(100vh-8rem)] items-center justify-center">
               <div className="flex w-full max-w-2xl flex-col items-center gap-6 px-4 text-center">
                 <h1 className="text-5xl font-semibold tracking-[0.18em] sm:text-7xl">GROOVE</h1>
@@ -681,9 +689,10 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
                 )}
               </div>
             </section>
-          ) : (
-            children
           )}
+          <div className={noDirectoryOpenState?.isVisible ? "hidden" : undefined}>
+            {children}
+          </div>
         </div>
       </div>
       {shouldShowFps && (

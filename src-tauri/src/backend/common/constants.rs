@@ -11,16 +11,15 @@ const DEFAULT_TESTING_ENVIRONMENT_PORTS: [u16; 3] = [3000, 3001, 3002];
 const DEFAULT_WORKTREE_SYMLINK_PATHS: [&str; 4] = [".env", ".env.local", ".convex", "node_modules"];
 const MIN_TESTING_PORT: u16 = 1;
 const MAX_TESTING_PORT: u16 = 65535;
-const DEFAULT_PLAY_GROOVE_COMMAND_TEMPLATE: &str =
-    "x-terminal-emulator -e bash -lc \"cd {worktree_escaped} && opencode\"";
 const DEFAULT_RUN_LOCAL_COMMAND: &str = "pnpm run dev";
 const SUPPORTED_DEFAULT_TERMINALS: [&str; 8] = [
     "auto", "ghostty", "warp", "kitty", "gnome", "xterm", "none", "custom",
 ];
-const SUPPORTED_THEME_MODES: [&str; 8] = [
+const SUPPORTED_THEME_MODES: [&str; 9] = [
     "light",
     "groove",
     "ice",
+    "gum",
     "lava",
     "earth",
     "wind",
@@ -30,6 +29,7 @@ const SUPPORTED_THEME_MODES: [&str; 8] = [
 const GITIGNORE_GROOVE_COMMENT: &str = "# Groove";
 const GITIGNORE_REQUIRED_ENTRIES: [&str; 2] = [".groove/", ".worktrees/"];
 const GROOVE_PLAY_COMMAND_SENTINEL: &str = "__groove_terminal__";
+const GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL: &str = "__groove_terminal_claude__";
 const GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL: &str = "__groove_terminal_open__";
 const GROOVE_TERMINAL_OUTPUT_EVENT: &str = "groove-terminal-output";
 const GROOVE_TERMINAL_LIFECYCLE_EVENT: &str = "groove-terminal-lifecycle";

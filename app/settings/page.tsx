@@ -24,8 +24,8 @@ import {
   toShortcutDisplayLabel,
 } from "@/src/lib/shortcuts";
 import {
-  DEFAULT_PLAY_GROOVE_COMMAND,
   DEFAULT_TESTING_PORTS,
+  GROOVE_PLAY_COMMAND_SENTINEL,
   getGlobalSettingsSnapshot,
   getThemeMode,
   globalSettingsGet,
@@ -98,7 +98,7 @@ export default function SettingsPage() {
     globalSettingsSnapshot.keyboardLeaderBindings[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID] ??
       DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID],
   );
-  const [playGrooveCommand, setPlayGrooveCommand] = useState(DEFAULT_PLAY_GROOVE_COMMAND);
+  const [playGrooveCommand, setPlayGrooveCommand] = useState(GROOVE_PLAY_COMMAND_SENTINEL);
   const [testingPorts, setTestingPorts] = useState<number[]>([...DEFAULT_TESTING_PORTS]);
   const [openTerminalAtWorktreeCommand, setOpenTerminalAtWorktreeCommand] = useState("");
   const [runLocalCommand, setRunLocalCommand] = useState("");
@@ -166,7 +166,7 @@ export default function SettingsPage() {
           };
         }
 
-        const savedPlayGrooveCommand = result.workspaceMeta.playGrooveCommand ?? DEFAULT_PLAY_GROOVE_COMMAND;
+        const savedPlayGrooveCommand = result.workspaceMeta.playGrooveCommand ?? GROOVE_PLAY_COMMAND_SENTINEL;
         const savedTestingPorts =
           result.workspaceMeta.testingPorts && result.workspaceMeta.testingPorts.length > 0
             ? result.workspaceMeta.testingPorts
@@ -263,7 +263,7 @@ export default function SettingsPage() {
         if (!result.workspaceMeta) {
           setWorkspaceMeta(null);
           setWorkspaceRoot(null);
-          setPlayGrooveCommand(DEFAULT_PLAY_GROOVE_COMMAND);
+          setPlayGrooveCommand(GROOVE_PLAY_COMMAND_SENTINEL);
           setTestingPorts([...DEFAULT_TESTING_PORTS]);
           setOpenTerminalAtWorktreeCommand("");
           setRunLocalCommand("");
@@ -280,7 +280,7 @@ export default function SettingsPage() {
 
         setWorkspaceMeta(result.workspaceMeta);
         setWorkspaceRoot(result.workspaceRoot ?? null);
-        setPlayGrooveCommand(result.workspaceMeta.playGrooveCommand ?? DEFAULT_PLAY_GROOVE_COMMAND);
+        setPlayGrooveCommand(result.workspaceMeta.playGrooveCommand ?? GROOVE_PLAY_COMMAND_SENTINEL);
         setTestingPorts(
           result.workspaceMeta.testingPorts && result.workspaceMeta.testingPorts.length > 0
             ? result.workspaceMeta.testingPorts
@@ -302,7 +302,7 @@ export default function SettingsPage() {
         if (!cancelled) {
           setWorkspaceMeta(null);
           setWorkspaceRoot(null);
-          setPlayGrooveCommand(DEFAULT_PLAY_GROOVE_COMMAND);
+          setPlayGrooveCommand(GROOVE_PLAY_COMMAND_SENTINEL);
           setTestingPorts([...DEFAULT_TESTING_PORTS]);
           setOpenTerminalAtWorktreeCommand("");
           setRunLocalCommand("");

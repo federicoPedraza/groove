@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
 
 import type { PageShellProps } from "@/components/pages/page-shell";
 
@@ -24,6 +24,13 @@ export function useAppLayout(options: AppLayoutOptions): void {
     pageSidebar,
     noDirectoryOpenState,
   } = options;
+  const pageSidebarRef = useRef(pageSidebar);
+  pageSidebarRef.current = pageSidebar;
+
+  const stablePageSidebar = useCallback(({ collapsed }: { collapsed: boolean }) => {
+    const currentPageSidebar = pageSidebarRef.current;
+    return typeof currentPageSidebar === "function" ? currentPageSidebar({ collapsed }) : currentPageSidebar;
+  }, []);
 
   const {
     isVisible,
@@ -34,26 +41,33 @@ export function useAppLayout(options: AppLayoutOptions): void {
     onOpenRecentDirectory,
   } = noDirectoryOpenState ?? {};
 
+  const stableNoDirectoryOpenState = useMemo(() => {
+    if (
+      typeof isVisible !== "boolean" ||
+      typeof isBusy !== "boolean" ||
+      typeof onSelectDirectory !== "function" ||
+      typeof onOpenRecentDirectory !== "function"
+    ) {
+      return undefined;
+    }
+    return {
+      isVisible,
+      isBusy,
+      statusMessage: statusMessage ?? null,
+      errorMessage: errorMessage ?? null,
+      onSelectDirectory,
+      onOpenRecentDirectory,
+    };
+  }, [isVisible, isBusy, statusMessage, errorMessage, onSelectDirectory, onOpenRecentDirectory]);
+
   useEffect(() => {
-    const nextNoDirectoryOpenState =
-      typeof isVisible === "boolean" &&
-      typeof isBusy === "boolean" &&
-      typeof onSelectDirectory === "function" &&
-      typeof onOpenRecentDirectory === "function"
-        ? {
-            isVisible,
-            isBusy,
-            statusMessage: statusMessage ?? null,
-            errorMessage: errorMessage ?? null,
-            onSelectDirectory,
-            onOpenRecentDirectory,
-          }
-        : undefined;
+    const resolvedPageSidebar = pageSidebarRef.current ? stablePageSidebar : undefined;
+    context.setOptions({ pageSidebar: resolvedPageSidebar, noDirectoryOpenState: stableNoDirectoryOpenState });
+  }, [context, stablePageSidebar, stableNoDirectoryOpenState]);
 
-    context.setOptions({ pageSidebar, noDirectoryOpenState: nextNoDirectoryOpenState });
-
+  useEffect(() => {
     return () => {
       context.setOptions(EMPTY_OPTIONS);
     };
-  }, [context, pageSidebar, isVisible, isBusy, statusMessage, errorMessage, onSelectDirectory, onOpenRecentDirectory]);
+  }, [context]);
 }

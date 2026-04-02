@@ -2,7 +2,7 @@
 
 import { Link, useLocation } from "react-router-dom";
 import { ActivitySquare, CircleHelp, GitBranch, LayoutDashboard, ListTodo, PanelLeft, Settings, TreePalm, TriangleAlert } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import {
   Collapsible,
@@ -422,8 +422,8 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   }, [inspectedWorktree]);
   const refreshNavigationWorktrees = useCallback(async () => {
     if (!hasOpenWorkspace) {
-      setNavigationWorktrees([]);
-      setNavigationTaskTitlesById({});
+      setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
+      setNavigationTaskTitlesById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       cachedNavigationWorktrees = [];
       cachedNavigationTaskTitlesById = {};
       hasCachedNavigationWorktrees = false;
@@ -433,8 +433,8 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
     try {
       const workspaceResult = await workspaceGetActive();
       if (!workspaceResult.ok) {
-        setNavigationWorktrees([]);
-        setNavigationTaskTitlesById({});
+        setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
+        setNavigationTaskTitlesById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
         return;
       }
 
@@ -494,8 +494,8 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
       cachedNavigationTaskTitlesById = taskTitlesById;
       hasCachedNavigationWorktrees = true;
     } catch {
-      setNavigationWorktrees([]);
-      setNavigationTaskTitlesById({});
+      setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
+      setNavigationTaskTitlesById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       cachedNavigationWorktrees = [];
       cachedNavigationTaskTitlesById = {};
       hasCachedNavigationWorktrees = true;
@@ -506,10 +506,13 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
     syncActiveWorktreeMascotAssignments(navigationWorktrees.map((workspaceRow) => workspaceRow.worktree));
   }, [navigationWorktrees]);
 
+  const refreshNavigationWorktreesRef = useRef(refreshNavigationWorktrees);
+  refreshNavigationWorktreesRef.current = refreshNavigationWorktrees;
+
   useEffect(() => {
     if (!hasOpenWorkspace) {
-      setNavigationWorktrees([]);
-      setNavigationTaskTitlesById({});
+      setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
+      setNavigationTaskTitlesById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
 
@@ -519,8 +522,8 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
       return;
     }
 
-    void refreshNavigationWorktrees();
-  }, [hasOpenWorkspace, refreshNavigationWorktrees]);
+    void refreshNavigationWorktreesRef.current();
+  }, [hasOpenWorkspace]);
 
   useEffect(() => {
     if (!hasOpenWorkspace) {
@@ -544,13 +547,13 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
       try {
         const [unlistenReady, unlistenChange, unlistenTerminalLifecycle] = await Promise.all([
           listenWorkspaceReady(() => {
-            void refreshNavigationWorktrees();
+            void refreshNavigationWorktreesRef.current();
           }),
           listenWorkspaceChange(() => {
-            void refreshNavigationWorktrees();
+            void refreshNavigationWorktreesRef.current();
           }),
           listenGrooveTerminalLifecycle(() => {
-            void refreshNavigationWorktrees();
+            void refreshNavigationWorktreesRef.current();
           }),
         ]);
 
@@ -572,7 +575,7 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
       isClosed = true;
       cleanupListeners();
     };
-  }, [hasOpenWorkspace, refreshNavigationWorktrees]);
+  }, [hasOpenWorkspace]);
 
   const recordNavigationStart = useCallback(
     (to: string) => {

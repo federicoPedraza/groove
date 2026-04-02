@@ -194,6 +194,7 @@ struct WorkspaceMetaContext {
     opencode_settings: Option<OpencodeSettings>,
     tasks: Option<Vec<WorkspaceTask>>,
     worktree_task_assignments: Option<HashMap<String, String>>,
+    worktree_records: Option<HashMap<String, WorktreeRecord>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -529,6 +530,13 @@ struct WorkspaceTask {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorktreeRecord {
+    id: String,
+    created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ConsellourSettings {
     #[serde(default)]
     openai_api_key: Option<String>,
@@ -576,12 +584,16 @@ struct WorkspaceMeta {
     tasks: Vec<WorkspaceTask>,
     #[serde(default)]
     worktree_task_assignments: HashMap<String, String>,
+    #[serde(default)]
+    worktree_records: HashMap<String, WorktreeRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceScanRow {
     worktree: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worktree_id: Option<String>,
     branch_guess: String,
     path: String,
     status: String,

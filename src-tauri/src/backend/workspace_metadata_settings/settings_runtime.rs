@@ -519,7 +519,6 @@ fn launch_plain_terminal(
         )],
         "xterm" => vec![("xterm".to_string(), Vec::new())],
         "auto" => {
-            #[allow(unused_mut)]
             let mut terminals = vec![
                 ("x-terminal-emulator".to_string(), Vec::new()),
                 (
@@ -540,27 +539,11 @@ fn launch_plain_terminal(
                     vec![format!("--working-directory={worktree}")],
                 ),
             ];
-            #[cfg(target_os = "macos")]
-            terminals.insert(
-                0,
-                (
-                    "open".to_string(),
-                    vec!["-a".to_string(), "Terminal".to_string(), worktree.clone()],
-                ),
-            );
-            #[cfg(target_os = "windows")]
-            terminals.insert(
-                0,
-                (
-                    "cmd".to_string(),
-                    vec![
-                        "/C".to_string(),
-                        "start".to_string(),
-                        "".to_string(),
-                        "cmd".to_string(),
-                    ],
-                ),
-            );
+            if let Some(platform_terminal) =
+                crate::backend::common::platform_env::platform_default_terminal_candidate(&worktree)
+            {
+                terminals.insert(0, platform_terminal);
+            }
             terminals
         }
         _ => {
@@ -1017,19 +1000,7 @@ fn worktree_symlink_paths_for_workspace(workspace_root: &Path) -> Vec<String> {
 }
 
 fn create_symlink(source: &Path, destination: &Path) -> Result<(), std::io::Error> {
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(source, destination)
-    }
-
-    #[cfg(windows)]
-    {
-        if source.is_dir() {
-            std::os::windows::fs::symlink_dir(source, destination)
-        } else {
-            std::os::windows::fs::symlink_file(source, destination)
-        }
-    }
+    crate::backend::common::platform_env::create_symlink(source, destination)
 }
 
 fn apply_configured_worktree_symlinks(workspace_root: &Path, worktree_path: &Path) -> Vec<String> {

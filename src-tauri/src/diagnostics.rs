@@ -38,7 +38,6 @@ pub(crate) fn collect_descendant_pids(
     descendants
 }
 
-#[cfg(target_os = "windows")]
 pub(crate) fn parse_basic_csv_line(raw: &str) -> Vec<String> {
     let mut values = Vec::new();
     let mut current = String::new();

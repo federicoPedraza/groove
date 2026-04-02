@@ -921,6 +921,8 @@ fn collect_descendant_pids(snapshot_rows: &[ProcessSnapshotRow], root_pid: i32) 
 }
 
 fn stop_process_by_pid(pid: i32) -> Result<(bool, i32), String> {
+    use crate::backend::common::platform_env::{self, Platform};
+
     if pid <= 0 {
         return Err("PID must be a positive integer.".to_string());
     }
@@ -929,104 +931,78 @@ fn stop_process_by_pid(pid: i32) -> Result<(bool, i32), String> {
         return Ok((true, pid));
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        let graceful = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T"])
-            .output()
-            .map_err(|error| format!("Failed to execute taskkill: {error}"))?;
-
-        if !graceful.status.success() {
-            let stderr = String::from_utf8_lossy(&graceful.stderr).to_string();
-            if !should_treat_as_already_stopped(&stderr) {
-                let force = Command::new("taskkill")
-                    .args(["/F", "/PID", &pid.to_string(), "/T"])
-                    .output()
-                    .map_err(|error| format!("Failed to execute taskkill /F: {error}"))?;
-                if !force.status.success() {
-                    let force_stderr = String::from_utf8_lossy(&force.stderr).to_string();
-                    if !should_treat_as_already_stopped(&force_stderr) {
-                        return Err(format!("Failed to stop PID {pid}: {force_stderr}"));
-                    }
+    match Platform::current() {
+        Platform::Windows => {
+            let graceful = platform_env::kill_process_graceful(pid)?;
+            if !graceful.success && !should_treat_as_already_stopped(&graceful.stderr) {
+                let force = platform_env::kill_process_force(pid)?;
+                if !force.success && !should_treat_as_already_stopped(&force.stderr) {
+                    return Err(format!("Failed to stop PID {pid}: {}", force.stderr));
                 }
             }
-        }
 
-        if wait_for_process_exit(pid, 1800) {
-            return Ok((false, pid));
-        }
-
-        let force = Command::new("taskkill")
-            .args(["/F", "/PID", &pid.to_string(), "/T"])
-            .output()
-            .map_err(|error| format!("Failed to execute taskkill /F: {error}"))?;
-        if !force.status.success() {
-            let force_stderr = String::from_utf8_lossy(&force.stderr).to_string();
-            if !should_treat_as_already_stopped(&force_stderr) {
-                return Err(format!("Failed to force-stop PID {pid}: {force_stderr}"));
+            if wait_for_process_exit(pid, 1800) {
+                return Ok((false, pid));
             }
-        }
 
-        if wait_for_process_exit(pid, 1500) {
-            return Ok((false, pid));
-        }
-
-        return Err(format!(
-            "PID {pid} is still running after taskkill escalation."
-        ));
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let send_signal = |signal: &str, target: &str| -> Result<(), String> {
-            let output = Command::new("kill")
-                .args([signal, "--", &target])
-                .output()
-                .map_err(|error| {
-                    format!("Failed to execute kill {signal} for {target}: {error}")
-                })?;
-            if output.status.success() {
-                return Ok(());
+            let force = platform_env::kill_process_force(pid)?;
+            if !force.success && !should_treat_as_already_stopped(&force.stderr) {
+                return Err(format!("Failed to force-stop PID {pid}: {}", force.stderr));
             }
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            if should_treat_as_already_stopped(&stderr) {
-                return Ok(());
-            }
-            Err(format!("kill {signal} {target} failed: {stderr}"))
-        };
 
-        let signal_descendants = |signal: &str| {
-            let Ok((snapshot_rows, _warning)) = list_process_snapshot_rows() else {
-                return;
+            if wait_for_process_exit(pid, 1500) {
+                return Ok((false, pid));
+            }
+
+            Err(format!(
+                "PID {pid} is still running after taskkill escalation."
+            ))
+        }
+        Platform::Linux | Platform::MacOS => {
+            let send_signal = |signal: &str, target: &str| -> Result<(), String> {
+                let result = platform_env::kill_signal(signal, target)?;
+                if result.success {
+                    return Ok(());
+                }
+                if should_treat_as_already_stopped(&result.stderr) {
+                    return Ok(());
+                }
+                Err(format!("kill {signal} {target} failed: {}", result.stderr))
             };
 
-            for descendant_pid in collect_descendant_pids(&snapshot_rows, pid) {
-                let _ = send_signal(signal, &descendant_pid.to_string());
+            let signal_descendants = |signal: &str| {
+                let Ok((snapshot_rows, _warning)) = list_process_snapshot_rows() else {
+                    return;
+                };
+
+                for descendant_pid in collect_descendant_pids(&snapshot_rows, pid) {
+                    let _ = send_signal(signal, &descendant_pid.to_string());
+                }
+            };
+
+            let process_group_target = format!("-{pid}");
+            let pid_target = pid.to_string();
+
+            let _ = send_signal("-TERM", &process_group_target);
+            let _ = send_signal("-TERM", &pid_target);
+            signal_descendants("-TERM");
+
+            if wait_for_process_exit(pid, 1500) {
+                return Ok((false, pid));
             }
-        };
 
-        let process_group_target = format!("-{pid}");
-        let pid_target = pid.to_string();
+            let _ = send_signal("-KILL", &process_group_target);
+            let _ = send_signal("-KILL", &pid_target);
+            signal_descendants("-KILL");
 
-        let _ = send_signal("-TERM", &process_group_target);
-        let _ = send_signal("-TERM", &pid_target);
-        signal_descendants("-TERM");
+            if wait_for_process_exit(pid, 1500) {
+                return Ok((false, pid));
+            }
 
-        if wait_for_process_exit(pid, 1500) {
-            return Ok((false, pid));
+            Err(format!(
+                "PID {pid} is still running after TERM/KILL escalation."
+            ))
         }
-
-        let _ = send_signal("-KILL", &process_group_target);
-        let _ = send_signal("-KILL", &pid_target);
-        signal_descendants("-KILL");
-
-        if wait_for_process_exit(pid, 1500) {
-            return Ok((false, pid));
-        }
-
-        Err(format!(
-            "PID {pid} is still running after TERM/KILL escalation."
-        ))
     }
 }
 

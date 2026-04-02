@@ -4,42 +4,7 @@ fn command_cwd() -> PathBuf {
 
 fn open_url_in_default_browser(url: &str) -> Result<(), String> {
     let cwd = command_cwd();
-
-    #[cfg(target_os = "linux")]
-    {
-        return Command::new("xdg-open")
-            .arg(url)
-            .current_dir(cwd)
-            .spawn()
-            .map(|_| ())
-            .map_err(|error| format!("Failed to launch xdg-open: {error}"));
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        return Command::new("open")
-            .arg(url)
-            .current_dir(cwd)
-            .spawn()
-            .map(|_| ())
-            .map_err(|error| format!("Failed to launch open: {error}"));
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        return Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .current_dir(cwd)
-            .spawn()
-            .map(|_| ())
-            .map_err(|error| format!("Failed to launch cmd start: {error}"));
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    {
-        let _ = (cwd, url);
-        Err("Opening browser is unsupported on this platform.".to_string())
-    }
+    crate::backend::common::platform_env::open_url_in_browser(url, &cwd)
 }
 
 fn validate_existing_path(path: &str) -> Result<PathBuf, String> {

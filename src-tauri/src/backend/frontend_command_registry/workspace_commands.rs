@@ -369,31 +369,8 @@ fn evaluate_term_sanity(term_value: Option<&str>) -> (bool, Option<String>) {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn probe_term_clear(_term_value: &str) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(not(target_os = "windows"))]
 fn probe_term_clear(term_value: &str) -> Result<(), String> {
-    let output = std::process::Command::new("tput")
-        .arg("clear")
-        .env("TERM", term_value)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .output()
-        .map_err(|error| format!("terminfo_probe_failed:{error}"))?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if stderr.is_empty() {
-        Err("terminfo_missing".to_string())
-    } else {
-        Err(format!("terminfo_missing:{stderr}"))
-    }
+    crate::backend::common::platform_env::probe_term_clear(term_value)
 }
 
 const TERM_SANITY_FALLBACK: &str = "xterm-256color";

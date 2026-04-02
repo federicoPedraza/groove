@@ -884,6 +884,8 @@ fn groove_restore(
     };
     expected_worktree_path = ensured_worktree_path;
 
+    ensure_claude_notification_hook(&expected_worktree_path, &worktree);
+
     let mut result = if action == "go" {
         let play_groove_command = play_groove_command_for_workspace(&workspace_root);
         let command_template = play_groove_command.trim();
@@ -925,6 +927,9 @@ fn groove_restore(
                 true,
             ) {
                 Ok(session) => {
+                    if is_groove_terminal_claude_code_command(command_template) {
+                        mark_claude_session_started(&workspace_root, &worktree);
+                    }
                     log_play_telemetry(
                         telemetry_enabled,
                         "groove_restore.go_terminal_session_ok",
@@ -1332,6 +1337,8 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
                     symlink_warnings.join("; ")
                 ));
             }
+
+            ensure_claude_notification_hook(&worktree_path, &stamped_worktree);
         }
 
         invalidate_workspace_context_cache(&app, &workspace_root);

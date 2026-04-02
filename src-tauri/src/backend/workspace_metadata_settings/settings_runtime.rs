@@ -796,7 +796,7 @@ fn register_worktree_record(
 ) -> Result<(String, bool), String> {
     let (mut workspace_meta, _) = ensure_workspace_meta(workspace_root)?;
     if let Some(existing) = workspace_meta.worktree_records.get(worktree) {
-        return Ok((existing.id.clone(), true));
+        return Ok((existing.id.clone(), existing.claude_session_started));
     }
 
     let id = Uuid::new_v4().to_string();
@@ -805,6 +805,7 @@ fn register_worktree_record(
         WorktreeRecord {
             id: id.clone(),
             created_at: now_iso(),
+            claude_session_started: false,
         },
     );
     workspace_meta.updated_at = now_iso();
@@ -812,6 +813,21 @@ fn register_worktree_record(
     let workspace_json = workspace_root.join(".groove").join("workspace.json");
     write_workspace_meta_file(&workspace_json, &workspace_meta)?;
     Ok((id, false))
+}
+
+fn mark_claude_session_started(workspace_root: &Path, worktree: &str) {
+    let Ok((mut workspace_meta, _)) = ensure_workspace_meta(workspace_root) else {
+        return;
+    };
+    if let Some(record) = workspace_meta.worktree_records.get_mut(worktree) {
+        if record.claude_session_started {
+            return;
+        }
+        record.claude_session_started = true;
+        workspace_meta.updated_at = now_iso();
+        let workspace_json = workspace_root.join(".groove").join("workspace.json");
+        let _ = write_workspace_meta_file(&workspace_json, &workspace_meta);
+    }
 }
 
 fn normalize_worktree_task_assignments(
@@ -1001,6 +1017,51 @@ fn worktree_symlink_paths_for_workspace(workspace_root: &Path) -> Vec<String> {
 
 fn create_symlink(source: &Path, destination: &Path) -> Result<(), std::io::Error> {
     crate::backend::common::platform_env::create_symlink(source, destination)
+}
+
+fn ensure_claude_notification_hook(worktree_path: &Path, worktree_name: &str) {
+    let claude_dir = worktree_path.join(".claude");
+    if fs::create_dir_all(&claude_dir).is_err() {
+        return;
+    }
+
+    let settings_path = claude_dir.join("settings.json");
+    let mut settings: serde_json::Value = if settings_path.exists() {
+        fs::read_to_string(&settings_path)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
+            .unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    let hook_command = format!(
+        "groove notify {} \"Claude Code needs your attention\"",
+        worktree_name
+    );
+
+    let hook_entry = serde_json::json!([
+        {
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": hook_command
+                }
+            ]
+        }
+    ]);
+
+    if let Some(obj) = settings.as_object_mut() {
+        let hooks = obj.entry("hooks").or_insert(serde_json::json!({}));
+        if let Some(hooks_obj) = hooks.as_object_mut() {
+            hooks_obj.insert("Notification".to_string(), hook_entry);
+        }
+    }
+
+    if let Ok(body) = serde_json::to_string_pretty(&settings) {
+        let _ = fs::write(&settings_path, body);
+    }
 }
 
 fn apply_configured_worktree_symlinks(workspace_root: &Path, worktree_path: &Path) -> Vec<String> {

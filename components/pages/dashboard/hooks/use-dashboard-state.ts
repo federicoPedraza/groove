@@ -27,6 +27,7 @@ import {
   grooveTerminalClose,
   grooveTerminalListSessions,
   listenGrooveTerminalLifecycle,
+  listenGrooveNotification,
   listenWorkspaceChange,
   listenWorkspaceReady,
   consellourGetRecommendedTask,
@@ -848,6 +849,48 @@ export function useDashboardState() {
       }
     };
   }, [scheduleRuntimeStateFetch, workspaceMeta, workspaceRoot]);
+
+  useEffect(() => {
+    if (!workspaceRoot) {
+      return;
+    }
+
+    let mounted = true;
+    let unlisten: (() => void) | null = null;
+
+    void (async () => {
+      unlisten = await listenGrooveNotification((event) => {
+        if (!mounted || event.workspaceRoot !== workspaceRoot) {
+          return;
+        }
+
+        const { notification } = event;
+        const label = `[${notification.worktree}] ${notification.message}`;
+
+        switch (notification.type) {
+          case "error":
+            toast.error(label);
+            break;
+          case "warning":
+            toast.warning(label);
+            break;
+          case "success":
+            toast.success(label);
+            break;
+          default:
+            toast.info(label);
+            break;
+        }
+      });
+    })();
+
+    return () => {
+      mounted = false;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [workspaceRoot]);
 
   const refreshWorktrees = useCallback(async (): Promise<void> => {
     await rescanWorktrees({ force: true });

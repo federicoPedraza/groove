@@ -348,9 +348,9 @@ fn open_groove_terminal_session(
     let (program, args) = match open_mode {
         GrooveTerminalOpenMode::Opencode => (resolve_opencode_bin(), Vec::new()),
         GrooveTerminalOpenMode::ClaudeCode => {
-            let (worktree_id, is_existing) =
+            let (worktree_id, has_started) =
                 register_worktree_record(workspace_root, worktree)?;
-            let args = if is_existing {
+            let args = if has_started {
                 vec!["--resume".to_string(), worktree_id]
             } else {
                 vec!["--session-id".to_string(), worktree_id]

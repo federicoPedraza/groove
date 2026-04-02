@@ -1999,6 +1999,28 @@ export function listenGrooveTerminalLifecycle(
   });
 }
 
+export type GrooveNotification = {
+  id: string;
+  worktree: string;
+  message: string;
+  type: "info" | "warning" | "error" | "success";
+  timestamp: string;
+  source: string;
+};
+
+export type GrooveNotificationEvent = {
+  workspaceRoot: string;
+  notification: GrooveNotification;
+};
+
+export function listenGrooveNotification(
+  callback: (event: GrooveNotificationEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<GrooveNotificationEvent>("groove-notification", (event) => {
+    callback(event.payload);
+  });
+}
+
 export function workspacePickAndOpen(): Promise<WorkspaceContextResponse> {
   invalidateWorkspaceGetActiveCache();
   return invokeCommand<WorkspaceContextResponse>("workspace_pick_and_open");

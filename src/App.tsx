@@ -5,6 +5,7 @@ import Home from "@/app/page";
 import { AppLayout } from "@/components/pages/app-layout";
 import { CommandHistoryPanel } from "@/components/command-history-panel";
 import { KeyboardShortcutsProvider } from "@/components/shortcuts/keyboard-shortcuts-provider";
+import { Toaster } from "@/components/ui/sonner";
 import { isPeriodicRerenderEnabled, subscribeToGlobalSettings } from "@/src/lib/ipc";
 
 const DiagnosticsPage = lazy(async () => import("@/app/diagnostics/page"));
@@ -106,6 +107,7 @@ export function App() {
         </Route>
       </Routes>
       <CommandHistoryPanel />
+      <Toaster />
     </KeyboardShortcutsProvider>
   );
 }

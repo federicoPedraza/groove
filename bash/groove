@@ -25,6 +25,7 @@ usage:
   groove list [--dir <worktrees_dir>]
   groove rm <branch> [--dir <worktrees_dir>]
   groove restore <worktree-or-branch> [--dir <worktrees_dir>] [--opencode-log-file <path>]
+  groove notify <worktree-id> <message>
 
 notes:
   create creates (or reuses) a worktree and branch without launching terminals or opencode.
@@ -38,6 +39,7 @@ notes:
   optional env overrides: GROOVE_OPENCODE_LOG and GROOVE_OPENCODE_LOG_FILE.
   --no-console is an alias for '--terminal none'.
   --base is only supported for 'groove new' and 'groove create'.
+  notify writes a notification file that the Groove desktop app picks up and displays.
 EOF
 }
 
@@ -807,6 +809,42 @@ if [[ "${first_positional}" == "restore" ]]; then
   repair_latest_opencode_symlink "$wt_path/.groove/logs" "$opencode_log_file"
 
   echo "Restored groove metadata in $wt_path/.groove"
+  exit 0
+fi
+
+if [[ "${first_positional}" == "notify" ]]; then
+  notify_worktree="${1:-}"
+  notify_message="${2:-}"
+  if [[ -z "$notify_worktree" || -z "$notify_message" ]]; then
+    echo "usage: groove notify <worktree-id> <message>" >&2
+    exit 1
+  fi
+
+  repo_root="$(git rev-parse --show-toplevel)"
+  notif_dir="$repo_root/.groove/notifications"
+  mkdir -p "$notif_dir"
+
+  ts_epoch_ms="$(date +%s%3N 2>/dev/null || date +%s000)"
+  notif_id="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || echo "$$-$ts_epoch_ms")"
+
+  # Escape double quotes in message for valid JSON
+  escaped_message="$(printf '%s' "$notify_message" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+
+  notif_tmp="$notif_dir/.${ts_epoch_ms}_${notif_id}.json.tmp"
+  notif_file="$notif_dir/${ts_epoch_ms}_${notif_id}.json"
+
+  cat > "$notif_tmp" <<NOTIF_EOF
+{
+  "id": "$notif_id",
+  "worktree": "$notify_worktree",
+  "message": "$escaped_message",
+  "type": "info",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "source": "claude-code"
+}
+NOTIF_EOF
+
+  mv "$notif_tmp" "$notif_file"
   exit 0
 fi
 

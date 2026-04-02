@@ -533,6 +533,8 @@ struct WorkspaceTask {
 struct WorktreeRecord {
     id: String,
     created_at: String,
+    #[serde(default)]
+    claude_session_started: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

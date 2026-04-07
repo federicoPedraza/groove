@@ -4,13 +4,11 @@ import { FolderClock, FolderOpen, Terminal, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { DirectoryBehindIndicator } from "@/components/pages/dashboard/directory-behind-indicator";
 import { Button } from "@/components/ui/button";
 import { Dropdown } from "@/components/ui/dropdown";
 import { DashboardHeader } from "@/components/pages/dashboard/dashboard-header";
 import { DashboardModals } from "@/components/pages/dashboard/dashboard-modals";
 import { SummaryViewerModal } from "@/components/pages/dashboard/summary-viewer-modal";
-import { useDirectoryBehindStatus } from "@/components/pages/dashboard/hooks/use-directory-behind-status";
 import { WorktreesTable } from "@/components/pages/dashboard/worktrees-table";
 import { useDashboardState } from "@/components/pages/dashboard/hooks/use-dashboard-state";
 import { useShortcutRegistration } from "@/components/shortcuts/use-shortcut-registration";
@@ -193,7 +191,6 @@ export default function Home() {
   );
 
   const hasDirectory = Boolean(activeWorkspace);
-  const directoryBehindStatus = useDirectoryBehindStatus(activeWorkspace?.workspaceRoot ?? null);
   const workspaceDisplayName = activeWorkspace?.workspaceMeta.rootName ?? "No directory selected";
   const pauseConfirmActionKey = pauseConfirmRow ? `${pauseConfirmRow.path}:stop` : null;
   const pauseConfirmLoading = pauseConfirmActionKey !== null && pendingStopActions.includes(pauseConfirmActionKey);
@@ -286,7 +283,6 @@ export default function Home() {
                 </TooltipTrigger>
                 <TooltipContent>Change directory</TooltipContent>
               </Tooltip>
-              <DirectoryBehindIndicator collapsed={collapsed} status={directoryBehindStatus} />
               <Dropdown
                 ariaLabel="Recent directories"
                 options={recentDirectories.map((directoryPath) => ({

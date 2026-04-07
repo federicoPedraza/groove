@@ -20,28 +20,6 @@ fn validate_existing_path(path: &str) -> Result<PathBuf, String> {
     Ok(candidate)
 }
 
-fn git_repository_root_from_path(path: &Path) -> Result<PathBuf, String> {
-    let cwd = if path_is_directory(path) {
-        path.to_path_buf()
-    } else {
-        path.parent().unwrap_or(path).to_path_buf()
-    };
-
-    let result = run_capture_command(&cwd, "git", &["rev-parse", "--show-toplevel"]);
-    if let Some(error) = result.error.clone() {
-        return Err(format!("Failed to resolve git repository root: {error}"));
-    }
-    if result.exit_code != Some(0) {
-        return Err("Could not resolve git repository root from the provided path.".to_string());
-    }
-
-    let Some(root) = first_non_empty_line(&result.stdout) else {
-        return Err("Git repository root could not be determined.".to_string());
-    };
-
-    Ok(PathBuf::from(root))
-}
-
 fn resolve_remote_url_with_fallback(repository_root: &Path) -> Option<(String, String)> {
     let origin = run_capture_command(repository_root, "git", &["remote", "get-url", "origin"]);
     if origin.error.is_none() && origin.exit_code == Some(0) {
@@ -69,99 +47,6 @@ fn resolve_remote_url_with_fallback(repository_root: &Path) -> Option<(String, S
     }
 
     first_non_empty_line(&remote_result.stdout).map(|url| (remote_name, url))
-}
-
-fn normalize_remote_repo_info(remote_url: &str) -> Option<(String, String, String)> {
-    git_gh::normalize_remote_repo_info(remote_url)
-}
-
-fn normalize_gh_hostname(hostname: Option<&str>) -> Option<String> {
-    git_gh::normalize_gh_hostname(hostname)
-}
-
-fn infer_gh_host_hint_from_payload(payload: &GhAuthStatusPayload, cwd: &Path) -> Option<String> {
-    if let Some((host, _, _)) = payload
-        .remote_url
-        .as_deref()
-        .and_then(normalize_remote_repo_info)
-    {
-        return Some(host);
-    }
-
-    let repo_root = payload
-        .path
-        .as_deref()
-        .and_then(|value| validate_existing_path(value).ok())
-        .and_then(|value| git_repository_root_from_path(&value).ok());
-
-    if let Some(root) = repo_root {
-        if let Some(remote_url) = repository_remote_url(&root) {
-            if let Some((host, _, _)) = normalize_remote_repo_info(&remote_url) {
-                return Some(host);
-            }
-        }
-    }
-
-    if let Some(remote_url) = repository_remote_url(cwd) {
-        if let Some((host, _, _)) = normalize_remote_repo_info(&remote_url) {
-            return Some(host);
-        }
-    }
-
-    None
-}
-
-fn parse_gh_auth_identity(
-    output: &str,
-    preferred_host: Option<&str>,
-) -> (Option<String>, Option<String>) {
-    git_gh::parse_gh_auth_identity(output, preferred_host)
-}
-
-fn gh_api_user_login(cwd: &Path, hostname: Option<&str>) -> Option<String> {
-    let result = if let Some(hostname) = hostname.map(str::trim).filter(|value| !value.is_empty()) {
-        run_capture_command(
-            cwd,
-            "gh",
-            &["api", "user", "--hostname", hostname, "--jq", ".login"],
-        )
-    } else {
-        run_capture_command(cwd, "gh", &["api", "user", "--jq", ".login"])
-    };
-
-    if result.error.is_some() || result.exit_code != Some(0) {
-        return None;
-    }
-
-    first_non_empty_line(&result.stdout)
-        .map(|value| value.trim_matches('"').trim().to_string())
-        .filter(|value| !value.is_empty() && value != "null")
-}
-
-fn parse_first_url(value: &str) -> Option<String> {
-    git_gh::parse_first_url(value)
-}
-
-fn normalize_gh_repository(
-    owner: &str,
-    repo: &str,
-    hostname: Option<&str>,
-) -> Result<String, String> {
-    git_gh::normalize_gh_repository(owner, repo, hostname)
-}
-
-fn validate_gh_branch_action_payload(
-    payload: &GhBranchActionPayload,
-) -> Result<(PathBuf, String), String> {
-    let branch = payload.branch.trim();
-    if branch.is_empty() {
-        return Err("branch must be a non-empty string.".to_string());
-    }
-
-    let path = validate_existing_path(&payload.path)?;
-    let repository_root = git_repository_root_from_path(&path)?;
-
-    Ok((repository_root, branch.to_string()))
 }
 
 fn validate_git_worktree_path(path: &str) -> Result<PathBuf, String> {

@@ -7,7 +7,6 @@ import {
   FlaskConicalOff,
   GitBranch,
   GitCommitHorizontal,
-  GitPullRequest,
   GitPullRequestCreate,
   Loader2,
   Minus,
@@ -41,9 +40,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { toast } from "@/lib/toast";
 import { buildCreatePrUrl } from "@/lib/utils/git/pull-request-url";
 import {
-  ghCheckBranchPr,
-  ghOpenActivePr,
-  ghOpenBranch,
   gitListFileStates,
   gitCommit,
   gitHasStagedChanges,
@@ -131,10 +127,6 @@ export function WorktreeRowActions({
   latestSummary = null,
 }: WorktreeRowActionsProps) {
   const [isTestingToggleHovered, setIsTestingToggleHovered] = useState(false);
-  const [isPrCheckPending, setIsPrCheckPending] = useState(false);
-  const [activePr, setActivePr] = useState<{ number: number; title: string; url: string } | null>(null);
-  const [hasCheckedForPr, setHasCheckedForPr] = useState(false);
-  const [prCheckError, setPrCheckError] = useState<string | null>(null);
   const [pendingGitAction, setPendingGitAction] = useState<string | null>(null);
   const [isGitConditionRefreshPending, setIsGitConditionRefreshPending] = useState(false);
   const [isMergeInProgress, setIsMergeInProgress] = useState(false);
@@ -170,57 +162,6 @@ export function WorktreeRowActions({
   const hasRepositoryRemote = Boolean(repositoryRemoteUrl);
   const pushActionLabel = hasUpstream ? "Push" : "Push (set upstream)";
   const gitActionIconClasses = "mr-2 size-4 transition-colors group-data-[highlighted]:text-sky-600 dark:group-data-[highlighted]:text-sky-300";
-
-  const handleOpenBranch = async (): Promise<void> => {
-    const result = await ghOpenBranch({
-      path: row.path,
-      branch: branchName,
-    });
-    if (!result.ok) {
-      toast.error("Failed to open branch.");
-    }
-  };
-
-  const handleRefreshPrCheck = async (): Promise<void> => {
-    setHasCheckedForPr(false);
-    setActivePr(null);
-    setIsPrCheckPending(true);
-    setPrCheckError(null);
-    try {
-      const result = await ghCheckBranchPr({
-        path: row.path,
-        branch: branchName,
-      });
-      setHasCheckedForPr(true);
-      if (!result.ok) {
-        setActivePr(null);
-        setPrCheckError(result.error ?? "Failed to check active pull request.");
-        return;
-      }
-
-      setActivePr(result.prs.length === 1 ? result.prs[0] : null);
-    } catch {
-      setHasCheckedForPr(true);
-      setActivePr(null);
-      setPrCheckError("Failed to check active pull request.");
-    } finally {
-      setIsPrCheckPending(false);
-    }
-  };
-
-  const handleOpenActivePr = async (): Promise<void> => {
-    if (!activePr) {
-      return;
-    }
-
-    const result = await ghOpenActivePr({
-      path: row.path,
-      branch: branchName,
-    });
-    if (!result.ok) {
-      toast.error("Failed to open active PR.");
-    }
-  };
 
   const refreshGitDropdownConditions = async (): Promise<void> => {
     if (pendingGitAction) {
@@ -497,13 +438,6 @@ export function WorktreeRowActions({
       onOpenChange={(open) => {
         if (open) {
           void refreshGitDropdownConditions();
-          if (hasRepositoryRemote) {
-            void handleRefreshPrCheck();
-          } else {
-            setHasCheckedForPr(false);
-            setActivePr(null);
-            setPrCheckError(null);
-          }
         }
       }}
     >
@@ -615,55 +549,16 @@ export function WorktreeRowActions({
             No remote configured; pull/push/PR actions unavailable
           </DropdownMenuItem>
         ) : null}
-        <DropdownMenuItem
-          className="group"
-          disabled={!hasRepositoryRemote}
-          onSelect={(event) => {
-            event.preventDefault();
-            void handleOpenBranch();
-          }}
-        >
-          <GitBranch aria-hidden="true" className={gitActionIconClasses} />
-          Open branch
-        </DropdownMenuItem>
-        {activePr ? (
-          <DropdownMenuItem
-            className="group"
-            disabled={isPrCheckPending}
-            onSelect={(event) => {
-              event.preventDefault();
-              void handleOpenActivePr();
-            }}
-          >
-            <GitPullRequest aria-hidden="true" className={gitActionIconClasses} />
-            Open pull request
-          </DropdownMenuItem>
-        ) : null}
-        {prCheckError ? (
-          <DropdownMenuItem className="group" disabled>
-            <CircleSlash aria-hidden="true" className={gitActionIconClasses} />
-            {prCheckError}
-          </DropdownMenuItem>
-        ) : null}
-        {hasRepositoryRemote && !activePr && hasCheckedForPr && !prCheckError && !isPrCheckPending ? (
+        {hasRepositoryRemote && createPrUrl ? (
           <DropdownMenuItem
             className="group"
             onSelect={(event) => {
               event.preventDefault();
-              if (!createPrUrl) {
-                return;
-              }
               window.open(createPrUrl, "_blank", "noopener,noreferrer");
             }}
           >
             <GitPullRequestCreate aria-hidden="true" className={gitActionIconClasses} />
             Create pull request
-          </DropdownMenuItem>
-        ) : null}
-        {isPrCheckPending ? (
-          <DropdownMenuItem className="group" disabled>
-            <Loader2 aria-hidden="true" className={`${gitActionIconClasses} animate-spin`} />
-            Checking PR status
           </DropdownMenuItem>
         ) : null}
       </DropdownMenuContent>

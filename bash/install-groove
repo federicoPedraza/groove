@@ -148,14 +148,6 @@ check_runtime_dependencies() {
   ok "runtime dependencies OK"
 }
 
-check_optional_dependencies() {
-  if command -v gh >/dev/null 2>&1; then
-    ok "GitHub CLI (gh) found — GitHub features available"
-  else
-    warn "GitHub CLI (gh) not found — install it for GitHub integration features"
-  fi
-}
-
 # ---------------------------------------------------------------------------
 # Download helpers
 # ---------------------------------------------------------------------------
@@ -439,7 +431,6 @@ main() {
 
   detect_platform
   check_runtime_dependencies
-  check_optional_dependencies
   resolve_release_tag
   resolve_asset_names
 

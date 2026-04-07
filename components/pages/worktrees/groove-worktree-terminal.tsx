@@ -5,9 +5,10 @@ import { X } from "lucide-react";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
-import type { ILink, ILinkProvider, IDisposable, ITerminalOptions } from "@xterm/xterm";
+import type { IDisposable, ITerminalOptions } from "@xterm/xterm";
 
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
@@ -27,7 +28,6 @@ import {
   type GrooveTerminalSession,
   type WorkspaceMeta,
 } from "@/src/lib/ipc";
-const TERMINAL_LINK_MATCHER = /(?:https?:\/\/|www\.)[a-zA-Z0-9._~:/?#@!$&'()*+,;=%-]+/g;
 const DARK_THEME_MODES: ReadonlySet<ThemeMode> = new Set(["lava", "earth", "dark", "dark-groove"]);
 
 function getThemeModeSnapshot(): ThemeMode {
@@ -154,7 +154,7 @@ function GrooveTerminalPane({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const outputBufferRef = useRef("");
   const flushFrameRef = useRef<number | null>(null);
-  const linkProviderDisposableRef = useRef<IDisposable | null>(null);
+
   const hasReceivedLiveOutputRef = useRef(false);
   const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
 
@@ -220,6 +220,11 @@ function GrooveTerminalPane({
     terminal.loadAddon(clipboardAddon);
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(unicode11Addon);
+    terminal.unicode.activeVersion = "11";
+    terminalRef.current = terminal;
+    clipboardAddonRef.current = clipboardAddon;
+    fitAddonRef.current = fitAddon;
+
     let webglAddon: WebglAddon | null = null;
     let webglContextLossDisposable: IDisposable | null = null;
     const disposeWebglAddon = () => {
@@ -233,25 +238,24 @@ function GrooveTerminalPane({
         webglAddon = null;
       }
     };
-    try {
-      webglAddon = new WebglAddon();
-      webglContextLossDisposable = webglAddon.onContextLoss(() => {
-        disposeWebglAddon();
-      });
-      terminal.loadAddon(webglAddon);
-    } catch (error) {
-      disposeWebglAddon();
-      console.warn("Failed to initialize xterm WebGL addon; falling back to default renderer.", error);
-    }
-    terminal.unicode.activeVersion = "11";
-    terminalRef.current = terminal;
-    clipboardAddonRef.current = clipboardAddon;
-    fitAddonRef.current = fitAddon;
 
     const container = containerRef.current;
     if (container) {
       terminal.open(container);
+
+      try {
+        webglAddon = new WebglAddon();
+        webglContextLossDisposable = webglAddon.onContextLoss(() => {
+          disposeWebglAddon();
+        });
+        terminal.loadAddon(webglAddon);
+      } catch (error) {
+        disposeWebglAddon();
+        console.warn("Failed to initialize xterm WebGL addon; falling back to default renderer.", error);
+      }
+
       fitAddon.fit();
+      terminal.refresh(0, terminal.rows - 1);
       if (autoFocus) {
         terminal.focus();
       }
@@ -305,7 +309,7 @@ function GrooveTerminalPane({
       return true;
     });
 
-    const openTerminalUrl = (url: string) => {
+    terminal.loadAddon(new WebLinksAddon((_event, url) => {
       const normalizedUrl = url.startsWith("http://") || url.startsWith("https://") ? url : `https://${url}`;
       void openExternalUrl(normalizedUrl)
         .then((response) => {
@@ -316,59 +320,10 @@ function GrooveTerminalPane({
         .catch((error: unknown) => {
           console.warn("Failed to open terminal URL", { url: normalizedUrl, error });
         });
-    };
-
-    const linkProvider: ILinkProvider = {
-      provideLinks(bufferLineNumber, callback) {
-        const line = terminal.buffer.active.getLine(bufferLineNumber);
-        if (!line) {
-          callback(undefined);
-          return;
-        }
-
-        const text = line.translateToString(false, 0, terminal.cols);
-        const links: ILink[] = [];
-        const regex = new RegExp(TERMINAL_LINK_MATCHER);
-
-        let match: RegExpMatchArray | null = null;
-        while ((match = regex.exec(text)) !== null) {
-          const matchedUrl = match[0];
-          const startColumn = match.index;
-          if (startColumn === undefined) {
-            continue;
-          }
-          const endColumn = startColumn + matchedUrl.length;
-
-          links.push({
-            range: {
-              start: {
-                x: startColumn + 1,
-                y: bufferLineNumber + 1,
-              },
-              end: {
-                x: endColumn,
-                y: bufferLineNumber + 1,
-              },
-            },
-            text: matchedUrl,
-            activate: (_event: MouseEvent, text: string) => {
-              openTerminalUrl(text);
-            },
-          });
-        }
-
-        callback(links.length > 0 ? links : undefined);
-      },
-    };
-
-    linkProviderDisposableRef.current = terminal.registerLinkProvider(linkProvider);
+    }));
 
     return () => {
       clearBufferedOutput();
-      if (linkProviderDisposableRef.current !== null) {
-        linkProviderDisposableRef.current.dispose();
-        linkProviderDisposableRef.current = null;
-      }
       terminalRef.current = null;
       clipboardAddonRef.current = null;
       fitAddonRef.current = null;
@@ -384,6 +339,7 @@ function GrooveTerminalPane({
     }
 
     terminal.options.theme = getXtermTheme(themeMode);
+    terminal.refresh(0, terminal.rows - 1);
   }, [themeMode]);
 
   useEffect(() => {

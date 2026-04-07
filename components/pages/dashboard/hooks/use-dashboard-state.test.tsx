@@ -11,7 +11,6 @@ const {
   grooveTerminalCloseMock,
   grooveTerminalListSessionsMock,
   grooveStopMock,
-  workspaceSetWorktreeTaskAssignmentMock,
   listenGrooveTerminalLifecycleMock,
   grooveTerminalLifecycleHandlerRef,
 } = vi.hoisted(() => ({
@@ -21,7 +20,6 @@ const {
   grooveTerminalCloseMock: vi.fn(),
   grooveTerminalListSessionsMock: vi.fn(),
   grooveStopMock: vi.fn(),
-  workspaceSetWorktreeTaskAssignmentMock: vi.fn(),
   listenGrooveTerminalLifecycleMock: vi.fn(),
   grooveTerminalLifecycleHandlerRef: {
     current: null as null | ((event: { workspaceRoot: string; worktree: string; sessionId: string; kind: "started" | "closed" | "error" }) => void),
@@ -68,7 +66,6 @@ vi.mock("@/src/lib/ipc", () => ({
   workspaceOpenTerminal: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "" })),
   workspaceOpenWorkspaceTerminal: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "" })),
   workspacePickAndOpen: vi.fn(async () => ({ cancelled: true, ok: false, rows: [] })),
-  workspaceSetWorktreeTaskAssignment: workspaceSetWorktreeTaskAssignmentMock,
 }));
 
 describe("useDashboardState", () => {
@@ -80,7 +77,6 @@ describe("useDashboardState", () => {
     grooveTerminalCloseMock.mockReset();
     grooveTerminalListSessionsMock.mockReset();
     grooveStopMock.mockReset();
-    workspaceSetWorktreeTaskAssignmentMock.mockReset();
     listenGrooveTerminalLifecycleMock.mockReset();
     grooveTerminalLifecycleHandlerRef.current = null;
     testingEnvironmentGetStatusMock.mockResolvedValue({
@@ -92,7 +88,6 @@ describe("useDashboardState", () => {
     grooveTerminalCloseMock.mockResolvedValue({ ok: true });
     grooveTerminalListSessionsMock.mockResolvedValue({ ok: true, sessions: [] });
     grooveStopMock.mockResolvedValue({ ok: true });
-    workspaceSetWorktreeTaskAssignmentMock.mockResolvedValue({ ok: true, rows: [] });
     listenGrooveTerminalLifecycleMock.mockImplementation(async (handler) => {
       grooveTerminalLifecycleHandlerRef.current = handler;
       return () => {
@@ -284,84 +279,4 @@ describe("useDashboardState", () => {
     expect(grooveListMock.mock.calls.length).toBe(callsBeforeStop);
   });
 
-  it("persists worktree task assignments through IPC and applies backend rows", async () => {
-    workspaceGetActiveMock.mockResolvedValue({
-      ok: true,
-      workspaceRoot: "/repo/groove",
-      repositoryRemoteUrl: "https://example.com/repo.git",
-      workspaceMeta: {
-        version: 1,
-        rootName: "groove",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-02T00:00:00.000Z",
-        playGrooveCommand: "__groove_terminal__",
-        tasks: [
-          {
-            id: "task-1",
-            title: "Task One",
-            description: "Track assignment",
-            priority: "medium",
-            consellourPriority: "medium",
-            createdAt: "2026-01-01T00:00:00.000Z",
-            updatedAt: "2026-01-01T00:00:00.000Z",
-            lastInteractedAt: "2026-01-01T00:00:00.000Z",
-            origin: "consellourTool",
-          },
-        ],
-      },
-      hasWorktreesDirectory: true,
-      rows: [
-        {
-          worktree: "feature-alpha",
-          branchGuess: "feature/alpha",
-          path: "/repo/groove/.worktrees/feature-alpha",
-          status: "paused",
-          taskId: null,
-        },
-      ],
-    });
-    workspaceSetWorktreeTaskAssignmentMock.mockResolvedValue({
-      ok: true,
-      workspaceRoot: "/repo/groove",
-      repositoryRemoteUrl: "https://example.com/repo.git",
-      workspaceMeta: {
-        version: 1,
-        rootName: "groove",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-03T00:00:00.000Z",
-        playGrooveCommand: "__groove_terminal__",
-      },
-      hasWorktreesDirectory: true,
-      rows: [
-        {
-          worktree: "feature-alpha",
-          branchGuess: "feature/alpha",
-          path: "/repo/groove/.worktrees/feature-alpha",
-          status: "paused",
-          taskId: "task-1",
-        },
-      ],
-    });
-
-    const { result } = renderHook(() => useDashboardState());
-
-    await waitFor(() => {
-      expect(result.current.isWorkspaceHydrating).toBe(false);
-    });
-
-    act(() => {
-      result.current.setWorktreeTaskAssignment("feature-alpha", "task-1");
-    });
-
-    await waitFor(() => {
-      expect(workspaceSetWorktreeTaskAssignmentMock).toHaveBeenCalledWith({
-        worktree: "feature-alpha",
-        taskId: "task-1",
-      });
-    });
-
-    await waitFor(() => {
-      expect(result.current.worktreeRows[0]?.taskId).toBe("task-1");
-    });
-  });
 });

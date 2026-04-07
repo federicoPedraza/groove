@@ -530,11 +530,23 @@ struct WorkspaceTask {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct SummaryRecord {
+    worktree_ids: Vec<String>,
+    created_at: String,
+    summary: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    one_liner: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorktreeRecord {
     id: String,
     created_at: String,
     #[serde(default)]
     claude_session_started: bool,
+    #[serde(default)]
+    summaries: Vec<SummaryRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -588,6 +600,8 @@ struct WorkspaceMeta {
     worktree_task_assignments: HashMap<String, String>,
     #[serde(default)]
     worktree_records: HashMap<String, WorktreeRecord>,
+    #[serde(default)]
+    summaries: Vec<SummaryRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1205,6 +1219,42 @@ struct GrooveStopResponse {
     pid: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveSummaryPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    session_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveSummaryResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    summaries: Vec<GrooveSummaryEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compiled_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveSummaryEntry {
+    session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worktree: Option<String>,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }

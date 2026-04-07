@@ -13,7 +13,6 @@ const HELP_EMBEDDINGS_ENDPOINT = "https://api.openai.com/v1/embeddings";
 const REQUIRED_FEATURES = [
   "worktree-lifecycle",
   "worktree-detail",
-  "tasks-consellour",
   "diagnostics-recovery",
   "settings-workspace-commands",
   "integrations-jira-opencode",

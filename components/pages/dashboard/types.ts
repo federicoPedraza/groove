@@ -1,4 +1,4 @@
-import type { JiraSettings, TestingEnvironmentResponse, WorkspaceRow, WorkspaceTask } from "@/src/lib/ipc";
+import type { JiraSettings, TestingEnvironmentResponse, WorkspaceRow } from "@/src/lib/ipc";
 
 export type WorkspaceMeta = {
   version: number;
@@ -11,7 +11,6 @@ export type WorkspaceMeta = {
   openTerminalAtWorktreeCommand?: string | null;
   runLocalCommand?: string | null;
   jiraSettings?: JiraSettings;
-  tasks?: WorkspaceTask[];
 };
 
 export type WorktreeRow = WorkspaceRow;

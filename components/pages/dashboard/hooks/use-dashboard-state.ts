@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { runConsellourToolLoop } from "@/libs/ai";
 import type {
   ActiveWorkspace,
   RestoreApiResponse,
@@ -16,6 +15,7 @@ import { getTestingEnvironmentColor, syncActiveTestingEnvironmentColorAssignment
 import { toast } from "@/lib/toast";
 import type { GroupedWorktreeItem } from "@/lib/utils/time/grouping";
 import { buildGroupedWorktreeItems } from "@/lib/utils/time/grouping";
+import { playNotificationSound } from "@/lib/utils/sound";
 import { describeWorkspaceContextError } from "@/lib/utils/workspace/context";
 import { shouldPromptForceCutRetry } from "@/lib/utils/worktree/status";
 import {
@@ -30,17 +30,11 @@ import {
   listenGrooveNotification,
   listenWorkspaceChange,
   listenWorkspaceReady,
-  consellourGetRecommendedTask,
-  consellourGetSettings,
-  consellourGetTask,
-  consellourToolCreateTask,
   testingEnvironmentGetStatus,
   testingEnvironmentSetTarget,
   testingEnvironmentStart,
   testingEnvironmentStartSeparateTerminal,
   testingEnvironmentStop,
-  tasksList,
-  consellourToolEditTask,
   workspaceClearActive,
   workspaceEvents,
   workspaceGetActive,
@@ -50,10 +44,8 @@ import {
   workspaceOpenWorkspaceTerminal,
   workspaceOpenTerminal,
   workspacePickAndOpen,
-  workspaceSetWorktreeTaskAssignment,
   GROOVE_PLAY_COMMAND_SENTINEL,
   isTelemetryEnabled,
-  type WorkspaceTaskPrEntry,
   type WorkspaceContextResponse,
   type WorkspaceGitignoreSanityResponse,
   type TestingEnvironmentEntry,
@@ -77,7 +69,6 @@ type DashboardWorkspaceSnapshot = {
 type CreateWorktreeActionOptions = {
   branchOverride?: string;
   baseOverride?: string;
-  taskPromptOverride?: string;
 };
 
 const dashboardWorkspaceSnapshot: DashboardWorkspaceSnapshot = {
@@ -134,10 +125,6 @@ function buildRecentDirectories(nextDirectory: string, previousDirectories: stri
   return [normalizedDirectory, ...deduplicated].slice(0, MAX_RECENT_DIRECTORIES);
 }
 
-function deriveWorktreeFolderKeyFromBranch(branch: string): string {
-  return branch.replaceAll("/", "_");
-}
-
 function isSameWorkspaceMeta(left: WorkspaceMeta | null, right: WorkspaceMeta | null): boolean {
   if (!left && !right) {
     return true;
@@ -169,8 +156,7 @@ function areWorktreeRowsEqual(left: WorktreeRow[], right: WorktreeRow[]): boolea
       row.branchGuess === candidate.branchGuess &&
       row.path === candidate.path &&
       row.status === candidate.status &&
-      row.lastExecutedAt === candidate.lastExecutedAt &&
-      row.taskId === candidate.taskId
+      row.lastExecutedAt === candidate.lastExecutedAt
     );
   });
 }
@@ -218,7 +204,6 @@ export function useDashboardState() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createBranch, setCreateBranch] = useState("");
   const [createBase, setCreateBase] = useState("");
-  const [createTaskPrompt, setCreateTaskPrompt] = useState("");
   const [isCreatePending, setIsCreatePending] = useState(false);
   const [recentDirectories, setRecentDirectories] = useState<string[]>([]);
   const [gitignoreSanity, setGitignoreSanity] = useState<WorkspaceGitignoreSanityResponse | null>(null);
@@ -244,7 +229,6 @@ export function useDashboardState() {
 
   const workspaceMeta = activeWorkspace?.workspaceMeta ?? null;
   const workspaceRoot = activeWorkspace?.workspaceRoot ?? null;
-  const workspaceTasks = workspaceMeta?.tasks ?? [];
   const forceCutActionKey = forceCutConfirmRow ? `${forceCutConfirmRow.path}:cut` : null;
   const forceCutConfirmLoading = forceCutActionKey !== null && pendingCutGrooveActions.includes(forceCutActionKey);
   const testingEnvironments = useMemo<TestingEnvironmentEntry[]>(() => {
@@ -864,23 +848,7 @@ export function useDashboardState() {
           return;
         }
 
-        const { notification } = event;
-        const label = `[${notification.worktree}] ${notification.message}`;
-
-        switch (notification.type) {
-          case "error":
-            toast.error(label);
-            break;
-          case "warning":
-            toast.warning(label);
-            break;
-          case "success":
-            toast.success(label);
-            break;
-          default:
-            toast.info(label);
-            break;
-        }
+        playNotificationSound();
       });
     })();
 
@@ -946,74 +914,6 @@ export function useDashboardState() {
     [fetchTestingEnvironmentState, knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
-  const createTaskWithConsellour = useCallback(async (prompt: string, options?: { showSuccessToast?: boolean }): Promise<string | null> => {
-    const normalizedPrompt = prompt.trim();
-    if (!normalizedPrompt) {
-      throw new Error("Task details are required.");
-    }
-
-    const settingsResult = await consellourGetSettings();
-    if (!settingsResult.ok || !settingsResult.settings?.openaiApiKey) {
-      throw new Error(settingsResult.error ?? "Add an OpenAI key in Consellour settings before creating a task.");
-    }
-
-    const previousTaskIds = new Set((activeWorkspace?.workspaceMeta.tasks ?? []).map((task) => task.id));
-
-    await runConsellourToolLoop({
-      config: {
-        apiKey: settingsResult.settings.openaiApiKey,
-        model: settingsResult.settings.model,
-        reasoningLevel: settingsResult.settings.reasoningLevel,
-      },
-      systemPrompt: `You are Consellour's task intake assistant.
-
-The user wants to insert the following task in Groove. You must define task fields and create exactly one task via the create_task tool.
-
- Rules:
-- Use the user's request as the source of truth.
-- Fill title and description clearly.
-- Make the title problem-focused: name the issue itself, not the action to take.
-- Avoid verb-led titles such as "investigar" or "ask for".
-- Set both priority and consellourPriority based on urgency.
-- Call create_task exactly once.
-- After creating the task, reply with one concise sentence confirming creation.`,
-      userPrompt: normalizedPrompt,
-      toolHandlers: {
-        createTask: consellourToolCreateTask,
-        getAllTasks: tasksList,
-        getTask: consellourGetTask,
-        getRecommendedTask: consellourGetRecommendedTask,
-        editTask: consellourToolEditTask,
-      },
-    });
-
-    const tasksResult = await tasksList();
-    if (!tasksResult.ok) {
-      throw new Error(tasksResult.error ?? "Task was created, but task list refresh failed.");
-    }
-
-    setActiveWorkspace((previous) => {
-      if (!previous) {
-        return previous;
-      }
-
-      return {
-        ...previous,
-        workspaceMeta: {
-          ...previous.workspaceMeta,
-          tasks: tasksResult.tasks,
-        },
-      };
-    });
-
-    const createdTask = tasksResult.tasks.find((task) => !previousTaskIds.has(task.id)) ?? null;
-    if (options?.showSuccessToast ?? true) {
-      toast.success(createdTask ? `Created task "${createdTask.title}".` : "Created task.");
-    }
-
-    return createdTask?.id ?? null;
-  }, [activeWorkspace]);
-
   const runCreateWorktreeAction = useCallback(async (options?: CreateWorktreeActionOptions): Promise<void> => {
     if (!workspaceMeta) {
       return;
@@ -1021,7 +921,6 @@ The user wants to insert the following task in Groove. You must define task fiel
 
     const branch = (options?.branchOverride ?? createBranch).trim();
     const base = (options?.baseOverride ?? createBase).trim();
-    const taskPrompt = (options?.taskPromptOverride ?? createTaskPrompt).trim();
     if (!branch) {
       toast.error("Branch name is required.");
       return;
@@ -1029,98 +928,33 @@ The user wants to insert the following task in Groove. You must define task fiel
 
     setIsCreatePending(true);
     try {
-      if (!taskPrompt) {
-        const result = await grooveNew({
-          rootName: workspaceMeta.rootName,
-          knownWorktrees,
-          workspaceMeta,
-          branch,
-          ...(base ? { base } : {}),
-        });
-        if (result.ok) {
-          setIsCreateModalOpen(false);
-          setCreateBranch("");
-          setCreateBase("");
-          setCreateTaskPrompt("");
-          toast.success("Worktree created.");
-          await rescanWorktrees({ force: true });
-          scheduleRuntimeStateFetch(0);
-          await fetchTestingEnvironmentState();
-          return;
-        }
-
-        toast.error("Create worktree failed.");
-        return;
-      }
-
-      const [worktreeResult, taskResult] = await Promise.allSettled([
-        grooveNew({
-          rootName: workspaceMeta.rootName,
-          knownWorktrees,
-          workspaceMeta,
-          branch,
-          ...(base ? { base } : {}),
-        }),
-        createTaskWithConsellour(taskPrompt, { showSuccessToast: false }),
-      ]);
-
-      let worktreeCreated = false;
-      let generatedTaskId: string | null = null;
-
-      if (worktreeResult.status === "fulfilled") {
-        worktreeCreated = worktreeResult.value.ok;
-        if (!worktreeCreated) {
-          toast.error("Create worktree failed.");
-        }
-      } else {
-        toast.error("Create worktree request failed.");
-      }
-
-      if (taskResult.status === "fulfilled") {
-        generatedTaskId = taskResult.value;
-        if (!generatedTaskId) {
-          toast.error("Task created, but it could not be auto-assigned.");
-        }
-      } else {
-        const errorMessage = taskResult.reason instanceof Error ? taskResult.reason.message : "Create task failed.";
-        toast.error(errorMessage);
-      }
-
-      if (worktreeCreated && generatedTaskId) {
-        const assignmentResult = await workspaceSetWorktreeTaskAssignment({
-          worktree: deriveWorktreeFolderKeyFromBranch(branch),
-          taskId: generatedTaskId,
-        });
-
-        if (!assignmentResult.ok) {
-          toast.error(assignmentResult.error ?? "Failed to persist task assignment.");
-          await rescanWorktrees({ force: true });
-        } else {
-          applyWorkspaceContext(assignmentResult);
-        }
-      }
-
-      if (worktreeCreated) {
+      const result = await grooveNew({
+        rootName: workspaceMeta.rootName,
+        knownWorktrees,
+        workspaceMeta,
+        branch,
+        ...(base ? { base } : {}),
+      });
+      if (result.ok) {
         setIsCreateModalOpen(false);
         setCreateBranch("");
         setCreateBase("");
-        setCreateTaskPrompt("");
-        toast.success(generatedTaskId ? "Worktree and task created." : "Worktree created.");
+        toast.success("Worktree created.");
         await rescanWorktrees({ force: true });
         scheduleRuntimeStateFetch(0);
         await fetchTestingEnvironmentState();
+        return;
       }
+
+      toast.error("Create worktree failed.");
     } catch {
       toast.error("Create worktree request failed.");
     } finally {
       setIsCreatePending(false);
     }
   }, [
-    applyWorkspaceContext,
     createBase,
     createBranch,
-    createTaskPrompt,
-    createTaskWithConsellour,
     fetchTestingEnvironmentState,
     knownWorktrees,
     rescanWorktrees,
@@ -1575,165 +1409,6 @@ The user wants to insert the following task in Groove. You must define task fiel
     }
   }, [fetchTestingEnvironmentState, knownWorktrees, workspaceMeta]);
 
-  const setWorktreeTaskAssignment = useCallback((worktree: string, taskId: string | null): void => {
-    const normalizedTaskId = taskId?.trim() || null;
-
-    const applyTaskAssignment = (rows: WorktreeRow[]): WorktreeRow[] => {
-      let hasChanges = false;
-      const nextRows = rows.map((row) => {
-        if (row.worktree !== worktree) {
-          return row;
-        }
-
-        const currentTaskId = row.taskId?.trim() || null;
-        if (currentTaskId === normalizedTaskId) {
-          return row;
-        }
-
-        hasChanges = true;
-        return {
-          ...row,
-          taskId: normalizedTaskId,
-        };
-      });
-
-      return hasChanges ? nextRows : rows;
-    };
-
-    setWorktreeRows((previous) => applyTaskAssignment(previous));
-    setActiveWorkspace((previous) => {
-      if (!previous) {
-        return previous;
-      }
-
-      const nextRows = applyTaskAssignment(previous.rows);
-      if (nextRows === previous.rows) {
-        return previous;
-      }
-
-      return {
-        ...previous,
-        rows: nextRows,
-      };
-    });
-
-    void (async () => {
-      try {
-        const result = await workspaceSetWorktreeTaskAssignment({
-          worktree,
-          taskId: normalizedTaskId,
-        });
-
-        if (!result.ok) {
-          toast.error(result.error ?? "Failed to persist task assignment.");
-          await rescanWorktrees({ force: true });
-          return;
-        }
-
-        applyWorkspaceContext(result);
-      } catch {
-        toast.error("Task assignment request failed.");
-        await rescanWorktrees({ force: true });
-      }
-    })();
-  }, [applyWorkspaceContext, rescanWorktrees]);
-
-  const assignTaskPr = useCallback(async (taskId: string, url: string): Promise<void> => {
-    const normalizedTaskId = taskId.trim();
-    const normalizedUrl = url.trim();
-
-    if (!normalizedTaskId) {
-      throw new Error("Task id is required.");
-    }
-
-    if (!normalizedUrl) {
-      throw new Error("Pull request URL is required.");
-    }
-
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(normalizedUrl);
-    } catch {
-      throw new Error("Pull request URL must be valid.");
-    }
-
-    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-      throw new Error("Pull request URL must start with http:// or https://.");
-    }
-
-    const nextEntry: WorkspaceTaskPrEntry = {
-      url: normalizedUrl,
-      timestamp: new Date().toISOString(),
-    };
-
-    let nextPrEntries: WorkspaceTaskPrEntry[] | null = null;
-    setActiveWorkspace((previous) => {
-      if (!previous) {
-        return previous;
-      }
-
-      const nextTasks = (previous.workspaceMeta.tasks ?? []).map((task) => {
-        if (task.id !== normalizedTaskId) {
-          return task;
-        }
-
-        nextPrEntries = [...(task.PR ?? []), nextEntry];
-        return {
-          ...task,
-          PR: nextPrEntries,
-        };
-      });
-
-      if (!nextPrEntries) {
-        return previous;
-      }
-
-      return {
-        ...previous,
-        workspaceMeta: {
-          ...previous.workspaceMeta,
-          tasks: nextTasks,
-        },
-      };
-    });
-
-    if (!nextPrEntries) {
-      throw new Error("Task not found for PR assignment.");
-    }
-
-    try {
-      const result = await consellourToolEditTask({
-        id: normalizedTaskId,
-        PR: nextPrEntries,
-      });
-
-      if (!result.ok || !result.task) {
-        throw new Error(result.error ?? "Failed to persist PR assignment.");
-      }
-
-      const persistedTask = result.task;
-
-      setActiveWorkspace((previous) => {
-        if (!previous) {
-          return previous;
-        }
-
-        return {
-          ...previous,
-          workspaceMeta: {
-            ...previous.workspaceMeta,
-            tasks: (previous.workspaceMeta.tasks ?? []).map((task) => {
-              return task.id === normalizedTaskId ? persistedTask : task;
-            }),
-          },
-        };
-      });
-    } catch (error) {
-      await rescanWorktrees({ force: true });
-      throw error;
-    }
-  }, [rescanWorktrees]);
-
   const closeCurrentWorkspace = useCallback(async (): Promise<void> => {
     try {
       setIsBusy(true);
@@ -1785,7 +1460,6 @@ The user wants to insert the following task in Groove. You must define task fiel
     cutConfirmRow,
     forceCutConfirmRow,
     runtimeStateByWorktree,
-    workspaceTasks,
     testingEnvironment,
     testingEnvironments,
     unsetTestingEnvironmentConfirm,
@@ -1796,7 +1470,6 @@ The user wants to insert the following task in Groove. You must define task fiel
     isCreateModalOpen,
     createBranch,
     createBase,
-    createTaskPrompt,
     isCreatePending,
     workspaceMeta,
     workspaceRoot,
@@ -1806,7 +1479,6 @@ The user wants to insert the following task in Groove. You must define task fiel
     gitignoreSanityErrorMessage,
     isGitignoreSanityChecking,
     isGitignoreSanityApplyPending,
-    isWorkspaceTasksLoading: false,
     forceCutConfirmLoading,
     groupedWorktreeItems,
     setIsCloseWorkspaceConfirmOpen,
@@ -1816,7 +1488,6 @@ The user wants to insert the following task in Groove. You must define task fiel
     setUnsetTestingEnvironmentConfirm,
     setCreateBranch,
     setCreateBase,
-    setCreateTaskPrompt,
     pickDirectory,
     openRecentDirectory,
     applyGitignoreSanityPatch,
@@ -1836,9 +1507,6 @@ The user wants to insert the following task in Groove. You must define task fiel
     runOpenWorktreeTerminalAction,
     runOpenWorkspaceTerminalAction,
     runStopTestingInstanceAction,
-    setWorktreeTaskAssignment,
-    assignTaskPr,
-    createTaskWithConsellour,
     closeCurrentWorkspace,
   };
 }

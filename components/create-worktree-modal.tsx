@@ -21,13 +21,11 @@ type CreateWorktreeModalProps = {
   workspaceRoot: string | null;
   branch: string;
   base: string;
-  taskPrompt: string;
   loading: boolean;
   onOpenChange: (open: boolean) => void;
   onBranchChange: (value: string) => void;
   onBaseChange: (value: string) => void;
-  onTaskPromptChange: (value: string) => void;
-  onSubmit: (options?: { branchOverride?: string; baseOverride?: string; taskPromptOverride?: string }) => void;
+  onSubmit: (options?: { branchOverride?: string; baseOverride?: string }) => void;
   onCancel: () => void;
 };
 
@@ -36,12 +34,10 @@ function CreateWorktreeModal({
   workspaceRoot,
   branch,
   base,
-  taskPrompt,
   loading,
   onOpenChange,
   onBranchChange,
   onBaseChange,
-  onTaskPromptChange,
   onSubmit,
   onCancel,
 }: CreateWorktreeModalProps) {
@@ -142,7 +138,7 @@ function CreateWorktreeModal({
               }
 
               setSelectionError(null);
-              onSubmit({ baseOverride: selectedBranch, taskPromptOverride: taskPrompt });
+              onSubmit({ baseOverride: selectedBranch });
             }
           }}
         >

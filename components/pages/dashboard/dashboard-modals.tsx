@@ -19,15 +19,13 @@ type DashboardModalsProps = {
   setIsCreateModalOpen: (open: boolean) => void;
   createBranch: string;
   createBase: string;
-  createTaskPrompt: string;
   isCreatePending: boolean;
   setCreateBranch: (value: string) => void;
   setCreateBase: (value: string) => void;
-  setCreateTaskPrompt: (value: string) => void;
   onRunCutGrooveAction: (row: WorktreeRow, force?: boolean) => void;
   onRunPauseGrooveAction: (row: WorktreeRow) => Promise<boolean>;
   onCloseCurrentWorkspace: () => void;
-  onRunCreateWorktreeAction: (options?: { branchOverride?: string; baseOverride?: string; taskPromptOverride?: string }) => void;
+  onRunCreateWorktreeAction: (options?: { branchOverride?: string; baseOverride?: string }) => void;
 };
 
 export function DashboardModals({
@@ -47,11 +45,9 @@ export function DashboardModals({
   setIsCreateModalOpen,
   createBranch,
   createBase,
-  createTaskPrompt,
   isCreatePending,
   setCreateBranch,
   setCreateBase,
-  setCreateTaskPrompt,
   onRunCutGrooveAction,
   onRunPauseGrooveAction,
   onCloseCurrentWorkspace,
@@ -180,19 +176,16 @@ export function DashboardModals({
         workspaceRoot={workspaceRoot}
         branch={createBranch}
         base={createBase}
-        taskPrompt={createTaskPrompt}
         loading={isCreatePending}
         onOpenChange={(open) => {
           setIsCreateModalOpen(open);
           if (!open && !isCreatePending) {
             setCreateBranch("");
             setCreateBase("");
-            setCreateTaskPrompt("");
           }
         }}
         onBranchChange={setCreateBranch}
         onBaseChange={setCreateBase}
-        onTaskPromptChange={setCreateTaskPrompt}
         onSubmit={onRunCreateWorktreeAction}
         onCancel={() => {
           if (isCreatePending) {
@@ -201,7 +194,6 @@ export function DashboardModals({
           setIsCreateModalOpen(false);
           setCreateBranch("");
           setCreateBase("");
-          setCreateTaskPrompt("");
         }}
       />
     </>

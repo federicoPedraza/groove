@@ -1162,6 +1162,270 @@ fn resolve_worktree_path_for_candidates(
     None
 }
 
+#[tauri::command]
+async fn groove_summary(app: AppHandle, payload: GrooveSummaryPayload) -> GrooveSummaryResponse {
+    let request_id = request_id();
+    let fallback_request_id = request_id.clone();
+
+    match tauri::async_runtime::spawn_blocking(move || {
+        groove_summary_blocking(app, payload, request_id)
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => GrooveSummaryResponse {
+            request_id: fallback_request_id,
+            ok: false,
+            summaries: Vec::new(),
+            compiled_summary: None,
+            error: Some(format!("Failed to run groove summary worker thread: {error}")),
+        },
+    }
+}
+
+/// Parse "RESUMEN: <one_liner>\n---\n<content>" format. Falls back gracefully.
+fn parse_summary_parts(raw: &str) -> (String, String) {
+    if let Some(rest) = raw.strip_prefix("RESUMEN:").or_else(|| raw.strip_prefix("Resumen:")) {
+        if let Some(sep_pos) = rest.find("\n---") {
+            let one_liner = rest[..sep_pos].trim().to_string();
+            let content = rest[sep_pos..].trim_start_matches('\n').trim_start_matches("---").trim().to_string();
+            return (one_liner, content);
+        }
+    }
+    // Fallback: no structured format detected
+    (String::new(), raw.to_string())
+}
+
+fn groove_summary_blocking(
+    app: AppHandle,
+    payload: GrooveSummaryPayload,
+    request_id: String,
+) -> GrooveSummaryResponse {
+    if payload.session_ids.is_empty() {
+        return GrooveSummaryResponse {
+            request_id,
+            ok: false,
+            summaries: Vec::new(),
+            compiled_summary: None,
+            error: Some("session_ids is required and must not be empty.".to_string()),
+        };
+    }
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(known_worktrees) => known_worktrees,
+        Err(error) => {
+            return GrooveSummaryResponse {
+                request_id,
+                ok: false,
+                summaries: Vec::new(),
+                compiled_summary: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return GrooveSummaryResponse {
+                request_id,
+                ok: false,
+                summaries: Vec::new(),
+                compiled_summary: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let claude_bin = resolve_claude_code_bin();
+
+    // Build a reverse map from session ID to worktree name
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    let id_to_worktree: HashMap<String, String> = if let Ok(meta) =
+        read_workspace_meta_file(&workspace_json)
+    {
+        meta.worktree_records
+            .iter()
+            .map(|(name, record)| (record.id.clone(), name.clone()))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
+    let prompt = "Summarize the work done in this session. The content will be used as a Pull Request description. Use this exact format:\n\nRESUMEN: <one-liner in Spanish describing the work, no technical details>\n---\n<concise PR-ready summary of what was accomplished and what remains, using markdown>";
+    let mut summaries = Vec::new();
+
+    for session_id in &payload.session_ids {
+        let worktree_name = id_to_worktree.get(session_id);
+        let cwd = match worktree_name {
+            Some(name) => {
+                let wt_path = workspace_root.join(".worktrees").join(name);
+                if wt_path.is_dir() { wt_path } else { workspace_root.clone() }
+            }
+            None => workspace_root.clone(),
+        };
+
+        eprintln!("[groove-summary] running claude --resume {} -p '...' --output-format text", session_id);
+        eprintln!("[groove-summary] claude_bin={} cwd={}", claude_bin, cwd.display());
+
+        let output = Command::new(&claude_bin)
+            .args([
+                "--resume",
+                session_id,
+                "-p",
+                prompt,
+                "--output-format",
+                "text",
+            ])
+            .current_dir(&cwd)
+            .output();
+
+        let worktree = id_to_worktree.get(session_id).cloned();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let summary_text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                eprintln!("[groove-summary] session {} ok, summary_len={}", session_id, summary_text.len());
+                summaries.push(GrooveSummaryEntry {
+                    session_id: session_id.clone(),
+                    worktree,
+                    ok: true,
+                    summary: Some(summary_text),
+                    error: None,
+                });
+            }
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                eprintln!("[groove-summary] session {} failed, exit={:?} stdout={} stderr={}", session_id, out.status.code(), stdout, stderr);
+                summaries.push(GrooveSummaryEntry {
+                    session_id: session_id.clone(),
+                    worktree,
+                    ok: false,
+                    summary: None,
+                    error: Some(if stderr.is_empty() {
+                        format!("Claude exited with status {:?}. stdout: {}", out.status.code(), stdout)
+                    } else {
+                        stderr
+                    }),
+                });
+            }
+            Err(error) => {
+                eprintln!("[groove-summary] session {} exec error: {}", session_id, error);
+                summaries.push(GrooveSummaryEntry {
+                    session_id: session_id.clone(),
+                    worktree,
+                    ok: false,
+                    summary: None,
+                    error: Some(format!("Failed to execute claude: {error}")),
+                });
+            }
+        }
+    }
+
+    // If multiple sessions, compile into a daily summary
+    let compiled_summary = if summaries.len() > 1 {
+        let successful: Vec<&GrooveSummaryEntry> =
+            summaries.iter().filter(|s| s.ok).collect();
+
+        if successful.is_empty() {
+            None
+        } else {
+            let mut compile_input = String::new();
+            for entry in &successful {
+                let label = entry
+                    .worktree
+                    .as_deref()
+                    .unwrap_or(&entry.session_id);
+                compile_input.push_str(&format!(
+                    "## {}\n{}\n\n",
+                    label,
+                    entry.summary.as_deref().unwrap_or("")
+                ));
+            }
+
+            let compile_prompt = format!(
+                "Based on these worktree summaries, give a concise overview. The content will be used as a Pull Request description. Use this exact format:\n\nRESUMEN: <one-liner in Spanish describing the work, no technical details>\n---\n<concise PR-ready summary of what was accomplished and what remains, using markdown>\n\nSummaries:\n\n{}",
+                compile_input
+            );
+
+            let compile_output = Command::new(&claude_bin)
+                .args(["-p", &compile_prompt, "--output-format", "text"])
+                .current_dir(&workspace_root)
+                .output();
+
+            match compile_output {
+                Ok(out) if out.status.success() => {
+                    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                }
+                _ => None,
+            }
+        }
+    } else {
+        None
+    };
+
+    // Persist summaries to workspace.json
+    if let Ok(mut workspace_meta) = read_workspace_meta_file(&workspace_json) {
+        let now = now_iso();
+
+        // Store individual summaries in each worktree record
+        for entry in &summaries {
+            if !entry.ok {
+                continue;
+            }
+            let Some(summary_text) = entry.summary.as_ref() else {
+                continue;
+            };
+            let Some(worktree_name) = id_to_worktree.get(&entry.session_id) else {
+                continue;
+            };
+            if let Some(record) = workspace_meta.worktree_records.get_mut(worktree_name) {
+                let (one_liner, content) = parse_summary_parts(summary_text);
+                record.summaries.push(SummaryRecord {
+                    worktree_ids: vec![entry.session_id.clone()],
+                    created_at: now.clone(),
+                    summary: content,
+                    one_liner,
+                });
+            }
+        }
+
+        // Store compiled summary at workspace level
+        if let Some(ref compiled_text) = compiled_summary {
+            let involved_ids: Vec<String> = summaries
+                .iter()
+                .filter(|s| s.ok)
+                .map(|s| s.session_id.clone())
+                .collect();
+            let (one_liner, content) = parse_summary_parts(compiled_text);
+            workspace_meta.summaries.push(SummaryRecord {
+                worktree_ids: involved_ids,
+                created_at: now,
+                summary: content,
+                one_liner,
+            });
+        }
+
+        workspace_meta.updated_at = now_iso();
+        let _ = write_workspace_meta_file(&workspace_json, &workspace_meta);
+    }
+
+    GrooveSummaryResponse {
+        request_id,
+        ok: true,
+        summaries,
+        compiled_summary,
+        error: None,
+    }
+}
+
 #[cfg(test)]
 mod groove_commands_tests {
     use super::*;

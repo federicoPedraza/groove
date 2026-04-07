@@ -46,27 +46,13 @@ describe("AppNavigation", () => {
         rootName: "groove",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-02T00:00:00.000Z",
-        tasks: [
-          {
-            id: "task-1",
-            title: "Feature Task",
-            description: "Navigation label",
-            priority: "medium",
-            consellourPriority: "medium",
-            createdAt: "2026-01-01T00:00:00.000Z",
-            updatedAt: "2026-01-01T00:00:00.000Z",
-            lastInteractedAt: "2026-01-01T00:00:00.000Z",
-            origin: "consellourTool",
-          },
-        ],
-      },
+        },
       rows: [
         {
           worktree: "feature-alpha",
           branchGuess: "feature/alpha",
           path: "/repo/groove/.worktrees/feature-alpha",
           status: "running",
-          taskId: "task-1",
         },
       ],
     });

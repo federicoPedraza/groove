@@ -16,6 +16,8 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Scroll,
+  ScrollText,
   Terminal,
   Wrench,
   X,
@@ -30,7 +32,6 @@ import {
   SOFT_ORANGE_BUTTON_CLASSES,
   SOFT_RED_BUTTON_CLASSES,
 } from "@/components/pages/dashboard/constants";
-import { TaskBadge } from "@/components/ui/task-badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -55,7 +56,7 @@ import {
   gitStatus,
   gitUnstageFiles,
 } from "@/src/lib/ipc";
-import type { WorkspaceTask } from "@/src/lib/ipc";
+import type { SummaryRecord } from "@/src/lib/ipc";
 import type { RuntimeStateRow, WorktreeRow, WorktreeStatus } from "@/components/pages/dashboard/types";
 
 type WorktreeRowActionsProps = {
@@ -81,13 +82,11 @@ type WorktreeRowActionsProps = {
   variant?: "dashboard" | "worktree-detail";
   isTestingInstancePending?: boolean;
   onOpenTerminal?: (worktree: string) => void;
-  workspaceTasks?: WorkspaceTask[];
-  selectedTaskId?: string | null;
-  onSetTaskAssignment?: (worktree: string, taskId: string | null) => void;
-  onAssignTaskPr?: (taskId: string, url: string) => Promise<void>;
-  onCreateTask?: (prompt: string) => Promise<string | null>;
-  isTaskAssignmentDisabled?: boolean;
   closeWorktreePending?: boolean;
+  onSummarize?: (sessionId: string) => void;
+  isSummarizePending?: boolean;
+  onViewSummary?: (summary: SummaryRecord) => void;
+  latestSummary?: SummaryRecord | null;
 };
 
 type CommitingFileState = {
@@ -125,13 +124,11 @@ export function WorktreeRowActions({
   variant = "dashboard",
   isTestingInstancePending = false,
   onOpenTerminal,
-  workspaceTasks = [],
-  selectedTaskId = null,
-  onSetTaskAssignment,
-  onAssignTaskPr,
-  onCreateTask,
-  isTaskAssignmentDisabled = false,
   closeWorktreePending = false,
+  onSummarize,
+  isSummarizePending = false,
+  onViewSummary,
+  latestSummary = null,
 }: WorktreeRowActionsProps) {
   const [isTestingToggleHovered, setIsTestingToggleHovered] = useState(false);
   const [isPrCheckPending, setIsPrCheckPending] = useState(false);
@@ -696,34 +693,51 @@ export function WorktreeRowActions({
     </Tooltip>
   );
 
+  const summaryActions = row.worktreeId ? (
+    <>
+      {latestSummary && onViewSummary ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+              onClick={() => { onViewSummary(latestSummary); }}
+              aria-label={`View summary for ${row.worktree}`}
+            >
+              <ScrollText aria-hidden="true" className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>View summary</TooltipContent>
+        </Tooltip>
+      ) : null}
+      {onSummarize && !latestSummary ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+              onClick={() => { onSummarize(row.worktreeId!); }}
+              disabled={isSummarizePending || rowPending}
+              aria-label={isSummarizePending ? `Summarizing ${row.worktree}...` : `Summarize ${row.worktree}`}
+            >
+              {isSummarizePending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Scroll aria-hidden="true" className="size-4" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{isSummarizePending ? "Summarizing..." : "Summarize"}</TooltipContent>
+        </Tooltip>
+      ) : null}
+    </>
+  ) : null;
+
   return (
     <>
       <div className="flex items-center justify-end gap-1">
       {variant === "worktree-detail" ? (
         <>
-          {onSetTaskAssignment ? (
-            <>
-              <TaskBadge
-                worktree={row.worktree}
-                tasks={workspaceTasks}
-                selectedTaskId={selectedTaskId}
-                onTaskChange={(taskId) => {
-                  onSetTaskAssignment(row.worktree, taskId);
-                }}
-                onAssignPr={async (taskId, url) => {
-                  if (!onAssignTaskPr) {
-                    throw new Error("Task PR assignment is unavailable.");
-                  }
-
-                  await onAssignTaskPr(taskId, url);
-                }}
-                onCreateTask={onCreateTask}
-                disabled={isTaskAssignmentDisabled}
-                className="h-8"
-              />
-              <div aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
-            </>
-          ) : null}
           <Button
             type="button"
             variant="default"
@@ -784,6 +798,7 @@ export function WorktreeRowActions({
             <TooltipContent>Repair</TooltipContent>
           </Tooltip>
           {openTerminalAction}
+          {summaryActions}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -895,6 +910,7 @@ export function WorktreeRowActions({
             </Tooltip>
           ) : null}
           {openTerminalAction}
+          {summaryActions}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -966,6 +982,7 @@ export function WorktreeRowActions({
             </Tooltip>
           ) : null}
           {openTerminalAction}
+          {summaryActions}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

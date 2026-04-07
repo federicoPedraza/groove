@@ -88,6 +88,7 @@ pub(crate) fn run() {
             groove_restore,
             groove_rm,
             groove_stop,
+            groove_summary,
             testing_environment_get_status,
             testing_environment_set_target,
             testing_environment_start,

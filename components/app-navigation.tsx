@@ -1,7 +1,7 @@
 "use client";
 
 import { Link, useLocation } from "react-router-dom";
-import { ActivitySquare, CircleHelp, GitBranch, LayoutDashboard, ListTodo, PanelLeft, Settings, TreePalm, TriangleAlert } from "lucide-react";
+import { ActivitySquare, CircleHelp, GitBranch, LayoutDashboard, PanelLeft, Settings, TreePalm, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import {
@@ -49,7 +49,6 @@ import {
   workspaceGetActive,
 } from "@/src/lib/ipc";
 import { getActiveWorktreeRows } from "@/lib/utils/worktree/status";
-import { buildWorktreeInstanceLabels } from "@/lib/utils/worktree/labels";
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 const NAVIGATION_START_MARKER_KEY = "__grooveNavigationTelemetryStart";
@@ -130,7 +129,6 @@ type RuntimeStatusRow = {
 };
 
 let cachedNavigationWorktrees: WorkspaceRow[] = [];
-let cachedNavigationTaskTitlesById: Record<string, string> = {};
 let hasCachedNavigationWorktrees = false;
 
 function isWorkspaceRow(value: unknown): value is WorkspaceRow {
@@ -350,9 +348,6 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const [navigationWorktrees, setNavigationWorktrees] = useState<WorkspaceRow[]>(() =>
     hasCachedNavigationWorktrees ? cachedNavigationWorktrees : [],
   );
-  const [navigationTaskTitlesById, setNavigationTaskTitlesById] = useState<Record<string, string>>(() =>
-    hasCachedNavigationWorktrees ? cachedNavigationTaskTitlesById : {},
-  );
   const shouldShowFps = useSyncExternalStore(
     subscribeToGlobalSettings,
     getIsShowFpsEnabledSnapshot,
@@ -367,37 +362,18 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const isHomeActive = pathname === "/";
   const isWorktreesActive = pathname === "/worktrees" || pathname.startsWith("/worktrees/");
   const isDiagnosticsActive = pathname === "/diagnostics";
-  const isTasksActive = pathname === "/tasks";
   const isSettingsActive = pathname === "/settings";
   const isHelpActive = isHelpOpen;
   const homeLabel = hasOpenWorkspace ? "Dashboard" : "Home";
   const appNameLabel = "GROOVE";
   const hasActiveNavigationWorktrees = navigationWorktrees.length > 0;
   const navigationWorktreeItems = useMemo(() => {
-    const labelsByWorktree = buildWorktreeInstanceLabels(navigationWorktrees, navigationTaskTitlesById)
-      .reduce<Record<string, { baseLabel: string; displayLabel: string; usesTaskTitle: boolean }>>((itemsByWorktree, item) => {
-        itemsByWorktree[item.worktree] = {
-          baseLabel: item.baseLabel,
-          displayLabel: item.displayLabel,
-          usesTaskTitle: item.usesTaskTitle,
-        };
-        return itemsByWorktree;
-      }, {});
-
-    return navigationWorktrees.map((workspaceRow) => {
-      const labels = labelsByWorktree[workspaceRow.worktree] ?? {
-        baseLabel: workspaceRow.worktree,
-        displayLabel: workspaceRow.worktree,
-        usesTaskTitle: false,
-      };
-
-      return {
-        workspaceRow,
-        displayLabel: labels.displayLabel,
-        titleLabel: labels.usesTaskTitle ? `${labels.displayLabel} (${workspaceRow.worktree})` : labels.displayLabel,
-      };
-    });
-  }, [navigationTaskTitlesById, navigationWorktrees]);
+    return navigationWorktrees.map((workspaceRow) => ({
+      workspaceRow,
+      displayLabel: workspaceRow.worktree,
+      titleLabel: workspaceRow.worktree,
+    }));
+  }, [navigationWorktrees]);
   const inspectedWorktree = useMemo(() => {
     const worktreeFromRoute = getDecodedWorktreeFromPathname(pathname);
     if (!worktreeFromRoute) {
@@ -423,9 +399,7 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   const refreshNavigationWorktrees = useCallback(async () => {
     if (!hasOpenWorkspace) {
       setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
-      setNavigationTaskTitlesById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       cachedNavigationWorktrees = [];
-      cachedNavigationTaskTitlesById = {};
       hasCachedNavigationWorktrees = false;
       return;
     }
@@ -434,21 +408,13 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
       const workspaceResult = await workspaceGetActive();
       if (!workspaceResult.ok) {
         setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
-        setNavigationTaskTitlesById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
         return;
       }
-
-      const taskTitlesById = (workspaceResult.workspaceMeta?.tasks ?? []).reduce<Record<string, string>>((titlesById, task) => {
-        titlesById[task.id] = task.title;
-        return titlesById;
-      }, {});
 
       const workspaceRows = normalizeWorkspaceRows((workspaceResult as { rows?: unknown }).rows);
       if (workspaceRows.length === 0) {
         setNavigationWorktrees([]);
-        setNavigationTaskTitlesById(taskTitlesById);
         cachedNavigationWorktrees = [];
-        cachedNavigationTaskTitlesById = taskTitlesById;
         hasCachedNavigationWorktrees = true;
         return;
       }
@@ -489,15 +455,11 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
 
       const activeRows = getActiveWorktreeRows(workspaceRows, runtimeRowsByWorktree, testingRunningWorktrees);
       setNavigationWorktrees(activeRows);
-      setNavigationTaskTitlesById(taskTitlesById);
       cachedNavigationWorktrees = activeRows;
-      cachedNavigationTaskTitlesById = taskTitlesById;
       hasCachedNavigationWorktrees = true;
     } catch {
       setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
-      setNavigationTaskTitlesById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       cachedNavigationWorktrees = [];
-      cachedNavigationTaskTitlesById = {};
       hasCachedNavigationWorktrees = true;
     }
   }, [hasOpenWorkspace]);
@@ -512,13 +474,11 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   useEffect(() => {
     if (!hasOpenWorkspace) {
       setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
-      setNavigationTaskTitlesById((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
 
     if (hasCachedNavigationWorktrees) {
       setNavigationWorktrees(cachedNavigationWorktrees);
-      setNavigationTaskTitlesById(cachedNavigationTaskTitlesById);
       return;
     }
 
@@ -709,21 +669,6 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                 </Link>
                 {hasOpenWorkspace && (
                   <Link
-                    to="/tasks"
-                    className={sidebarMenuButtonClassName({
-                      isActive: isTasksActive,
-                      collapsed: isSidebarCollapsed,
-                    })}
-                    onClick={() => {
-                      recordNavigationStart("/tasks");
-                    }}
-                  >
-                    <ListTodo aria-hidden="true" className="size-4 shrink-0" />
-                    {!isSidebarCollapsed && <span>Tasks</span>}
-                  </Link>
-                )}
-                {hasOpenWorkspace && (
-                  <Link
                     to="/diagnostics"
                     className={cn(
                       "relative",
@@ -855,19 +800,6 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                 <LayoutDashboard aria-hidden="true" className="size-4 shrink-0" />
                 <span>{homeLabel}</span>
               </Link>
-              {hasOpenWorkspace && (
-                <Link
-                  to="/tasks"
-                  className={sidebarMenuButtonClassName({ isActive: isTasksActive })}
-                  onClick={() => {
-                    recordNavigationStart("/tasks");
-                    setIsMobileSidebarOpen(false);
-                  }}
-                >
-                  <ListTodo aria-hidden="true" className="size-4 shrink-0" />
-                  <span>Tasks</span>
-                </Link>
-              )}
               {hasOpenWorkspace && (
                 <Link
                   to="/diagnostics"

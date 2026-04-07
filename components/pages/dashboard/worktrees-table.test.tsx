@@ -5,10 +5,6 @@ import { WorktreesTable } from "@/components/pages/dashboard/worktrees-table";
 import type { WorktreeRow } from "@/components/pages/dashboard/types";
 import type { GroupedWorktreeItem } from "@/lib/utils/time/grouping";
 
-vi.mock("@/components/pages/dashboard/worktree-task-selector", () => ({
-  WorktreeTaskSelector: ({ worktree }: { worktree: string }) => <span data-testid={`task-selector-${worktree}`} />,
-}));
-
 vi.mock("@/components/pages/dashboard/worktree-row-actions", () => ({
   WorktreeRowActions: ({
     row,
@@ -40,7 +36,6 @@ function buildRow(options: { worktree: string; branchGuess: string; path: string
     path: options.path,
     status: options.status ?? "paused",
     lastExecutedAt: undefined,
-    taskId: undefined,
   };
 }
 
@@ -61,8 +56,6 @@ function renderWorktreesTable(options: {
       pendingPlayActions={[]}
       pendingTestActions={[]}
       runtimeStateByWorktree={{}}
-      workspaceTasks={[]}
-      isWorkspaceTasksLoading={false}
       testingTargetWorktrees={[]}
       testingRunningWorktrees={[]}
       hasConnectedRepository={options.hasConnectedRepository ?? true}
@@ -74,8 +67,14 @@ function renderWorktreesTable(options: {
       onPlayAction={() => {}}
       onOpenTerminalAction={options.onOpenTerminalAction ?? (() => {})}
       onSetTestingTargetAction={() => {}}
-      onSetWorktreeTaskAssignment={() => {}}
-      onAssignTaskPr={async () => {}}
+      workspaceSummaries={[]}
+      worktreeSummaries={{}}
+      onSummarizeSection={() => {}}
+      onSummarizeWorktree={() => {}}
+      summarizingWorktreeId={null}
+      onViewSectionSummary={() => {}}
+      onViewWorktreeSummary={() => {}}
+      summarizingSectionKey={null}
       onForgetAllDeletedWorktrees={options.onForgetAllDeletedWorktrees ?? (() => {})}
       isForgetAllDeletedWorktreesPending={options.isForgetAllDeletedWorktreesPending ?? false}
     />,

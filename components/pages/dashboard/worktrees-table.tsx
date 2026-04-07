@@ -1,9 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 
-import { Check, ChevronDown, CircleHelp, Copy } from "lucide-react";
+import { Check, ChevronDown, CircleHelp, Copy, Scroll, ScrollText } from "lucide-react";
 
 import { WorktreeRowActions } from "@/components/pages/dashboard/worktree-row-actions";
-import { WorktreeTaskSelector } from "@/components/pages/dashboard/worktree-task-selector";
 import { getWorktreeStatusBadgeClasses, getWorktreeStatusIcon, getWorktreeStatusTitle } from "@/components/pages/dashboard/worktree-status";
 import type { RuntimeStateRow, WorktreeRow } from "@/components/pages/dashboard/types";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { deriveWorktreeStatus } from "@/lib/utils/worktree/status";
 import type { GroupedWorktreeItem } from "@/lib/utils/time/grouping";
-import type { WorkspaceTask } from "@/src/lib/ipc";
+import type { SummaryRecord } from "@/src/lib/ipc";
 
 const DEFAULT_COLLAPSED_SECTION_LABELS = new Set(["1 month old", "1 month ago", "1 months ago", "deleted worktrees", "no activity yet"]);
 
@@ -29,8 +28,6 @@ type WorktreesTableProps = {
   pendingPlayActions: string[];
   pendingTestActions: string[];
   runtimeStateByWorktree: Record<string, RuntimeStateRow>;
-  workspaceTasks: WorkspaceTask[];
-  isWorkspaceTasksLoading: boolean;
   testingTargetWorktrees: string[];
   testingRunningWorktrees: string[];
   hasConnectedRepository: boolean;
@@ -42,9 +39,14 @@ type WorktreesTableProps = {
   onPlayAction: (row: WorktreeRow) => void;
   onOpenTerminalAction: (worktree: string) => void;
   onSetTestingTargetAction: (row: WorktreeRow) => void;
-  onSetWorktreeTaskAssignment: (worktree: string, taskId: string | null) => void;
-  onAssignTaskPr: (taskId: string, url: string) => Promise<void>;
-  onCreateTask?: (prompt: string) => Promise<string | null>;
+  workspaceSummaries: SummaryRecord[];
+  worktreeSummaries: Record<string, SummaryRecord[]>;
+  onSummarizeSection: (sectionKey: string, sessionIds: string[]) => void;
+  onSummarizeWorktree: (sessionId: string) => void;
+  summarizingWorktreeId: string | null;
+  onViewSectionSummary: (summary: SummaryRecord) => void;
+  onViewWorktreeSummary: (summary: SummaryRecord) => void;
+  summarizingSectionKey: string | null;
   onForgetAllDeletedWorktrees: () => void;
   isForgetAllDeletedWorktreesPending: boolean;
 };
@@ -58,8 +60,6 @@ export function WorktreesTable({
   pendingPlayActions,
   pendingTestActions,
   runtimeStateByWorktree,
-  workspaceTasks,
-  isWorkspaceTasksLoading,
   testingTargetWorktrees,
   testingRunningWorktrees,
   hasConnectedRepository,
@@ -71,9 +71,14 @@ export function WorktreesTable({
   onPlayAction,
   onOpenTerminalAction,
   onSetTestingTargetAction,
-  onSetWorktreeTaskAssignment,
-  onAssignTaskPr,
-  onCreateTask,
+  workspaceSummaries,
+  worktreeSummaries,
+  onSummarizeSection,
+  onSummarizeWorktree,
+  summarizingWorktreeId,
+  onViewSectionSummary,
+  onViewWorktreeSummary,
+  summarizingSectionKey,
   onForgetAllDeletedWorktrees,
   isForgetAllDeletedWorktreesPending,
 }: WorktreesTableProps) {
@@ -168,18 +173,6 @@ export function WorktreesTable({
             </Button>
           </div>
         </TableCell>
-        <TableCell className="w-[280px]">
-          <WorktreeTaskSelector
-            worktree={row.worktree}
-            tasks={workspaceTasks}
-            selectedTaskId={row.taskId ?? null}
-            onTaskChange={onSetWorktreeTaskAssignment}
-            onAssignPr={onAssignTaskPr}
-            onCreateTask={onCreateTask}
-            disabled={isWorkspaceTasksLoading}
-            triggerClassName="h-8"
-          />
-        </TableCell>
         <TableCell>
           <Badge variant="outline" className={getWorktreeStatusBadgeClasses(status)} title={getWorktreeStatusTitle(status)}>
             {getWorktreeStatusIcon(status)}
@@ -209,6 +202,10 @@ export function WorktreesTable({
               onSetTestingTarget={onSetTestingTargetAction}
               showTestingTargetButton={false}
               onCutConfirm={onCutConfirm}
+              onSummarize={onSummarizeWorktree}
+              isSummarizePending={summarizingWorktreeId === row.worktreeId}
+              onViewSummary={onViewWorktreeSummary}
+              latestSummary={row.worktreeId ? (worktreeSummaries[row.worktreeId]?.at(-1) ?? null) : null}
             />
           </TooltipProvider>
         </TableCell>
@@ -222,7 +219,6 @@ export function WorktreesTable({
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead className="w-[30%] md:w-[24%]">Branch</TableHead>
-            <TableHead className="w-[280px]">Task</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -235,7 +231,7 @@ export function WorktreesTable({
             return (
               <Fragment key={section.key}>
                 <TableRow className="bg-muted/25 hover:bg-muted/25">
-                  <TableCell colSpan={4} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <TableCell colSpan={3} className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                       <span className="inline-flex items-center gap-1.5">
                         <button
@@ -270,19 +266,62 @@ export function WorktreesTable({
                           </TooltipProvider>
                         ) : null}
                       </span>
-                      {isDeletedWorktreesSection && !isCollapsed ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-[11px] font-semibold uppercase tracking-wide text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          onClick={onForgetAllDeletedWorktrees}
-                          disabled={isForgetAllDeletedWorktreesPending || rows.length === 0}
-                          aria-label={isForgetAllDeletedWorktreesPending ? "Forgetting all deleted worktrees" : "Forget all deleted worktrees"}
-                        >
-                          {isForgetAllDeletedWorktreesPending ? "Forgetting..." : "Forget all"}
-                        </Button>
-                      ) : null}
+                      <span className="inline-flex items-center gap-1">
+                        {!isDeletedWorktreesSection && (() => {
+                          const sessionIds = rows
+                            .map((item) => item.row.worktreeId)
+                            .filter((id): id is string => id != null);
+                          if (sessionIds.length === 0) return null;
+                          const isSectionSummarizing = summarizingSectionKey === section.key;
+                          const isAnySummarizing = summarizingSectionKey !== null;
+                          const sessionIdSet = new Set(sessionIds);
+                          const matchingSummary = [...workspaceSummaries]
+                            .reverse()
+                            .find((s) => s.worktreeIds.some((id) => sessionIdSet.has(id)));
+                          return (
+                            <>
+                              {matchingSummary ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 gap-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                                  onClick={() => { onViewSectionSummary(matchingSummary); }}
+                                  aria-label={`View summary for ${section.label}`}
+                                >
+                                  <ScrollText aria-hidden="true" className="size-3" />
+                                  View Summary
+                                </Button>
+                              ) : null}
+                              {!matchingSummary ? <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                                onClick={() => { onSummarizeSection(section.key, sessionIds); }}
+                                disabled={isAnySummarizing}
+                                aria-label={isSectionSummarizing ? "Summarizing..." : `Summarize ${section.label} section`}
+                              >
+                                <Scroll aria-hidden="true" className="size-3" />
+                                {isSectionSummarizing ? "Summarizing..." : "Summarize"}
+                              </Button> : null}
+                            </>
+                          );
+                        })()}
+                        {isDeletedWorktreesSection && !isCollapsed ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-[11px] font-semibold uppercase tracking-wide text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={onForgetAllDeletedWorktrees}
+                            disabled={isForgetAllDeletedWorktreesPending || rows.length === 0}
+                            aria-label={isForgetAllDeletedWorktreesPending ? "Forgetting all deleted worktrees" : "Forget all deleted worktrees"}
+                          >
+                            {isForgetAllDeletedWorktreesPending ? "Forgetting..." : "Forget all"}
+                          </Button>
+                        ) : null}
+                      </span>
                     </div>
                   </TableCell>
                 </TableRow>

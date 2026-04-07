@@ -41,12 +41,10 @@ export type WorkspaceMeta = {
   playGrooveCommand?: string;
   testingPorts?: number[];
   worktreeSymlinkPaths?: string[];
-  consellourSettings?: ConsellourSettings;
   jiraSettings?: JiraSettings;
   opencodeSettings?: OpencodeSettings;
-  tasks?: WorkspaceTask[];
-  worktreeTaskAssignments?: Record<string, string>;
   worktreeRecords?: Record<string, WorktreeRecord>;
+  summaries?: SummaryRecord[];
 };
 
 export type OpencodeSettings = {
@@ -420,39 +418,6 @@ export type JiraIssueOpenInBrowserResponse = {
   error?: string;
 };
 
-export type TaskPriority = "low" | "medium" | "high" | "urgent";
-
-export type TaskOrigin = "consellourTool" | "externalSync";
-
-export type WorkspaceTask = {
-  id: string;
-  title: string;
-  description: string;
-  priority: TaskPriority;
-  consellourPriority: TaskPriority;
-  createdAt: string;
-  updatedAt: string;
-  lastInteractedAt: string;
-  origin: TaskOrigin;
-  externalId?: string;
-  externalUrl?: string;
-  PR?: WorkspaceTaskPrEntry[];
-};
-
-export type WorkspaceTaskPrEntry = {
-  url: string;
-  title?: string;
-  number?: number;
-  timestamp: string;
-};
-
-export type ConsellourSettings = {
-  openaiApiKey?: string;
-  model: string;
-  reasoningLevel: "low" | "medium" | "high";
-  updatedAt: string;
-};
-
 export type WorkspaceTerminalSettingsPayload = {
   defaultTerminal: DefaultTerminal;
   terminalCustomCommand?: string | null;
@@ -475,11 +440,6 @@ export type WorkspaceWorktreeSymlinkPathsPayload = {
   worktreeSymlinkPaths: string[];
 };
 
-export type WorkspaceSetWorktreeTaskAssignmentPayload = {
-  worktree: string;
-  taskId?: string | null;
-};
-
 export type WorkspaceBrowseEntriesPayload = {
   relativePath?: string | null;
 };
@@ -496,68 +456,6 @@ export type WorkspaceBrowseEntriesResponse = {
   workspaceRoot?: string;
   relativePath: string;
   entries: WorkspaceBrowseEntry[];
-  error?: string;
-};
-
-export type ConsellourSettingsUpdatePayload = {
-  openaiApiKey?: string;
-  model?: string;
-  reasoningLevel?: "low" | "medium" | "high";
-};
-
-export type WorkspaceTaskQueryPayload = {
-  titleQuery?: string;
-  descriptionQuery?: string;
-};
-
-export type ConsellourToolCreateTaskPayload = {
-  title: string;
-  description: string;
-  priority: TaskPriority;
-  consellourPriority: TaskPriority;
-  origin?: TaskOrigin;
-  externalId?: string;
-  externalUrl?: string;
-};
-
-export type ConsellourToolEditTaskPayload = {
-  id: string;
-  title?: string;
-  description?: string;
-  priority?: TaskPriority;
-  consellourPriority?: TaskPriority;
-  lastInteractedAt?: string;
-  origin?: TaskOrigin;
-  externalId?: string;
-  externalUrl?: string;
-  PR?: WorkspaceTaskPrEntry[];
-};
-
-export type ConsellourToolDeleteTaskPayload = {
-  id: string;
-};
-
-export type ConsellourSettingsResponse = {
-  requestId?: string;
-  ok: boolean;
-  workspaceRoot?: string;
-  settings?: ConsellourSettings;
-  error?: string;
-};
-
-export type WorkspaceTasksResponse = {
-  requestId?: string;
-  ok: boolean;
-  workspaceRoot?: string;
-  tasks: WorkspaceTask[];
-  error?: string;
-};
-
-export type WorkspaceTaskResponse = {
-  requestId?: string;
-  ok: boolean;
-  workspaceRoot?: string;
-  task?: WorkspaceTask;
   error?: string;
 };
 
@@ -599,9 +497,17 @@ export type GlobalSettingsResponse = {
   error?: string;
 };
 
+export type SummaryRecord = {
+  worktreeIds: string[];
+  createdAt: string;
+  summary: string;
+  oneLiner?: string;
+};
+
 export type WorktreeRecord = {
   id: string;
   createdAt: string;
+  summaries?: SummaryRecord[];
 };
 
 export type WorkspaceRow = {
@@ -611,7 +517,6 @@ export type WorkspaceRow = {
   path: string;
   status: "paused" | "closing" | "ready" | "corrupted" | "deleted";
   lastExecutedAt?: string;
-  taskId?: string | null;
 };
 
 export type WorkspaceContextResponse = {
@@ -756,6 +661,29 @@ export type GrooveStopResponse = {
   alreadyStopped?: boolean;
   pid?: number;
   source?: "request" | "runtime";
+  error?: string;
+};
+
+export type GrooveSummaryPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  sessionIds: string[];
+};
+
+export type GrooveSummaryEntry = {
+  sessionId: string;
+  worktree?: string;
+  ok: boolean;
+  summary?: string;
+  error?: string;
+};
+
+export type GrooveSummaryResponse = {
+  requestId?: string;
+  ok: boolean;
+  summaries: GrooveSummaryEntry[];
+  compiledSummary?: string;
   error?: string;
 };
 
@@ -1333,14 +1261,6 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "global_settings_update",
   "diagnostics_get_system_overview",
   "workspace_list_symlink_entries",
-  "consellour_get_settings",
-  "consellour_update_settings",
-  "tasks_list",
-  "consellour_get_task",
-  "consellour_get_recommended_task",
-  "consellour_tool_create_task",
-  "consellour_tool_edit_task",
-  "consellour_tool_delete_task",
   "groove_terminal_open",
   "groove_terminal_write",
   "groove_terminal_resize",
@@ -1907,6 +1827,10 @@ export function grooveStop(payload: GrooveStopPayload): Promise<GrooveStopRespon
   return invokeCommand<GrooveStopResponse>("groove_stop", { payload });
 }
 
+export function grooveSummary(payload: GrooveSummaryPayload): Promise<GrooveSummaryResponse> {
+  return invokeCommand<GrooveSummaryResponse>("groove_summary", { payload });
+}
+
 export function workspaceEvents(payload: WorkspaceEventsPayload): Promise<WorkspaceEventsResponse> {
   return invokeCommand<WorkspaceEventsResponse>("workspace_events", { payload });
 }
@@ -2223,58 +2147,12 @@ export function workspaceUpdateWorktreeSymlinkPaths(
   return invokeCommand<WorkspaceCommandSettingsResponse>("workspace_update_worktree_symlink_paths", { payload });
 }
 
-export function workspaceSetWorktreeTaskAssignment(
-  payload: WorkspaceSetWorktreeTaskAssignmentPayload,
-): Promise<WorkspaceContextResponse> {
-  return invokeCommand<WorkspaceContextResponse>("workspace_set_worktree_task_assignment", { payload });
-}
-
 export function workspaceListSymlinkEntries(
   payload: WorkspaceBrowseEntriesPayload = {},
 ): Promise<WorkspaceBrowseEntriesResponse> {
   return invokeCommand<WorkspaceBrowseEntriesResponse>("workspace_list_symlink_entries", { payload }, {
     intent: "background",
   });
-}
-
-export function consellourGetSettings(): Promise<ConsellourSettingsResponse> {
-  return invokeCommand<ConsellourSettingsResponse>("consellour_get_settings", undefined, {
-    intent: "background",
-  });
-}
-
-export function consellourUpdateSettings(payload: ConsellourSettingsUpdatePayload): Promise<ConsellourSettingsResponse> {
-  return invokeCommand<ConsellourSettingsResponse>("consellour_update_settings", { payload });
-}
-
-export function tasksList(): Promise<WorkspaceTasksResponse> {
-  return invokeCommand<WorkspaceTasksResponse>("tasks_list", undefined, {
-    intent: "background",
-  });
-}
-
-export function consellourGetTask(payload: WorkspaceTaskQueryPayload): Promise<WorkspaceTaskResponse> {
-  return invokeCommand<WorkspaceTaskResponse>("consellour_get_task", { payload }, {
-    intent: "background",
-  });
-}
-
-export function consellourGetRecommendedTask(): Promise<WorkspaceTaskResponse> {
-  return invokeCommand<WorkspaceTaskResponse>("consellour_get_recommended_task", undefined, {
-    intent: "background",
-  });
-}
-
-export function consellourToolCreateTask(payload: ConsellourToolCreateTaskPayload): Promise<WorkspaceTaskResponse> {
-  return invokeCommand<WorkspaceTaskResponse>("consellour_tool_create_task", { payload });
-}
-
-export function consellourToolEditTask(payload: ConsellourToolEditTaskPayload): Promise<WorkspaceTaskResponse> {
-  return invokeCommand<WorkspaceTaskResponse>("consellour_tool_edit_task", { payload });
-}
-
-export function consellourToolDeleteTask(payload: ConsellourToolDeleteTaskPayload): Promise<WorkspaceTaskResponse> {
-  return invokeCommand<WorkspaceTaskResponse>("consellour_tool_delete_task", { payload });
 }
 
 export function jiraConnectionStatus(): Promise<JiraConnectionStatusResponse> {

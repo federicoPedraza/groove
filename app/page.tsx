@@ -1,7 +1,7 @@
 "use client";
 
 import { FolderClock, FolderOpen, Terminal, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { DirectoryBehindIndicator } from "@/components/pages/dashboard/directory-behind-indicator";
@@ -9,12 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Dropdown } from "@/components/ui/dropdown";
 import { DashboardHeader } from "@/components/pages/dashboard/dashboard-header";
 import { DashboardModals } from "@/components/pages/dashboard/dashboard-modals";
+import { SummaryViewerModal } from "@/components/pages/dashboard/summary-viewer-modal";
 import { useDirectoryBehindStatus } from "@/components/pages/dashboard/hooks/use-directory-behind-status";
 import { WorktreesTable } from "@/components/pages/dashboard/worktrees-table";
 import { useDashboardState } from "@/components/pages/dashboard/hooks/use-dashboard-state";
 import { useShortcutRegistration } from "@/components/shortcuts/use-shortcut-registration";
 import type { ActionLauncherItem } from "@/components/shortcuts/action-launcher";
 import type { WorktreeRow } from "@/components/pages/dashboard/types";
+import { grooveSummary } from "@/src/lib/ipc";
+import type { SummaryRecord } from "@/src/lib/ipc";
+import { toast } from "@/lib/toast";
 import { useAppLayout } from "@/components/pages/use-app-layout";
 import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -79,12 +83,9 @@ export default function Home() {
     isCreateModalOpen,
     createBranch,
     createBase,
-    createTaskPrompt,
     isCreatePending,
     workspaceRoot,
     recentDirectories,
-    workspaceTasks,
-    isWorkspaceTasksLoading,
     forceCutConfirmLoading,
     groupedWorktreeItems,
     setIsCloseWorkspaceConfirmOpen,
@@ -93,7 +94,6 @@ export default function Home() {
     setIsCreateModalOpen,
     setCreateBranch,
     setCreateBase,
-    setCreateTaskPrompt,
     pickDirectory,
     openRecentDirectory,
     refreshWorktrees,
@@ -106,12 +106,91 @@ export default function Home() {
     runPlayGrooveAction,
     runOpenWorktreeTerminalAction,
     onSelectTestingTarget,
-    setWorktreeTaskAssignment,
-    assignTaskPr,
-    createTaskWithConsellour,
     runOpenWorkspaceTerminalAction,
     closeCurrentWorkspace,
   } = useDashboardState();
+
+  const [summarizingSection, setSummarizingSection] = useState<string | null>(null);
+  const [summarizingWorktreeId, setSummarizingWorktreeId] = useState<string | null>(null);
+  const [viewingSummaryState, setViewingSummaryState] = useState<{ summaries: SummaryRecord[]; initialIndex: number; worktreeIds: string[] } | null>(null);
+
+  const ipcWorkspaceMeta = activeWorkspace?.workspaceMeta as import("@/src/lib/ipc").WorkspaceMeta | undefined;
+
+  const worktreeSummaries = useMemo(() => {
+    const records = ipcWorkspaceMeta?.worktreeRecords;
+    if (!records) return {};
+    const result: Record<string, SummaryRecord[]> = {};
+    for (const [, record] of Object.entries(records)) {
+      if (record.summaries && record.summaries.length > 0) {
+        result[record.id] = record.summaries;
+      }
+    }
+    return result;
+  }, [ipcWorkspaceMeta?.worktreeRecords]);
+
+  const handleSummarizeWorktree = useCallback(
+    (sessionId: string) => {
+      if (!workspaceRoot || summarizingWorktreeId) return;
+      setSummarizingWorktreeId(sessionId);
+
+      void grooveSummary({
+        rootName: ipcWorkspaceMeta?.rootName ?? "",
+        knownWorktrees: worktreeRows.filter((r) => r.status !== "deleted").map((r) => r.worktree),
+        workspaceMeta: ipcWorkspaceMeta,
+        sessionIds: [sessionId],
+      })
+        .then((response) => {
+          if (!response.ok) {
+            toast.error(response.error ?? "Summary failed.");
+            return;
+          }
+          const successEntry = response.summaries.find((s) => s.ok);
+          if (!successEntry?.summary) {
+            const errorDetail = response.summaries.find((s) => !s.ok)?.error;
+            toast.warning(errorDetail ? `Summary unavailable: ${errorDetail}` : "Session summary unavailable.");
+          }
+        })
+        .catch(() => {
+          toast.error("Summary request failed.");
+        })
+        .finally(() => {
+          setSummarizingWorktreeId(null);
+        });
+    },
+    [ipcWorkspaceMeta, summarizingWorktreeId, worktreeRows, workspaceRoot],
+  );
+
+  const handleSummarizeSection = useCallback(
+    (sectionKey: string, sessionIds: string[]) => {
+      if (!workspaceRoot || summarizingSection) return;
+      setSummarizingSection(sectionKey);
+
+      void grooveSummary({
+        rootName: ipcWorkspaceMeta?.rootName ?? "",
+        knownWorktrees: worktreeRows.filter((r) => r.status !== "deleted").map((r) => r.worktree),
+        workspaceMeta: ipcWorkspaceMeta,
+        sessionIds,
+      })
+        .then((response) => {
+          if (!response.ok) {
+            toast.error(response.error ?? "Summary failed.");
+            return;
+          }
+
+          const successful = response.summaries.filter((s) => s.ok);
+          if (successful.length === 0) {
+            toast.warning("No sessions had available summaries.");
+          }
+        })
+        .catch(() => {
+          toast.error("Summary request failed.");
+        })
+        .finally(() => {
+          setSummarizingSection(null);
+        });
+    },
+    [ipcWorkspaceMeta, summarizingSection, worktreeRows, workspaceRoot],
+  );
 
   const hasDirectory = Boolean(activeWorkspace);
   const directoryBehindStatus = useDirectoryBehindStatus(activeWorkspace?.workspaceRoot ?? null);
@@ -305,8 +384,6 @@ export default function Home() {
                 pendingPlayActions={pendingPlayActions}
                 pendingTestActions={pendingTestActions}
                 runtimeStateByWorktree={runtimeStateByWorktree}
-                workspaceTasks={workspaceTasks}
-                isWorkspaceTasksLoading={isWorkspaceTasksLoading}
                 testingTargetWorktrees={testingTargetWorktrees}
                 testingRunningWorktrees={testingRunningWorktrees}
                 hasConnectedRepository={Boolean(activeWorkspace?.workspaceRoot)}
@@ -332,11 +409,23 @@ export default function Home() {
                 onSetTestingTargetAction={(row) => {
                   onSelectTestingTarget(row);
                 }}
-                onSetWorktreeTaskAssignment={(worktree, taskId) => {
-                  setWorktreeTaskAssignment(worktree, taskId);
+                workspaceSummaries={ipcWorkspaceMeta?.summaries ?? []}
+                worktreeSummaries={worktreeSummaries}
+                onSummarizeSection={handleSummarizeSection}
+                onSummarizeWorktree={handleSummarizeWorktree}
+                summarizingWorktreeId={summarizingWorktreeId}
+                onViewSectionSummary={(summary) => {
+                  const allSectionSummaries = ipcWorkspaceMeta?.summaries ?? [];
+                  const idx = allSectionSummaries.findIndex((s) => s.createdAt === summary.createdAt);
+                  setViewingSummaryState({ summaries: allSectionSummaries, initialIndex: idx >= 0 ? idx : 0, worktreeIds: summary.worktreeIds });
                 }}
-                onAssignTaskPr={assignTaskPr}
-                onCreateTask={createTaskWithConsellour}
+                onViewWorktreeSummary={(summary) => {
+                  const worktreeId = summary.worktreeIds[0];
+                  const allWorktreeSummaries = worktreeId ? (worktreeSummaries[worktreeId] ?? [summary]) : [summary];
+                  const idx = allWorktreeSummaries.findIndex((s) => s.createdAt === summary.createdAt);
+                  setViewingSummaryState({ summaries: allWorktreeSummaries, initialIndex: idx >= 0 ? idx : allWorktreeSummaries.length - 1, worktreeIds: summary.worktreeIds });
+                }}
+                summarizingSectionKey={summarizingSection}
                 onForgetAllDeletedWorktrees={() => {
                   const shouldForgetAll = window.confirm("Forget all deleted worktrees forever from Groove local state?");
                   if (!shouldForgetAll) {
@@ -375,11 +464,9 @@ export default function Home() {
         setIsCreateModalOpen={setIsCreateModalOpen}
         createBranch={createBranch}
         createBase={createBase}
-        createTaskPrompt={createTaskPrompt}
         isCreatePending={isCreatePending}
         setCreateBranch={setCreateBranch}
         setCreateBase={setCreateBase}
-        setCreateTaskPrompt={setCreateTaskPrompt}
         onRunCutGrooveAction={(row, force) => {
           void runCutGrooveAction(row, force);
         }}
@@ -392,6 +479,20 @@ export default function Home() {
         onRunCreateWorktreeAction={(options) => {
           void runCreateWorktreeAction(options);
         }}
+      />
+
+      <SummaryViewerModal
+        summaries={viewingSummaryState?.summaries ?? []}
+        initialIndex={viewingSummaryState?.initialIndex ?? 0}
+        open={viewingSummaryState !== null}
+        onClose={() => { setViewingSummaryState(null); }}
+        onCreateNewSummary={viewingSummaryState?.worktreeIds.length === 1
+          ? () => { handleSummarizeWorktree(viewingSummaryState.worktreeIds[0]); }
+          : viewingSummaryState?.worktreeIds.length && viewingSummaryState.worktreeIds.length > 1
+            ? () => { handleSummarizeSection("modal", viewingSummaryState.worktreeIds); }
+            : undefined
+        }
+        isCreatePending={summarizingWorktreeId !== null || summarizingSection !== null}
       />
     </>
   );

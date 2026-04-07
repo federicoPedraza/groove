@@ -806,6 +806,7 @@ fn register_worktree_record(
             id: id.clone(),
             created_at: now_iso(),
             claude_session_started: false,
+            summaries: Vec::new(),
         },
     );
     workspace_meta.updated_at = now_iso();
@@ -1025,7 +1026,7 @@ fn ensure_claude_notification_hook(worktree_path: &Path, worktree_name: &str) {
         return;
     }
 
-    let settings_path = claude_dir.join("settings.json");
+    let settings_path = claude_dir.join("settings.local.json");
     let mut settings: serde_json::Value = if settings_path.exists() {
         fs::read_to_string(&settings_path)
             .ok()
@@ -1511,6 +1512,7 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         tasks: Vec::new(),
         worktree_task_assignments: HashMap::new(),
         worktree_records: HashMap::new(),
+        summaries: Vec::new(),
     }
 }
 

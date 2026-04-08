@@ -858,6 +858,27 @@ if [[ "${first_positional}" == "notify" ]]; then
 NOTIF_EOF
 
   mv "$notif_tmp" "$notif_file"
+
+  # Action-specific behavior
+  case "$notify_action" in
+    stop)
+      # Play a short completion sound
+      if [[ "$(uname)" == "Darwin" ]]; then
+        afplay /System/Library/Sounds/Glass.aiff &
+      else
+        for cmd in paplay pw-play aplay; do
+          if command -v "$cmd" &>/dev/null; then
+            $cmd /usr/share/sounds/freedesktop/stereo/complete.oga &>/dev/null &
+            break
+          fi
+        done
+      fi
+      ;;
+    notification)
+      # Notification-only — no extra action needed (Groove desktop picks up the JSON)
+      ;;
+  esac
+
   exit 0
 fi
 

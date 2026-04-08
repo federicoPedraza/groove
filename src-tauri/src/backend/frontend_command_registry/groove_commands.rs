@@ -884,7 +884,7 @@ fn groove_restore(
     };
     expected_worktree_path = ensured_worktree_path;
 
-    ensure_claude_notification_hook(&expected_worktree_path, &worktree);
+    ensure_claude_hooks(&expected_worktree_path, &worktree);
 
     let mut result = if action == "go" {
         let play_groove_command = play_groove_command_for_workspace(&workspace_root);
@@ -1602,7 +1602,7 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
                 ));
             }
 
-            ensure_claude_notification_hook(&worktree_path, &stamped_worktree);
+            ensure_claude_hooks(&worktree_path, &stamped_worktree);
         }
 
         invalidate_workspace_context_cache(&app, &workspace_root);

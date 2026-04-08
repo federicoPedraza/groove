@@ -670,7 +670,25 @@ fn create_symlink(source: &Path, destination: &Path) -> Result<(), std::io::Erro
     crate::backend::common::platform_env::create_symlink(source, destination)
 }
 
-fn ensure_claude_notification_hook(worktree_path: &Path, worktree_name: &str) {
+fn make_groove_hook(action: &str, worktree_name: &str, message: &str) -> serde_json::Value {
+    let command = format!(
+        "$HOME/.local/bin/groove notify {} {} -m \"{}\"",
+        action, worktree_name, message
+    );
+    serde_json::json!([
+        {
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": command
+                }
+            ]
+        }
+    ])
+}
+
+fn ensure_claude_hooks(worktree_path: &Path, worktree_name: &str) {
     let claude_dir = worktree_path.join(".claude");
     if fs::create_dir_all(&claude_dir).is_err() {
         return;
@@ -686,27 +704,17 @@ fn ensure_claude_notification_hook(worktree_path: &Path, worktree_name: &str) {
         serde_json::json!({})
     };
 
-    let hook_command = format!(
-        "groove notify notification {} -m \"Claude Code needs your attention\"",
-        worktree_name
-    );
-
-    let hook_entry = serde_json::json!([
-        {
-            "matcher": "",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": hook_command
-                }
-            ]
-        }
-    ]);
-
     if let Some(obj) = settings.as_object_mut() {
         let hooks = obj.entry("hooks").or_insert(serde_json::json!({}));
         if let Some(hooks_obj) = hooks.as_object_mut() {
-            hooks_obj.insert("Notification".to_string(), hook_entry);
+            hooks_obj.insert(
+                "Notification".to_string(),
+                make_groove_hook("notification", worktree_name, "Claude Code needs your attention"),
+            );
+            hooks_obj.insert(
+                "Stop".to_string(),
+                make_groove_hook("stop", worktree_name, "Claude Code finished"),
+            );
         }
     }
 

@@ -24,6 +24,8 @@ usage:
   groove list [--dir <worktrees_dir>]
   groove rm <branch> [--dir <worktrees_dir>]
   groove restore <worktree-or-branch> [--dir <worktrees_dir>] [--opencode-log-file <path>]
+  groove summary <session-id>
+  groove summary <YYYY-MM-DD>
 
 notes:
   create creates (or reuses) a worktree and branch without launching terminals or opencode.
@@ -669,6 +671,73 @@ if [[ "${first_positional}" == "create" ]]; then
   repair_latest_opencode_symlink "$wt_path/.groove/logs"
 
   echo "Created groove worktree: $wt_path"
+  exit 0
+fi
+
+if [[ "${first_positional}" == "summary" ]]; then
+  summary_target="${1:-}"
+  if [[ -z "$summary_target" ]]; then
+    echo "usage: groove summary <session-id> | groove summary <YYYY-MM-DD>" >&2
+    exit 1
+  fi
+
+  claude_bin="${CLAUDE_CODE_BIN:-claude}"
+
+  # Detect if target is a date (YYYY-MM-DD) or a session ID
+  if [[ "$summary_target" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    # Date mode: find all session IDs for that date from workspace.json
+    repo_root="$(git rev-parse --show-toplevel)"
+    workspace_json="$repo_root/.groove/workspace.json"
+
+    if [[ ! -f "$workspace_json" ]]; then
+      echo "No workspace.json found at $workspace_json" >&2
+      exit 1
+    fi
+
+    if ! command -v jq >/dev/null 2>&1; then
+      echo "jq is required for date-based summary" >&2
+      exit 1
+    fi
+
+    # Extract session IDs where createdAt matches the target date and claudeSessionStarted is true
+    session_ids=()
+    worktree_names=()
+    while IFS=$'\t' read -r wt_name wt_id; do
+      session_ids+=("$wt_id")
+      worktree_names+=("$wt_name")
+    done < <(jq -r --arg date "$summary_target" '
+      .worktreeRecords // {} | to_entries[]
+      | select(.value.claudeSessionStarted == true)
+      | select(.value.createdAt | startswith($date))
+      | [.key, .value.id] | @tsv
+    ' "$workspace_json")
+
+    if [[ ${#session_ids[@]} -eq 0 ]]; then
+      echo "No Claude sessions found for $summary_target"
+      exit 0
+    fi
+
+    # Collect individual summaries
+    all_summaries=""
+    for i in "${!session_ids[@]}"; do
+      sid="${session_ids[$i]}"
+      wt_name="${worktree_names[$i]}"
+      echo "Summarizing session for worktree '$wt_name' ($sid)..." >&2
+      summary="$("$claude_bin" --resume "$sid" -p "Summarize what has been done and what is pending to do. Be concise." --output-format text 2>/dev/null || echo "(session unavailable)")"
+      all_summaries="${all_summaries}## ${wt_name}
+${summary}
+
+"
+    done
+
+    # Compile all summaries into a final daily summary
+    "$claude_bin" -p "Based on these worktree summaries, give a concise overview of what happened on ${summary_target}:
+
+${all_summaries}" --output-format text
+  else
+    # Session ID mode: summarize a single session
+    "$claude_bin" --resume "$summary_target" -p "Summarize what has been done and what is pending to do. Be concise." --output-format text
+  fi
   exit 0
 fi
 

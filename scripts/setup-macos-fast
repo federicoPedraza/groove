@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+usage:
+  setup-macos-fast
+
+quickly installs macOS dev prerequisites for Groove.
+EOF
+}
+
+log() {
+  printf '[setup-macos-fast] %s\n' "$*"
+}
+
+fail() {
+  printf '[setup-macos-fast] error: %s\n' "$*" >&2
+  exit 1
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -gt 0 ]]; then
+  usage
+  exit 1
+fi
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  fail "this script only supports macOS"
+fi
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+ensure_homebrew() {
+  if command -v brew >/dev/null 2>&1; then
+    log "homebrew is already installed"
+    return
+  fi
+
+  local install_cmd='NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    fail "homebrew is missing. run this in an interactive shell: $install_cmd"
+  fi
+
+  log "installing homebrew"
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+}
+
+ensure_brew_in_path() {
+  if command -v brew >/dev/null 2>&1; then
+    return
+  fi
+
+  if [[ -x /opt/homebrew/bin/brew ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  elif [[ -x /usr/local/bin/brew ]]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+  fi
+
+  command -v brew >/dev/null 2>&1 || fail "homebrew installed but 'brew' is still unavailable in PATH"
+}
+
+ensure_node_and_npm_prerequisite() {
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    log "node and npm are already available ($(node -v), npm $(npm -v))"
+    return
+  fi
+
+  fail "node.js and npm are required but missing. install node.js LTS manually (https://nodejs.org/en/download) and re-run this script"
+}
+
+ensure_rust_prerequisite() {
+  if [[ -f "$HOME/.cargo/env" ]]; then
+    # shellcheck disable=SC1090
+    source "$HOME/.cargo/env"
+  fi
+
+  if command -v rustc >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
+    log "rust is already available ($(rustc --version))"
+    return
+  fi
+
+  fail "rust is required but missing. install via rustup (https://rustup.rs/) and re-run this script"
+}
+
+ensure_create_dmg() {
+  if command -v create-dmg >/dev/null 2>&1; then
+    log "create-dmg is already installed"
+    return
+  fi
+
+  log "installing create-dmg via homebrew"
+  brew list create-dmg >/dev/null 2>&1 || brew install create-dmg
+  command -v create-dmg >/dev/null 2>&1 || fail "create-dmg is unavailable after install"
+}
+
+install_project_dependencies() {
+  log "installing project dependencies with npm"
+  npm install
+}
+
+run_sanity_check() {
+  log "running rust sanity check"
+  npm run check:rust
+}
+
+run_sidecar_check() {
+  log "checking macOS sidecars"
+  if ./scripts/check-macos-sidecars; then
+    return
+  fi
+
+  fail "required macOS sidecars are missing or not executable. place both files in src-tauri/binaries/ and run: chmod +x src-tauri/binaries/groove-aarch64-apple-darwin src-tauri/binaries/groove-x86_64-apple-darwin"
+}
+
+setup_agent_teams_lite() {
+  local atl_dir="${AGENT_TEAMS_LITE_DIR:-$HOME/Library/Application Support/agent-teams-lite}"
+  local atl_setup_script="$repo_root/scripts/setup-opencode-atl.sh"
+
+  if [[ ! -f "$atl_setup_script" ]]; then
+    log "ATL setup script not found at $atl_setup_script; skipping Agent Teams Lite provisioning"
+    return
+  fi
+
+  log "ensuring Agent Teams Lite is available in $atl_dir"
+  if ! AGENT_TEAMS_LITE_DIR="$atl_dir" SETUP_OPENCODE_ATL_ALLOW_MISSING_OPENCODE=1 bash "$atl_setup_script" "$repo_root"; then
+    log "ATL provisioning failed; OpenCode status may still warn until ATL is installed"
+  fi
+}
+
+log "starting macOS fast setup"
+ensure_homebrew
+ensure_brew_in_path
+ensure_node_and_npm_prerequisite
+ensure_rust_prerequisite
+ensure_create_dmg
+
+cd "$repo_root"
+install_project_dependencies
+setup_agent_teams_lite
+run_sidecar_check
+run_sanity_check
+
+log "setup complete"
+log "next step: npm run tauri:dev"

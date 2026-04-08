@@ -4,60 +4,74 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Groove
 
-A Tauri 2 desktop app for managing Git multi-worktree development. It discovers `.worktrees/` directories, launches terminals/processes at the correct worktree path, and provides diagnostics/cleanup for stale processes.
-
-## Architecture
-
-3-layer model:
-1. **UI** — React 19 + TypeScript + Vite frontend. Route pages in `app/`, reusable components in `components/`, shared libs in `src/` and `lib/`.
-2. **Native commands** — Tauri 2 + Rust backend in `src-tauri/`. IPC commands defined in `src-tauri/src/backend/frontend_command_registry/`. Frontend calls them via typed IPC bridge at `src/lib/ipc.ts`.
-3. **Local runtime** — Git worktrees, groove sidecar binary (platform-specific binaries in `src-tauri/binaries/`), PTY terminal sessions, process lifecycle.
-
-Key frontend patterns:
-- Path alias: `@/*` maps to `./*`
-- Lazy-loaded route pages with React Router + Suspense
-- shadcn-style components (Radix UI + Tailwind CSS 4)
-- Vitest + Testing Library + jsdom for tests
-
-Rust backend modules under `src-tauri/src/backend/` are organized by domain (e.g., `groove_worktree_lifecycle/`, `pty_terminal_sessions/`, `diagnostics_process_control/`).
+A Tauri 2 desktop app for managing Git multi-worktree development. It discovers worktrees in `.worktrees/`, launches terminals and build commands per worktree, monitors runtime processes, and persists workspace settings.
 
 ## Commands
 
 ```bash
-# Dev
-npm run dev              # Frontend only (Vite on port 1420)
-npm run tauri:dev        # Full app (frontend + Rust)
+# Development
+npm run dev              # Frontend only (Vite on :1420)
+npm run tauri:dev        # Full desktop app with hot reload
 
 # Quality
 npm run lint             # ESLint
-npm run typecheck        # tsc --noEmit (strict)
-npm run test             # Vitest
-npm run check:rust       # cargo check
-
-# Build
-npm run build            # Production frontend
-npm run tauri:build:linux   # AppImage + deb
-npm run tauri:build:macos   # dmg
+npm run typecheck        # TypeScript noEmit check
+npm run test             # Vitest (unit/component)
+npm run test:watch       # Vitest watch mode
+npm run check:rust       # Cargo check on Rust backend
 
 # Single test
 npx vitest run src/path/to/file.test.ts
 npx vitest run -t "test name"
 npx vitest run src/path/to/file.test.ts -t "test name"
 
-# Setup (first time)
-npm install && npm run setup
+# Build
+npm run build                # Frontend production build
+npm run tauri:build          # Desktop bundle (all platforms)
+npm run tauri:build:linux    # Linux AppImage + deb
+npm run tauri:build:macos    # macOS dmg
+
+# Setup (installs platform deps + validates sidecars)
+npm run setup:linux
+npm run setup:macos
+npm run setup:windows
 ```
 
-## Validation by change scope
+### Validation by change scope
 
-- **Frontend only:** `lint` -> `typecheck` -> `test` -> `build`
-- **Rust only:** `check:rust` (+ `tauri:dev` if it affects runtime behavior)
+- **Frontend-only:** `npm run lint && npm run typecheck && npm run test && npm run build`
+- **Rust-only:** `npm run check:rust` (add `npm run tauri:dev` if Tauri runtime behavior affected)
 - **Cross-stack:** all of the above
 
-## Code style
+## Architecture
 
-- Strict TypeScript; no `any`. Prefer unions, generics, narrowing.
-- Imports: external -> `@/` alias -> relative, separated by blank lines. Use `import type` when possible.
-- Naming: PascalCase for components/types, camelCase for functions/variables/hooks, UPPER_SNAKE_CASE for true constants, predicates for booleans (`isReady`, `hasError`).
-- Rust: `Result`-based error flows with context; no `panic!` for runtime failures.
-- Match existing file style; small focused diffs.
+**3-layer structure:**
+
+1. **React UI** (`src/`) — React 19 + TypeScript + Vite 7 SPA. Routes in `src/app/`, components in `src/components/`, shadcn primitives in `src/components/ui/`. Tailwind CSS 4 for styling. Path alias: `@/*` maps to `./`.
+
+2. **Typed IPC bridge** (`src/lib/ipc/`) — All frontend-to-backend communication goes through typed command signatures in `commands-core.ts` and `commands-features.ts`, with types in `types-*.ts`. The `invoke.ts` helper wraps Tauri's IPC.
+
+3. **Rust backend** (`src-tauri/src/backend/`) — Domain-organized modules:
+   - `groove_worktree_lifecycle/` — create/restore/remove/play/stop worktrees
+   - `pty_terminal_sessions/` — terminal spawning via portable-pty
+   - `diagnostics_process_control/` — process inspection/killing
+   - `git_github_bridge/` — Git/GitHub integration
+   - `workspace_discovery_context/` — `.worktrees/` scanning
+   - `workspace_metadata_settings/` — `.groove/workspace.json` persistence
+   - `app_state_management/` — workspace/worktree state
+   - `startup_health_checks_binary_validation/` — sidecar validation
+
+**Data flow:** React UI --> typed IPC invoke --> Tauri command --> Rust backend --> Git/filesystem/terminal, with Rust emitting events back to the frontend via Tauri's event system.
+
+**State management:** `useSyncExternalStore` subscriptions for global and workspace settings. No Redux/Zustand.
+
+**Sidecar binaries:** Platform-specific `groove` binaries in `src-tauri/binaries/`. Runtime resolution checks `GROOVE_BIN` env, then bundled paths.
+
+## Code Style
+
+- **Imports:** external packages first, then `@/...` aliases, then relative. Separate groups with blank lines. Prefer `import type { Foo }` when possible.
+- **Naming:** PascalCase for components/types/enums, camelCase for functions/variables/hooks, UPPER_SNAKE_CASE for true constants, boolean predicates (`isReady`, `hasError`).
+- **TypeScript:** Strict mode. No `any`. Prefer concrete types, unions, generics.
+- **Rust:** `Result`-based error handling, no `panic!` for runtime failures.
+- **Tests:** Colocated with source files (`*.test.ts`, `*.test.tsx`). Vitest + Testing Library React + jsdom.
+- **Style matching:** Match existing file style. Small, focused diffs. No unrelated reformatting.

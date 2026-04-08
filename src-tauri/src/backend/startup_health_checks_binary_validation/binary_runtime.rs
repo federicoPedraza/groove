@@ -38,36 +38,7 @@ fn resolve_groove_binary(app: &AppHandle) -> GrooveBinaryResolution {
         };
     }
 
-    let mut names = vec!["groove".to_string()];
-    #[cfg(target_os = "linux")]
-    {
-        names.push("groove-x86_64-unknown-linux-gnu".to_string());
-        names.push("groove-aarch64-unknown-linux-gnu".to_string());
-    }
-    #[cfg(target_os = "macos")]
-    {
-        #[cfg(target_arch = "aarch64")]
-        {
-            names.push("groove-aarch64-apple-darwin".to_string());
-            names.push("groove-x86_64-apple-darwin".to_string());
-        }
-        #[cfg(target_arch = "x86_64")]
-        {
-            names.push("groove-x86_64-apple-darwin".to_string());
-            names.push("groove-aarch64-apple-darwin".to_string());
-        }
-        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-        {
-            names.push("groove-aarch64-apple-darwin".to_string());
-            names.push("groove-x86_64-apple-darwin".to_string());
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        names.push("groove-x86_64-pc-windows-msvc.exe".to_string());
-        names.push("groove-aarch64-pc-windows-msvc.exe".to_string());
-        names.push("groove.exe".to_string());
-    }
+    let names = crate::backend::common::platform_env::groove_sidecar_binary_names();
 
     let mut roots = Vec::new();
     if let Ok(resource_dir) = app.path().resource_dir() {

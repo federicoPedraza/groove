@@ -256,17 +256,17 @@ npm run setup -- checker-repair
 
 ```bash
 # macOS
-./bash/setup-macos-fast
+./scripts/setup-macos-fast
 # or
 npm run setup:macos
 
 # Linux
-./bash/setup-linux-fast
+./scripts/setup-linux-fast
 # or
 npm run setup:linux
 
 # Windows (PowerShell)
-.\powershell\setup-windows-fast.ps1
+.\scripts\setup-windows-fast.ps1
 # or
 npm run setup:windows
 ```

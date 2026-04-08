@@ -1,17 +1,17 @@
 import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
-import Home from "@/app/page";
-import { AppLayout } from "@/components/pages/app-layout";
-import { CommandHistoryPanel } from "@/components/command-history-panel";
-import { KeyboardShortcutsProvider } from "@/components/shortcuts/keyboard-shortcuts-provider";
+import Home from "@/src/app/page";
+import { AppLayout } from "@/src/components/pages/app-layout";
+import { CommandHistoryPanel } from "@/src/components/command-history-panel";
+import { KeyboardShortcutsProvider } from "@/src/components/shortcuts/keyboard-shortcuts-provider";
+import { Toaster } from "@/src/components/ui/sonner";
 import { isPeriodicRerenderEnabled, subscribeToGlobalSettings } from "@/src/lib/ipc";
 
-const DiagnosticsPage = lazy(async () => import("@/app/diagnostics/page"));
-const SettingsPage = lazy(async () => import("@/app/settings/page"));
-const TasksPage = lazy(async () => import("@/app/tasks/page"));
-const WorktreesPage = lazy(async () => import("@/app/worktrees/page"));
-const WorktreeDetailPage = lazy(async () => import("@/app/worktrees/worktree-detail-page"));
+const DiagnosticsPage = lazy(async () => import("@/src/app/diagnostics/page"));
+const SettingsPage = lazy(async () => import("@/src/app/settings/page"));
+const WorktreesPage = lazy(async () => import("@/src/app/worktrees/page"));
+const WorktreeDetailPage = lazy(async () => import("@/src/app/worktrees/worktree-detail-page"));
 
 type RouteFallbackProps = {
   pageName: string;
@@ -87,14 +87,6 @@ export function App() {
             }
           />
           <Route
-            path="tasks"
-            element={
-              <Suspense fallback={<RouteFallback pageName="tasks" />}>
-                <TasksPage />
-              </Suspense>
-            }
-          />
-          <Route
             path="settings"
             element={
               <Suspense fallback={<RouteFallback pageName="settings" />}>
@@ -106,6 +98,7 @@ export function App() {
         </Route>
       </Routes>
       <CommandHistoryPanel />
+      <Toaster />
     </KeyboardShortcutsProvider>
   );
 }

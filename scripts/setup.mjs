@@ -81,15 +81,15 @@ function getPlatformCommands() {
 
   if (platform === "darwin") {
     return {
-      setup: ["bash", ["./bash/setup-macos-fast"]],
-      check: ["bash", ["./bash/check-macos-sidecars"]]
+      setup: ["bash", ["./scripts/setup-macos-fast"]],
+      check: ["bash", ["./scripts/check-macos-sidecars"]]
     };
   }
 
   if (platform === "linux") {
     return {
-      setup: ["bash", ["./bash/setup-linux-fast"]],
-      check: ["bash", ["./bash/check-linux-sidecars"]]
+      setup: ["bash", ["./scripts/setup-linux-fast"]],
+      check: ["bash", ["./scripts/check-linux-sidecars"]]
     };
   }
 

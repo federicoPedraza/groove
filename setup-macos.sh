@@ -70,11 +70,11 @@ info "rustc: $(rustc --version)"
 
 step "Run fast macOS setup"
 cd "$repo_root"
-run_cmd "executing ./bash/setup-macos-fast" ./bash/setup-macos-fast
+run_cmd "executing ./scripts/setup-macos-fast" ./scripts/setup-macos-fast
 pass "Fast setup completed"
 
 step "Validate macOS sidecar readiness"
-run_cmd "executing ./bash/check-macos-sidecars" ./bash/check-macos-sidecars
+run_cmd "executing ./scripts/check-macos-sidecars" ./scripts/check-macos-sidecars
 pass "macOS sidecar check passed"
 
 step "Build macOS distributables"
@@ -115,6 +115,16 @@ rsync -a --delete "$app_in_dmg/" "$app_dir/Groove.app/"
 cleanup_mount
 
 pass "Installed/updated: $app_dir/Groove.app"
+
+step "Install groove CLI"
+cli_dir="$HOME/.local/bin"
+mkdir -p "$cli_dir"
+cp -f "$repo_root/scripts/groove" "$cli_dir/groove"
+chmod +x "$cli_dir/groove"
+pass "Installed: $cli_dir/groove"
+if ! echo "$PATH" | tr ':' '\n' | grep -Fxq "$cli_dir"; then
+  info "Add $cli_dir to your PATH if it is not already (e.g. export PATH=\"\$HOME/.local/bin:\$PATH\")"
+fi
 
 step "Next actions"
 info "Artifacts available at: $macos_bundle_dir"

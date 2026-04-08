@@ -5,11 +5,6 @@ struct WorkspaceEventState {
 }
 
 #[derive(Default)]
-struct TestingEnvironmentState {
-    runtime: Mutex<TestingEnvironmentRuntimeState>,
-}
-
-#[derive(Default)]
 struct WorkspaceContextCacheState {
     entries: Mutex<HashMap<String, WorkspaceContextCacheEntry>>,
 }
@@ -62,13 +57,6 @@ impl Drop for GrooveTerminalState {
     }
 }
 
-#[derive(Default)]
-struct TestingEnvironmentRuntimeState {
-    loaded: bool,
-    persisted: PersistedTestingEnvironmentState,
-    children_by_worktree: HashMap<String, std::process::Child>,
-}
-
 #[derive(Debug, Clone)]
 struct WorkspaceContextCacheEntry {
     signature: WorkspaceContextSignature,
@@ -114,44 +102,6 @@ struct WorkspaceWorker {
     handle: JoinHandle<()>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TestingEnvironmentTarget {
-    workspace_root: String,
-    worktree: String,
-    worktree_path: String,
-    updated_at: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TestingEnvironmentInstance {
-    instance_id: String,
-    pid: i32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    port: Option<u16>,
-    workspace_root: String,
-    worktree: String,
-    worktree_path: String,
-    command: String,
-    started_at: String,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PersistedTestingEnvironmentState {
-    #[serde(default)]
-    targets: Vec<TestingEnvironmentTarget>,
-    #[serde(default)]
-    running_instances: Vec<TestingEnvironmentInstance>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    updated_at: Option<String>,
-    #[serde(default, skip_serializing)]
-    target: Option<TestingEnvironmentTarget>,
-    #[serde(default, skip_serializing)]
-    running_instance: Option<TestingEnvironmentInstance>,
-}
-
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PersistedWorktreeExecutionState {
@@ -185,15 +135,10 @@ struct WorkspaceMetaContext {
     disable_groove_loading_section: Option<bool>,
     show_fps: Option<bool>,
     play_groove_command: Option<String>,
-    testing_ports: Option<Vec<u16>>,
     open_terminal_at_worktree_command: Option<String>,
     run_local_command: Option<String>,
     worktree_symlink_paths: Option<Vec<String>>,
-    consellour_settings: Option<ConsellourSettings>,
-    jira_settings: Option<JiraSettings>,
     opencode_settings: Option<OpencodeSettings>,
-    tasks: Option<Vec<WorkspaceTask>>,
-    worktree_task_assignments: Option<HashMap<String, String>>,
     worktree_records: Option<HashMap<String, WorktreeRecord>>,
 }
 
@@ -455,77 +400,12 @@ struct CancelResult {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct JiraSettings {
-    #[serde(default)]
-    enabled: bool,
-    #[serde(default)]
-    site_url: String,
-    #[serde(default)]
-    account_email: String,
-    #[serde(default)]
-    default_project_key: Option<String>,
-    #[serde(default)]
-    jql: Option<String>,
-    #[serde(default)]
-    sync_enabled: bool,
-    #[serde(default)]
-    sync_open_issues_only: bool,
-    #[serde(default)]
-    last_sync_at: Option<String>,
-    #[serde(default)]
-    last_sync_error: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-enum TaskPriority {
-    Low,
-    Medium,
-    High,
-    Urgent,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-enum TaskOrigin {
-    ConsellourTool,
-    ExternalSync,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-struct WorkspaceTaskPrEntry {
-    url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    number: Option<i64>,
-    timestamp: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WorkspaceTask {
-    id: String,
-    title: String,
-    description: String,
-    priority: TaskPriority,
-    consellour_priority: TaskPriority,
+struct SummaryRecord {
+    worktree_ids: Vec<String>,
     created_at: String,
-    updated_at: String,
-    last_interacted_at: String,
-    origin: TaskOrigin,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    external_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    external_url: Option<String>,
-    #[serde(
-        default,
-        rename = "PR",
-        alias = "pr",
-        skip_serializing_if = "Vec::is_empty"
-    )]
-    pr: Vec<WorkspaceTaskPrEntry>,
+    summary: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    one_liner: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -533,18 +413,10 @@ struct WorkspaceTask {
 struct WorktreeRecord {
     id: String,
     created_at: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ConsellourSettings {
     #[serde(default)]
-    openai_api_key: Option<String>,
-    #[serde(default = "default_consellour_model")]
-    model: String,
-    #[serde(default = "default_consellour_reasoning_level")]
-    reasoning_level: String,
-    updated_at: String,
+    claude_session_started: bool,
+    #[serde(default)]
+    summaries: Vec<SummaryRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -566,26 +438,18 @@ struct WorkspaceMeta {
     show_fps: bool,
     #[serde(default = "default_play_groove_command")]
     play_groove_command: String,
-    #[serde(default = "default_testing_ports")]
-    testing_ports: Vec<u16>,
     #[serde(default)]
     open_terminal_at_worktree_command: Option<String>,
     #[serde(default)]
     run_local_command: Option<String>,
     #[serde(default = "default_worktree_symlink_paths")]
     worktree_symlink_paths: Vec<String>,
-    #[serde(default = "default_consellour_settings")]
-    consellour_settings: ConsellourSettings,
-    #[serde(default = "default_jira_settings")]
-    jira_settings: JiraSettings,
     #[serde(default = "default_opencode_settings")]
     opencode_settings: OpencodeSettings,
     #[serde(default)]
-    tasks: Vec<WorkspaceTask>,
-    #[serde(default)]
-    worktree_task_assignments: HashMap<String, String>,
-    #[serde(default)]
     worktree_records: HashMap<String, WorktreeRecord>,
+    #[serde(default)]
+    summaries: Vec<SummaryRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -599,8 +463,6 @@ struct WorkspaceScanRow {
     status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_executed_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    task_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -728,6 +590,16 @@ struct GrooveStopPayload {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkspaceOpenTerminalPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkspaceEventsPayload {
     root_name: Option<String>,
     #[serde(default)]
@@ -749,7 +621,6 @@ struct WorkspaceTerminalSettingsPayload {
 #[serde(rename_all = "camelCase")]
 struct WorkspaceCommandSettingsPayload {
     play_groove_command: String,
-    testing_ports: Vec<u32>,
     open_terminal_at_worktree_command: Option<String>,
     run_local_command: Option<String>,
 }
@@ -759,14 +630,6 @@ struct WorkspaceCommandSettingsPayload {
 struct WorkspaceWorktreeSymlinkPathsPayload {
     #[serde(default)]
     worktree_symlink_paths: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WorkspaceSetWorktreeTaskAssignmentPayload {
-    worktree: String,
-    #[serde(default)]
-    task_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -794,109 +657,6 @@ struct OpencodeCopySkillsPayload {
 #[serde(rename_all = "camelCase")]
 struct WorkspaceBrowseEntriesPayload {
     relative_path: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ConsellourSettingsUpdatePayload {
-    #[serde(default)]
-    openai_api_key: Option<String>,
-    #[serde(default)]
-    model: Option<String>,
-    #[serde(default)]
-    reasoning_level: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WorkspaceTaskQueryPayload {
-    #[serde(default)]
-    title_query: Option<String>,
-    #[serde(default)]
-    description_query: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ConsellourToolCreateTaskPayload {
-    title: String,
-    description: String,
-    priority: TaskPriority,
-    consellour_priority: TaskPriority,
-    #[serde(default)]
-    origin: Option<TaskOrigin>,
-    #[serde(default)]
-    external_id: Option<String>,
-    #[serde(default)]
-    external_url: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ConsellourToolEditTaskPayload {
-    id: String,
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    priority: Option<TaskPriority>,
-    #[serde(default)]
-    consellour_priority: Option<TaskPriority>,
-    #[serde(default)]
-    last_interacted_at: Option<String>,
-    #[serde(default)]
-    origin: Option<TaskOrigin>,
-    #[serde(default)]
-    external_id: Option<String>,
-    #[serde(default)]
-    external_url: Option<String>,
-    #[serde(default, rename = "PR", alias = "pr")]
-    pr: Option<Vec<WorkspaceTaskPrEntry>>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ConsellourToolDeleteTaskPayload {
-    id: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraConnectApiTokenPayload {
-    site_url: String,
-    email: String,
-    api_token: String,
-    #[serde(default)]
-    default_project_key: Option<String>,
-    #[serde(default)]
-    jql: Option<String>,
-    #[serde(default)]
-    sync_enabled: Option<bool>,
-    #[serde(default)]
-    sync_open_issues_only: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraProjectsListPayload {
-    #[serde(default)]
-    include_archived: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraSyncPullPayload {
-    #[serde(default)]
-    jql_override: Option<String>,
-    #[serde(default)]
-    max_results: Option<u32>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraIssueOpenInBrowserPayload {
-    issue_key: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -967,102 +727,6 @@ struct GitCommitPayload {
 struct GitFilesPayload {
     path: String,
     files: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GhDetectRepoPayload {
-    path: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct GhAuthStatusPayload {
-    #[serde(default)]
-    hostname: Option<String>,
-    #[serde(default)]
-    path: Option<String>,
-    #[serde(default)]
-    remote_url: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct GhAuthLogoutPayload {
-    #[serde(default)]
-    hostname: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GhPrListPayload {
-    owner: String,
-    repo: String,
-    #[serde(default)]
-    hostname: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GhPrCreatePayload {
-    owner: String,
-    repo: String,
-    base: String,
-    head: String,
-    title: String,
-    body: String,
-    #[serde(default)]
-    hostname: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GhBranchActionPayload {
-    path: String,
-    branch: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TestingEnvironmentStatusPayload {
-    root_name: Option<String>,
-    #[serde(default)]
-    known_worktrees: Vec<String>,
-    workspace_meta: Option<WorkspaceMetaContext>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TestingEnvironmentSetTargetPayload {
-    root_name: Option<String>,
-    #[serde(default)]
-    known_worktrees: Vec<String>,
-    workspace_meta: Option<WorkspaceMetaContext>,
-    workspace_root: Option<String>,
-    worktree: String,
-    enabled: Option<bool>,
-    auto_start_if_current_running: Option<bool>,
-    stop_running_processes_when_unset: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TestingEnvironmentStartPayload {
-    root_name: Option<String>,
-    #[serde(default)]
-    known_worktrees: Vec<String>,
-    workspace_meta: Option<WorkspaceMetaContext>,
-    worktree: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TestingEnvironmentStopPayload {
-    root_name: Option<String>,
-    #[serde(default)]
-    known_worktrees: Vec<String>,
-    workspace_meta: Option<WorkspaceMetaContext>,
-    worktree: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1207,6 +871,42 @@ struct GrooveStopResponse {
     error: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveSummaryPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    session_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveSummaryResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    summaries: Vec<GrooveSummaryEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compiled_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveSummaryEntry {
+    session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worktree: Option<String>,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WorkspaceEventsResponse {
@@ -1306,226 +1006,6 @@ struct WorkspaceBrowseEntriesResponse {
     entries: Vec<WorkspaceBrowseEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ConsellourSettingsResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_root: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    settings: Option<ConsellourSettings>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WorkspaceTasksResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_root: Option<String>,
-    #[serde(default)]
-    tasks: Vec<WorkspaceTask>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WorkspaceTaskResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_root: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    task: Option<WorkspaceTask>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraApiError {
-    code: String,
-    message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    retry_after_seconds: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraConnectionStatusResponse {
-    request_id: String,
-    ok: bool,
-    connected: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_root: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    settings: Option<JiraSettings>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    has_token: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    jira_error: Option<JiraApiError>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraConnectResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_root: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    settings: Option<JiraSettings>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    account_display_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    jira_error: Option<JiraApiError>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraDisconnectResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_root: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    settings: Option<JiraSettings>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraProjectSummary {
-    key: String,
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    project_type_key: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraProjectsListResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_root: Option<String>,
-    #[serde(default)]
-    projects: Vec<JiraProjectSummary>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    jira_error: Option<JiraApiError>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraSyncPullResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_root: Option<String>,
-    imported_count: usize,
-    updated_count: usize,
-    skipped_count: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    settings: Option<JiraSettings>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    jira_error: Option<JiraApiError>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraIssueOpenInBrowserResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct JiraMyselfResponse {
-    #[serde(rename = "displayName")]
-    #[serde(default)]
-    display_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct JiraProjectSearchResponse {
-    #[serde(default)]
-    values: Vec<JiraProjectWire>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraProjectWire {
-    key: String,
-    name: String,
-    #[serde(default)]
-    project_type_key: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraIssueSearchJqlRequest {
-    jql: String,
-    max_results: u32,
-    fields: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    next_page_token: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct JiraIssueSearchResponse {
-    #[serde(default)]
-    issues: Vec<JiraIssueWire>,
-    #[serde(default)]
-    next_page_token: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct JiraIssueWire {
-    key: String,
-    fields: JiraIssueFieldsWire,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct JiraIssueFieldsWire {
-    #[serde(default)]
-    summary: String,
-    #[serde(default)]
-    description: Option<serde_json::Value>,
-    #[serde(default)]
-    status: Option<JiraIssueStatusWire>,
-    #[serde(default)]
-    priority: Option<JiraIssuePriorityWire>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct JiraIssueStatusWire {
-    #[serde(default)]
-    name: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct JiraIssuePriorityWire {
-    #[serde(default)]
-    name: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1846,192 +1326,6 @@ struct GitFileStatesResponse {
     untracked: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     output_snippet: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GhDetectRepoResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    repository_root: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    remote_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    remote_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    host: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    owner: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    repo: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    name_with_owner: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    repository_url: Option<String>,
-    verified: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GhAuthStatusResponse {
-    request_id: String,
-    ok: bool,
-    installed: bool,
-    authenticated: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    hostname: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    username: Option<String>,
-    message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GhAuthLogoutResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    hostname: Option<String>,
-    message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GhPullRequestItem {
-    number: i64,
-    title: String,
-    state: String,
-    head_ref_name: String,
-    base_ref_name: String,
-    url: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GhPrListResponse {
-    request_id: String,
-    ok: bool,
-    repository: String,
-    #[serde(default)]
-    prs: Vec<GhPullRequestItem>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GhPrCreateResponse {
-    request_id: String,
-    ok: bool,
-    repository: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GhBranchBehindResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    branch: Option<String>,
-    behind: u32,
-    has_upstream: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GhBranchActionResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    branch: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GhBranchPrItem {
-    number: i64,
-    title: String,
-    url: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GhCheckBranchPrResponse {
-    request_id: String,
-    ok: bool,
-    branch: String,
-    #[serde(default)]
-    prs: Vec<GhBranchPrItem>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    active_pr: Option<GhBranchPrItem>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TestingEnvironmentEntry {
-    worktree: String,
-    worktree_path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_root: Option<String>,
-    is_target: bool,
-    status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    instance_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pid: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    port: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    started_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct TestingEnvironmentResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_root: Option<String>,
-    #[serde(default)]
-    environments: Vec<TestingEnvironmentEntry>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target_worktree: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target_path: Option<String>,
-    status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    instance_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pid: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    started_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }

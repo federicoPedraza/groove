@@ -170,6 +170,8 @@ fn workspace_events(
             }
             runtime_pids_by_worktree = next_runtime_pids_by_worktree;
 
+            poll_and_emit_notifications(&app_handle, &workspace_root_clone, &workspace_root_display);
+
             if !pending_runtime_sources.is_empty()
                 && last_emit_at.elapsed() >= WORKSPACE_EVENTS_MIN_EMIT_INTERVAL
             {
@@ -242,6 +244,69 @@ fn workspace_events(
         ok: true,
         workspace_root: Some(workspace_root_display),
         error: None,
+    }
+}
+
+fn poll_and_emit_notifications(
+    app_handle: &AppHandle,
+    workspace_root: &Path,
+    workspace_root_display: &str,
+) {
+    let notif_dir = workspace_root.join(".groove").join("notifications");
+    let entries = match fs::read_dir(&notif_dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    let mut files: Vec<(PathBuf, String)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(content) = fs::read_to_string(&path) {
+            files.push((path, content));
+        }
+    }
+
+    if files.is_empty() {
+        return;
+    }
+
+    files.sort_by(|a, b| a.0.file_name().cmp(&b.0.file_name()));
+
+    if files.len() > 50 {
+        for (path, _) in files.drain(..files.len() - 50) {
+            let _ = fs::remove_file(&path);
+        }
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    for (path, content) in &files {
+        let file_age_ok = fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| now.saturating_sub(d.as_secs()) < 3600)
+            .unwrap_or(false);
+
+        if file_age_ok {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+                let _ = app_handle.emit(
+                    "groove-notification",
+                    serde_json::json!({
+                        "workspaceRoot": workspace_root_display,
+                        "notification": parsed
+                    }),
+                );
+            }
+        }
+
+        let _ = fs::remove_file(path);
     }
 }
 

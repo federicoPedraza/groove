@@ -235,24 +235,8 @@ fn validate_groove_terminal_open_mode(
     terminal::validate_groove_terminal_open_mode(value)
 }
 
-#[cfg(target_os = "windows")]
 fn resolve_plain_terminal_command() -> (String, Vec<String>) {
-    let program = std::env::var("COMSPEC")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "cmd.exe".to_string());
-    (program, Vec::new())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn resolve_plain_terminal_command() -> (String, Vec<String>) {
-    let program = std::env::var("SHELL")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "/bin/bash".to_string());
-    (program, Vec::new())
+    crate::backend::common::platform_env::resolve_shell_command()
 }
 
 fn augmented_child_path() -> Option<String> {
@@ -364,9 +348,9 @@ fn open_groove_terminal_session(
     let (program, args) = match open_mode {
         GrooveTerminalOpenMode::Opencode => (resolve_opencode_bin(), Vec::new()),
         GrooveTerminalOpenMode::ClaudeCode => {
-            let (worktree_id, is_existing) =
+            let (worktree_id, has_started) =
                 register_worktree_record(workspace_root, worktree)?;
-            let args = if is_existing {
+            let args = if has_started {
                 vec!["--resume".to_string(), worktree_id]
             } else {
                 vec!["--session-id".to_string(), worktree_id]

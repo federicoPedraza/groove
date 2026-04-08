@@ -21,16 +21,12 @@
   },
   "include": [
     "src",
-    "components",
-    "lib",
-    "libs",
-    "app/page.tsx",
-    "app/worktrees/page.tsx",
-    "app/worktrees/worktree-detail-page.tsx",
-    "app/diagnostics/page.tsx",
-    "app/tasks/page.tsx",
-    "app/settings/page.tsx",
-    "app/help/page.tsx",
+    "src/components",
+    "src/app/page.tsx",
+    "src/app/worktrees/page.tsx",
+    "src/app/worktrees/worktree-detail-page.tsx",
+    "src/app/diagnostics/page.tsx",
+    "src/app/settings/page.tsx",
     "vite.config.ts"
   ],
   "exclude": ["node_modules"]

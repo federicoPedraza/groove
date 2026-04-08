@@ -1,7 +1,7 @@
 #[tauri::command]
 fn workspace_open_terminal(
     app: AppHandle,
-    payload: TestingEnvironmentStartPayload,
+    payload: WorkspaceOpenTerminalPayload,
 ) -> GrooveCommandResponse {
     let request_id = request_id();
 
@@ -133,7 +133,7 @@ fn workspace_open_terminal(
 #[tauri::command]
 fn workspace_open_workspace_terminal(
     app: AppHandle,
-    payload: TestingEnvironmentStatusPayload,
+    payload: WorkspaceEventsPayload,
 ) -> GrooveCommandResponse {
     let request_id = request_id();
 

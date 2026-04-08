@@ -313,11 +313,6 @@ describe("WorktreesTable", () => {
   });
 
   it("renders Summarize button for non-deleted sections with worktreeIds", () => {
-    const groupedWorktreeItems: GroupedWorktreeItem[] = [
-      { type: "section", label: "Today", key: "section:Today" },
-      { type: "row", key: "row:/worktrees/today", row: buildRow({ worktree: "today", branchGuess: "feature/today", path: "/worktrees/today" }) },
-    ];
-
     // Need worktreeId on rows for summarize to appear
     const row = buildRow({ worktree: "today", branchGuess: "feature/today", path: "/worktrees/today" });
     (row as Record<string, unknown>).worktreeId = "wt-today";

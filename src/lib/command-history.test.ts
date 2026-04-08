@@ -283,7 +283,6 @@ describe("trackCommandExecution", () => {
   it("returns undefined for non-Error non-object thrown values", async () => {
     await expect(
       trackCommandExecution("test_cmd", async () => {
-        // eslint-disable-next-line no-throw-literal
         throw 42;
       }),
     ).rejects.toBe(42);

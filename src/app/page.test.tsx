@@ -2,7 +2,8 @@ import type React from "react";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-import type { WorktreeRow, SummaryRecord } from "../components/pages/dashboard/types";
+import type { WorktreeRow } from "../components/pages/dashboard/types";
+import type { SummaryRecord } from "@/src/lib/ipc";
 import { buildDashboardWorktreeDetailShortcutActionables } from "./page";
 
 const {

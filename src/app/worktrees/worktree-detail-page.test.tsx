@@ -50,7 +50,7 @@ vi.mock("@/src/components/pages/worktrees/groove-worktree-terminal", () => ({
 }));
 
 vi.mock("@/src/lib/utils/worktree/status", () => ({
-  deriveWorktreeStatus: vi.fn((status: string, _runtime: unknown) => status),
+  deriveWorktreeStatus: vi.fn((status: string) => status),
 }));
 
 vi.mock("@/src/lib/toast", () => ({

@@ -356,7 +356,6 @@ describe("KeyboardShortcutsProvider launcher modes", () => {
   });
 
   it("unregistering a non-existent id is a no-op", () => {
-    const registerSpy = vi.fn();
     const unregisterSpy = vi.fn();
 
     function UnregisterFixture() {

@@ -11,7 +11,7 @@ import {
   getDefaultMascotAssignment,
 } from "@/src/lib/utils/mascots";
 
-import type { MascotDefinition, MascotColorDefinition } from "@/src/lib/utils/mascots";
+import type { MascotDefinition } from "@/src/lib/utils/mascots";
 
 beforeEach(() => {
   syncActiveWorktreeMascotAssignments([]);

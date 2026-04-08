@@ -12,7 +12,7 @@ vi.mock("@/src/app/page", () => ({
 }));
 
 // We need a dynamic import inside the mock factory since vi.mock hoists before imports
-vi.mock("@/src/components/pages/app-layout", async (importOriginal) => {
+vi.mock("@/src/components/pages/app-layout", async () => {
   const rrdom = await import("react-router-dom");
   return {
     AppLayout: () => (

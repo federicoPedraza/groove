@@ -11,10 +11,10 @@ const {
   getCommandMetadataMock,
   setIsCommandHistoryPanelOpenMock,
 } = vi.hoisted(() => ({
-  subscribeToCommandHistoryMock: vi.fn((_listener: () => void) => () => {}),
+  subscribeToCommandHistoryMock: vi.fn(() => () => {}),
   getCommandHistorySnapshotMock: vi.fn((): CommandExecutionEntry[] => []),
   clearCommandHistoryMock: vi.fn(),
-  formatCommandRelativeTimeMock: vi.fn((_entry: CommandExecutionEntry, _now: number) => "now"),
+  formatCommandRelativeTimeMock: vi.fn(() => "now"),
   getCommandMetadataMock: vi.fn((command: string) => ({
     title: `Title for ${command}`,
     description: `Description for ${command}`,

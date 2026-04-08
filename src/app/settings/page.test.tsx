@@ -12,7 +12,7 @@ const defaultGlobalSettings: GlobalSettings = {
   themeMode: "light",
   keyboardShortcutLeader: "Space",
   keyboardLeaderBindings: {},
-  opencodeSettings: {},
+  opencodeSettings: { enabled: false, settingsDirectory: "" },
 };
 
 const {
@@ -39,7 +39,7 @@ const globalSettingsSnapshotRef = vi.hoisted(() => ({
     themeMode: "light" as const,
     keyboardShortcutLeader: "Space",
     keyboardLeaderBindings: {} as Record<string, string>,
-    opencodeSettings: {},
+    opencodeSettings: { enabled: false, settingsDirectory: "" },
   },
 }));
 
@@ -250,7 +250,7 @@ describe("SettingsPage", () => {
   it("disables commands form when no workspace meta", async () => {
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
-      workspaceRoot: null,
+      workspaceRoot: undefined,
       rows: [],
     });
     await renderPage();
@@ -445,7 +445,7 @@ describe("SettingsPage", () => {
   it("handles workspace with no meta", async () => {
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
-      workspaceRoot: null,
+      workspaceRoot: undefined,
       rows: [],
     });
     await renderPage();
@@ -462,7 +462,7 @@ describe("SettingsPage", () => {
   it("shows connect repository message when no workspace meta for commands", async () => {
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
-      workspaceRoot: null,
+      workspaceRoot: undefined,
       rows: [],
     });
     await renderPage();
@@ -474,7 +474,7 @@ describe("SettingsPage", () => {
   it("handles save command settings when no workspace meta returns error", async () => {
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
-      workspaceRoot: null,
+      workspaceRoot: undefined,
       rows: [],
     });
     await renderPage();
@@ -989,7 +989,7 @@ describe("SettingsPage", () => {
   it("shows connect repository message for symlinks when no workspace meta", async () => {
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
-      workspaceRoot: null,
+      workspaceRoot: undefined,
       rows: [],
     });
     await renderPage();

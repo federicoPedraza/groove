@@ -902,7 +902,7 @@ describe("GrooveWorktreeTerminal", () => {
       sessions: [mockSession],
     });
 
-    const { rerender } = render(<GrooveWorktreeTerminal {...defaultProps} />);
+    render(<GrooveWorktreeTerminal {...defaultProps} />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });

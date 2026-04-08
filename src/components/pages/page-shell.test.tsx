@@ -1015,8 +1015,6 @@ describe("PageShell component", () => {
     // We need to render AppNavigation with the actual pageSidebar callback to see the sidebar.
     // Since AppNavigation is mocked, we need to check the passed props instead.
     // Let's unmock AppNavigation to a version that calls pageSidebar:
-    const { AppNavigation: _original } = await import("@/src/components/app-navigation");
-
     // Re-mock AppNavigation to render pageSidebar
     (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (({ pageSidebar }: { pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode }) => (
       <nav data-testid="app-navigation">
@@ -1040,7 +1038,6 @@ describe("PageShell component", () => {
     const { isAlwaysShowDiagnosticsSidebarEnabled } = await import("@/src/lib/ipc");
     (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
-    const { AppNavigation: _original } = await import("@/src/components/app-navigation");
     (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (({ pageSidebar }: { pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode }) => (
       <nav data-testid="app-navigation">
         {typeof pageSidebar === "function" ? pageSidebar({ collapsed: true }) : pageSidebar}
@@ -1063,7 +1060,6 @@ describe("PageShell component", () => {
   });
 
   it("renders pageSidebar ReactNode inside resolvedNavigationSidebar", async () => {
-    const { AppNavigation: _original } = await import("@/src/components/app-navigation");
     (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (({ pageSidebar }: { pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode }) => (
       <nav data-testid="app-navigation">
         {typeof pageSidebar === "function" ? pageSidebar({ collapsed: false }) : pageSidebar}
@@ -1217,7 +1213,6 @@ describe("PageShell component", () => {
     const { isAlwaysShowDiagnosticsSidebarEnabled } = await import("@/src/lib/ipc");
     (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
-    const { AppNavigation: _original } = await import("@/src/components/app-navigation");
     (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (({ pageSidebar }: { pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode }) => (
       <nav data-testid="app-navigation">
         {typeof pageSidebar === "function" ? pageSidebar({ collapsed: false }) : pageSidebar}

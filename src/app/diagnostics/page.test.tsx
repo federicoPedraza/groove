@@ -1,5 +1,4 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
@@ -107,16 +106,18 @@ function defaultMocks(): void {
     ok: true,
     overview: {
       cpuUsagePercent: 25,
-      memoryUsedMb: 4096,
-      memoryTotalMb: 16384,
-      swapUsedMb: 0,
-      swapTotalMb: 0,
-      diskUsedGb: 100,
-      diskTotalGb: 500,
-      loadAverage1m: 1.5,
-      loadAverage5m: 1.2,
-      loadAverage15m: 1.0,
-      uptimeSeconds: 86400,
+      cpuCores: 8,
+      ramTotalBytes: 17179869184,
+      ramUsedBytes: 4294967296,
+      ramUsagePercent: 25,
+      swapTotalBytes: 0,
+      swapUsedBytes: 0,
+      swapUsagePercent: 0,
+      diskTotalBytes: 536870912000,
+      diskUsedBytes: 107374182400,
+      diskUsagePercent: 20,
+      platform: "linux",
+      hostname: "test-host",
     },
   });
   workspaceGetActiveMock.mockResolvedValue({
@@ -143,6 +144,7 @@ function defaultMocks(): void {
     stopped: 2,
     alreadyStopped: 0,
     failed: 0,
+    errors: [],
   });
   diagnosticsKillAllNodeAndOpencodeInstancesMock.mockResolvedValue({
     ok: true,
@@ -150,6 +152,7 @@ function defaultMocks(): void {
     stopped: 1,
     alreadyStopped: 0,
     failed: 0,
+    errors: [],
   });
   diagnosticsGetMsotConsumingProgramsMock.mockResolvedValue({
     ok: true,
@@ -293,7 +296,7 @@ describe("DiagnosticsPage", () => {
     workspaceTermSanityCheckMock.mockResolvedValue({
       ok: false,
       isUsable: false,
-      termValue: null,
+      termValue: undefined,
       error: "Some TERM error",
     });
     await renderPage();
@@ -679,6 +682,7 @@ describe("DiagnosticsPage", () => {
       stopped: 0,
       alreadyStopped: 0,
       failed: 0,
+      errors: [],
     });
     await renderPage();
 
@@ -734,6 +738,7 @@ describe("DiagnosticsPage", () => {
       stopped: 0,
       alreadyStopped: 0,
       failed: 0,
+      errors: [],
     });
     await renderPage();
 
@@ -784,6 +789,7 @@ describe("DiagnosticsPage", () => {
     diagnosticsGetMsotConsumingProgramsMock.mockResolvedValue({
       ok: false,
       error: "Query failed",
+      output: "",
     });
     await renderPage();
 
@@ -874,7 +880,7 @@ describe("DiagnosticsPage", () => {
     workspaceTermSanityCheckMock.mockResolvedValue({
       ok: true,
       isUsable: false,
-      termValue: null,
+      termValue: undefined,
     });
     await renderPage();
     await waitFor(() => {
@@ -952,6 +958,7 @@ describe("DiagnosticsPage", () => {
     const { toast } = await import("@/src/lib/toast");
     diagnosticsGetMsotConsumingProgramsMock.mockResolvedValue({
       ok: false,
+      output: "",
     });
     await renderPage();
     await act(async () => {
@@ -967,7 +974,7 @@ describe("DiagnosticsPage", () => {
     workspaceTermSanityCheckMock.mockResolvedValue({
       ok: true,
       isUsable: false,
-      termValue: null,
+      termValue: undefined,
     });
     workspaceTermSanityApplyMock.mockResolvedValue({
       ok: true,

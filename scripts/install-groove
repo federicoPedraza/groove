@@ -9,10 +9,10 @@ set -euo pipefail
 #   2. The `groove` CLI onto PATH
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/federicoPedraza/groove/main/bash/install-groove | bash
-#   ./bash/install-groove
-#   ./bash/install-groove --version v0.1.8
-#   ./bash/install-groove --skip-app   # CLI only, skip desktop app
+#   curl -fsSL https://raw.githubusercontent.com/federicoPedraza/groove/main/scripts/install-groove | bash
+#   ./scripts/install-groove
+#   ./scripts/install-groove --version v0.1.8
+#   ./scripts/install-groove --skip-app   # CLI only, skip desktop app
 #
 # Configuration via env vars:
 #   GROOVE_INSTALL_DIR     where the groove CLI is placed  (default: ~/.local/bin)

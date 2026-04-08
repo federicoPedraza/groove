@@ -141,11 +141,11 @@ jobs:
 
       - name: Linux setup
         if: runner.os == 'Linux'
-        run: ./bash/setup-linux-fast
+        run: ./scripts/setup-linux-fast
 
       - name: macOS setup
         if: runner.os == 'macOS'
-        run: ./bash/setup-macos-fast
+        run: ./scripts/setup-macos-fast
 
       - name: Build Linux bundles
         if: runner.os == 'Linux'

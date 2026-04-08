@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 usage:
-  ./bash/download-sidecars-from-release [linux|macos|all]
+  ./scripts/download-sidecars-from-release [linux|macos|all]
 
 downloads Groove sidecar binaries from a GitHub release into src-tauri/binaries.
 
@@ -13,8 +13,8 @@ configuration via env vars:
   GROOVE_SIDECAR_TAG    optional, default: latest non-draft release
 
 examples:
-  ./bash/download-sidecars-from-release macos
-  GROOVE_SIDECAR_REPO=federicoPedraza/groove-sidecars GROOVE_SIDECAR_TAG=v0.2.0 ./bash/download-sidecars-from-release all
+  ./scripts/download-sidecars-from-release macos
+  GROOVE_SIDECAR_REPO=federicoPedraza/groove-sidecars GROOVE_SIDECAR_TAG=v0.2.0 ./scripts/download-sidecars-from-release all
 EOF
 }
 

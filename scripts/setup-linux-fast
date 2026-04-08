@@ -118,7 +118,7 @@ run_sanity_check() {
 
 run_sidecar_check() {
   log "checking Linux sidecars"
-  if ./bash/check-linux-sidecars; then
+  if ./scripts/check-linux-sidecars; then
     return
   fi
 
@@ -127,7 +127,7 @@ run_sidecar_check() {
 
 setup_agent_teams_lite() {
   local atl_dir="${AGENT_TEAMS_LITE_DIR:-$HOME/.local/share/agent-teams-lite}"
-  local atl_setup_script="$repo_root/bash/setup-opencode-atl.sh"
+  local atl_setup_script="$repo_root/scripts/setup-opencode-atl.sh"
 
   if [[ ! -f "$atl_setup_script" ]]; then
     warn "ATL setup script not found at $atl_setup_script; skipping Agent Teams Lite provisioning"

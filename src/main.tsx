@@ -6,7 +6,7 @@ import * as Sentry from "@sentry/react";
 import { App } from "@/src/App";
 import { applyThemeToDom } from "@/src/lib/theme";
 import { getGlobalSettingsSnapshot, getThemeMode, globalSettingsGet, subscribeToGlobalSettings } from "@/src/lib/ipc";
-import "@/app/globals.css";
+import "@/src/app/globals.css";
 
 const SENTRY_DSN = "https://44bc6cff7295f7123a4bceaaa0b6e525@o4510958851063808.ingest.us.sentry.io/4510958860238848";
 const SENTRY_TRACES_SAMPLE_RATE = import.meta.env.DEV ? 1.0 : 0.2;

@@ -1622,7 +1622,6 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
 #[tauri::command]
 fn groove_rm(
     app: AppHandle,
-    state: State<TestingEnvironmentState>,
     payload: GrooveRmPayload,
 ) -> GrooveCommandResponse {
     let request_id = request_id();
@@ -1732,7 +1731,6 @@ fn groove_rm(
                 if is_worktree_missing_error_message(&error) {
                     if let Err(cleanup_error) = clear_stale_worktree_state(
                         &app,
-                        &state,
                         &workspace_root,
                         &resolution_worktree,
                     ) {
@@ -1808,7 +1806,6 @@ fn groove_rm(
     {
         if let Err(cleanup_error) = clear_stale_worktree_state(
             &app,
-            &state,
             &workspace_root,
             &resolution_worktree,
         ) {
@@ -1845,24 +1842,6 @@ fn groove_rm(
             result.stderr.push_str(&format!(
                 "Warning: failed to persist worktree tombstone after deletion: {tombstone_error}"
             ));
-        }
-
-        match unset_testing_target_for_worktree(
-            &app,
-            &state,
-            &workspace_root,
-            &resolution_worktree,
-            true,
-        ) {
-            Ok(_) => {}
-            Err(unset_error) => {
-                if !result.stderr.trim().is_empty() {
-                    result.stderr.push('\n');
-                }
-                result.stderr.push_str(&format!(
-                    "Warning: failed to unset testing target during cut groove: {unset_error}"
-                ));
-            }
         }
 
         invalidate_workspace_context_cache(&app, &workspace_root);

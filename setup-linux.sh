@@ -70,11 +70,11 @@ info "rustc: $(rustc --version)"
 
 step "Run fast Linux setup"
 cd "$repo_root"
-run_cmd "executing ./bash/setup-linux-fast" ./bash/setup-linux-fast
+run_cmd "executing ./scripts/setup-linux-fast" ./scripts/setup-linux-fast
 pass "Fast setup completed"
 
 step "Validate Linux sidecar readiness"
-run_cmd "executing ./bash/check-linux-sidecars" ./bash/check-linux-sidecars
+run_cmd "executing ./scripts/check-linux-sidecars" ./scripts/check-linux-sidecars
 pass "Linux sidecar check passed"
 
 step "Build Linux distributables"

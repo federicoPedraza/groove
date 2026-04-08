@@ -18,6 +18,5 @@ use walkdir::WalkDir;
 use crate::diagnostics;
 use crate::git_gh;
 use crate::terminal::{self, GrooveTerminalOpenMode};
-use crate::testing_environment;
 use crate::workspace;
 

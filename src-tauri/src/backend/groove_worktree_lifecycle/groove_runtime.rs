@@ -17,48 +17,6 @@ fn run_command(binary: &Path, args: &[String], cwd: &Path) -> CommandResult {
     }
 }
 
-fn run_command_timeout(
-    binary: &Path,
-    args: &[String],
-    cwd: &Path,
-    timeout: Duration,
-    port: Option<u16>,
-) -> CommandResult {
-    let mut command = Command::new(binary);
-    command.args(args).current_dir(cwd);
-    if let Some(port) = port {
-        command.env("PORT", port.to_string());
-    }
-
-    run_command_with_timeout(
-        command,
-        timeout,
-        format!("Failed to execute {}", binary.display()),
-        format!("{}", binary.display()),
-    )
-}
-
-fn allocate_testing_port(candidate_ports: &[u16], used_ports: &HashSet<u16>) -> Result<u16, String> {
-    for port in candidate_ports {
-        if used_ports.contains(port) {
-            continue;
-        }
-
-        if std::net::TcpListener::bind(("127.0.0.1", *port)).is_ok() {
-            return Ok(*port);
-        }
-    }
-
-    Err(format!(
-        "Failed to allocate testing environment port: ports {} are all in use.",
-        candidate_ports
-            .iter()
-            .map(u16::to_string)
-            .collect::<Vec<_>>()
-            .join(", ")
-    ))
-}
-
 fn parse_opencode_segment(value: &str) -> (String, Option<String>) {
     let normalized = value.trim().to_lowercase();
     let instance_id = value
@@ -866,11 +824,9 @@ fn is_worktree_missing_error_message(message: &str) -> bool {
 
 fn clear_stale_worktree_state(
     app: &AppHandle,
-    state: &TestingEnvironmentState,
     workspace_root: &Path,
     worktree: &str,
 ) -> Result<(), String> {
-    let _ = unset_testing_target_for_worktree(app, state, workspace_root, worktree, true)?;
     clear_worktree_tombstone(app, workspace_root, worktree)?;
     clear_worktree_last_executed_at(app, workspace_root, worktree)?;
     invalidate_workspace_context_cache(app, workspace_root);
@@ -898,7 +854,11 @@ fn resolve_branch_from_worktree(worktree_path: &Path) -> Option<String> {
 }
 
 fn should_treat_as_already_stopped(stderr: &str) -> bool {
-    testing_environment::should_treat_as_already_stopped(stderr)
+    let lower = stderr.to_lowercase();
+    lower.contains("no such process")
+        || lower.contains("not found")
+        || lower.contains("cannot find")
+        || lower.contains("not running")
 }
 
 fn wait_for_process_exit(pid: i32, timeout_ms: u64) -> bool {

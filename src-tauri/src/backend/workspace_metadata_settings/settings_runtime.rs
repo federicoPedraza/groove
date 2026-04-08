@@ -1,43 +1,8 @@
-fn default_testing_ports() -> Vec<u16> {
-    DEFAULT_TESTING_ENVIRONMENT_PORTS.to_vec()
-}
-
 fn default_worktree_symlink_paths() -> Vec<String> {
     DEFAULT_WORKTREE_SYMLINK_PATHS
         .iter()
         .map(|value| value.to_string())
         .collect()
-}
-
-fn default_consellour_model() -> String {
-    DEFAULT_CONSELLOUR_MODEL.to_string()
-}
-
-fn default_consellour_reasoning_level() -> String {
-    DEFAULT_CONSELLOUR_REASONING_LEVEL.to_string()
-}
-
-fn default_consellour_settings() -> ConsellourSettings {
-    ConsellourSettings {
-        openai_api_key: None,
-        model: default_consellour_model(),
-        reasoning_level: default_consellour_reasoning_level(),
-        updated_at: now_iso(),
-    }
-}
-
-fn default_jira_settings() -> JiraSettings {
-    JiraSettings {
-        enabled: false,
-        site_url: String::new(),
-        account_email: String::new(),
-        default_project_key: None,
-        jql: Some("assignee = currentUser() ORDER BY updated DESC".to_string()),
-        sync_enabled: true,
-        sync_open_issues_only: true,
-        last_sync_at: None,
-        last_sync_error: None,
-    }
 }
 
 fn default_opencode_settings() -> OpencodeSettings {
@@ -67,146 +32,12 @@ fn normalize_opencode_settings(settings: &OpencodeSettings) -> OpencodeSettings 
     normalized
 }
 
-fn normalize_jira_site_url(value: &str) -> Result<String, String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Ok(String::new());
-    }
-
-    let mut parsed = url::Url::parse(trimmed)
-        .map_err(|error| format!("jiraSettings.siteUrl must be a valid URL: {error}"))?;
-    if parsed.scheme() != "https" {
-        return Err("jiraSettings.siteUrl must use https://.".to_string());
-    }
-    if parsed
-        .host_str()
-        .map(str::trim)
-        .unwrap_or_default()
-        .is_empty()
-    {
-        return Err("jiraSettings.siteUrl must include a host.".to_string());
-    }
-
-    parsed.set_query(None);
-    parsed.set_fragment(None);
-
-    let mut normalized = parsed.to_string();
-    while normalized.ends_with('/') {
-        normalized.pop();
-    }
-    Ok(normalized)
-}
-
-fn normalize_jira_email(value: &str) -> Result<String, String> {
-    let trimmed = value.trim().to_lowercase();
-    if trimmed.is_empty() {
-        return Ok(String::new());
-    }
-    if !trimmed.contains('@') || trimmed.len() > 320 {
-        return Err("jiraSettings.accountEmail must be a valid email address.".to_string());
-    }
-    Ok(trimmed)
-}
-
-fn normalize_jira_project_key(value: Option<&str>) -> Result<Option<String>, String> {
-    let Some(trimmed) = value.map(str::trim).filter(|entry| !entry.is_empty()) else {
-        return Ok(None);
-    };
-    if trimmed.len() > 40 {
-        return Err("jiraSettings.defaultProjectKey must be 40 characters or fewer.".to_string());
-    }
-    Ok(Some(trimmed.to_uppercase()))
-}
-
-fn normalize_jira_jql(value: Option<&str>) -> Result<Option<String>, String> {
-    let Some(trimmed) = value.map(str::trim).filter(|entry| !entry.is_empty()) else {
-        return Ok(default_jira_settings().jql);
-    };
-    if trimmed.len() > 2000 {
-        return Err("jiraSettings.jql must be 2000 characters or fewer.".to_string());
-    }
-    Ok(Some(trimmed.to_string()))
-}
-
-fn normalize_jira_settings(settings: &JiraSettings) -> Result<JiraSettings, String> {
-    let mut normalized = settings.clone();
-    normalized.site_url = normalize_jira_site_url(&settings.site_url)?;
-    normalized.account_email = normalize_jira_email(&settings.account_email)?;
-    normalized.default_project_key =
-        normalize_jira_project_key(settings.default_project_key.as_deref())?;
-    normalized.jql = normalize_jira_jql(settings.jql.as_deref())?;
-
-    if normalized.site_url.is_empty() || normalized.account_email.is_empty() {
-        normalized.enabled = false;
-    }
-
-    if normalized
-        .last_sync_error
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or_default()
-        .is_empty()
-    {
-        normalized.last_sync_error = None;
-    }
-
-    Ok(normalized)
-}
-
 fn normalize_default_terminal(value: &str) -> Result<String, String> {
     workspace::normalize_default_terminal(value, &SUPPORTED_DEFAULT_TERMINALS)
 }
 
 fn normalize_theme_mode(value: &str) -> Result<String, String> {
     workspace::normalize_theme_mode(value, &SUPPORTED_THEME_MODES)
-}
-
-fn normalize_consellour_model(value: &str) -> Result<String, String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err("Consellour model must be a non-empty string.".to_string());
-    }
-
-    if SUPPORTED_CONSELLOUR_MODELS.contains(&trimmed) {
-        return Ok(trimmed.to_string());
-    }
-
-    Err(format!(
-        "Unsupported Consellour model \"{trimmed}\". Supported values: {}.",
-        SUPPORTED_CONSELLOUR_MODELS.join(", ")
-    ))
-}
-
-fn normalize_consellour_reasoning_level(value: &str) -> Result<String, String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err("Consellour reasoning level must be a non-empty string.".to_string());
-    }
-
-    if SUPPORTED_CONSELLOUR_REASONING_LEVELS.contains(&trimmed) {
-        return Ok(trimmed.to_string());
-    }
-
-    Err(format!(
-        "Unsupported Consellour reasoning level \"{trimmed}\". Supported values: {}.",
-        SUPPORTED_CONSELLOUR_REASONING_LEVELS.join(", ")
-    ))
-}
-
-fn normalize_openai_api_key(value: Option<&str>) -> Result<Option<String>, String> {
-    let Some(trimmed) = value.map(str::trim) else {
-        return Ok(None);
-    };
-
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-
-    if trimmed.len() > 256 {
-        return Err("openaiApiKey must be 256 characters or fewer.".to_string());
-    }
-
-    Ok(Some(trimmed.to_string()))
 }
 
 fn parse_terminal_command_tokens(command: &str) -> Result<Vec<String>, String> {
@@ -255,24 +86,6 @@ fn normalize_run_local_command(value: Option<&str>) -> Result<Option<String>, St
         .map_err(|error| error.replace("terminalCustomCommand", "runLocalCommand"))?;
 
     Ok(Some(trimmed.to_string()))
-}
-
-fn normalize_testing_ports_from_u16(ports: &[u16]) -> Vec<u16> {
-    testing_environment::normalize_testing_ports_from_u16(
-        ports,
-        MIN_TESTING_PORT,
-        MAX_TESTING_PORT,
-        &DEFAULT_TESTING_ENVIRONMENT_PORTS,
-    )
-}
-
-fn normalize_testing_ports_from_u32(ports: &[u32]) -> Vec<u16> {
-    testing_environment::normalize_testing_ports_from_u32(
-        ports,
-        MIN_TESTING_PORT,
-        MAX_TESTING_PORT,
-        &DEFAULT_TESTING_ENVIRONMENT_PORTS,
-    )
 }
 
 fn normalize_worktree_symlink_paths(paths: &[String]) -> Vec<String> {
@@ -662,132 +475,6 @@ fn validate_optional_relative_path(
     Ok(Some(trimmed.to_string()))
 }
 
-fn normalize_task_title(value: &str) -> Result<String, String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err("Task title must be a non-empty string.".to_string());
-    }
-    if trimmed.len() > 200 {
-        return Err("Task title must be 200 characters or fewer.".to_string());
-    }
-
-    Ok(trimmed.to_string())
-}
-
-fn normalize_task_description(value: &str) -> Result<String, String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err("Task description must be a non-empty string.".to_string());
-    }
-    if trimmed.len() > 10_000 {
-        return Err("Task description must be 10000 characters or fewer.".to_string());
-    }
-
-    Ok(trimmed.to_string())
-}
-
-fn normalize_optional_external_id(value: Option<&str>) -> Result<Option<String>, String> {
-    let Some(trimmed) = value.map(str::trim) else {
-        return Ok(None);
-    };
-
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-
-    if trimmed.len() > 200 {
-        return Err("externalId must be 200 characters or fewer.".to_string());
-    }
-
-    Ok(Some(trimmed.to_string()))
-}
-
-fn normalize_optional_external_url(value: Option<&str>) -> Result<Option<String>, String> {
-    let Some(trimmed) = value.map(str::trim) else {
-        return Ok(None);
-    };
-
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-
-    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
-        return Err("externalUrl must start with http:// or https:// when provided.".to_string());
-    }
-
-    if trimmed.len() > 1_000 {
-        return Err("externalUrl must be 1000 characters or fewer.".to_string());
-    }
-
-    Ok(Some(trimmed.to_string()))
-}
-
-fn normalize_task_pr_entries(entries: &[WorkspaceTaskPrEntry]) -> Vec<WorkspaceTaskPrEntry> {
-    entries
-        .iter()
-        .filter_map(|entry| {
-            let normalized_url = entry.url.trim();
-            let normalized_timestamp = entry.timestamp.trim();
-            if normalized_url.is_empty() || normalized_timestamp.is_empty() {
-                return None;
-            }
-
-            if !(normalized_url.starts_with("http://") || normalized_url.starts_with("https://")) {
-                return None;
-            }
-
-            let normalized_title = entry
-                .title
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| value.to_string());
-
-            Some(WorkspaceTaskPrEntry {
-                url: normalized_url.to_string(),
-                title: normalized_title,
-                number: entry.number,
-                timestamp: normalized_timestamp.to_string(),
-            })
-        })
-        .collect::<Vec<_>>()
-}
-
-fn normalize_optional_query(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| entry.to_lowercase())
-}
-
-fn task_matches_query(
-    task: &WorkspaceTask,
-    title_query: Option<&str>,
-    description_query: Option<&str>,
-) -> bool {
-    let title_match = title_query
-        .map(|query| task.title.to_lowercase().contains(query))
-        .unwrap_or(true);
-    let description_match = description_query
-        .map(|query| task.description.to_lowercase().contains(query))
-        .unwrap_or(true);
-
-    title_match && description_match
-}
-
-fn task_priority_rank(priority: &TaskPriority) -> u8 {
-    match priority {
-        TaskPriority::Low => 0,
-        TaskPriority::Medium => 1,
-        TaskPriority::High => 2,
-        TaskPriority::Urgent => 3,
-    }
-}
-
-fn task_by_id_mut<'a>(tasks: &'a mut [WorkspaceTask], id: &str) -> Option<&'a mut WorkspaceTask> {
-    tasks.iter_mut().find(|task| task.id == id)
-}
-
 /// Returns `(worktree_id, is_existing)` — `is_existing` is `true` when the
 /// record already existed before this call.
 fn register_worktree_record(
@@ -829,37 +516,6 @@ fn mark_claude_session_started(workspace_root: &Path, worktree: &str) {
         let workspace_json = workspace_root.join(".groove").join("workspace.json");
         let _ = write_workspace_meta_file(&workspace_json, &workspace_meta);
     }
-}
-
-fn normalize_worktree_task_assignments(
-    assignments: &HashMap<String, String>,
-    tasks: &[WorkspaceTask],
-) -> HashMap<String, String> {
-    let valid_task_ids = tasks
-        .iter()
-        .map(|task| task.id.as_str())
-        .collect::<HashSet<_>>();
-
-    assignments
-        .iter()
-        .filter_map(|(worktree, task_id)| {
-            let normalized_worktree = worktree.trim();
-            let normalized_task_id = task_id.trim();
-
-            if normalized_worktree.is_empty() || normalized_task_id.is_empty() {
-                return None;
-            }
-
-            if !valid_task_ids.contains(normalized_task_id) {
-                return None;
-            }
-
-            Some((
-                normalized_worktree.to_string(),
-                normalized_task_id.to_string(),
-            ))
-        })
-        .collect::<HashMap<_, _>>()
 }
 
 fn normalize_browse_relative_path(value: Option<&str>) -> Result<String, String> {
@@ -994,12 +650,6 @@ fn play_groove_command_for_workspace(workspace_root: &Path) -> String {
         .unwrap_or_else(|_| default_play_groove_command())
 }
 
-fn testing_ports_for_workspace(workspace_root: &Path) -> Vec<u16> {
-    ensure_workspace_meta(workspace_root)
-        .map(|(workspace_meta, _)| normalize_testing_ports_from_u16(&workspace_meta.testing_ports))
-        .unwrap_or_else(|_| default_testing_ports())
-}
-
 fn run_local_command_for_workspace(workspace_root: &Path) -> Option<String> {
     ensure_workspace_meta(workspace_root)
         .ok()
@@ -1037,7 +687,7 @@ fn ensure_claude_notification_hook(worktree_path: &Path, worktree_name: &str) {
     };
 
     let hook_command = format!(
-        "groove notify {} \"Claude Code needs your attention\"",
+        "groove notify notification {} -m \"Claude Code needs your attention\"",
         worktree_name
     );
 
@@ -1440,51 +1090,6 @@ fn read_worktree_tombstone(
         .cloned())
 }
 
-fn testing_environment_state_file(app: &AppHandle) -> Result<PathBuf, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Failed to resolve app data directory: {error}"))?;
-    fs::create_dir_all(&app_data_dir)
-        .map_err(|error| format!("Failed to create app data directory: {error}"))?;
-    Ok(app_data_dir.join("testing-environment.json"))
-}
-
-fn read_persisted_testing_environment_state(
-    app: &AppHandle,
-) -> Result<PersistedTestingEnvironmentState, String> {
-    let state_file = testing_environment_state_file(app)?;
-    if !path_is_file(&state_file) {
-        return Ok(PersistedTestingEnvironmentState::default());
-    }
-
-    let raw = fs::read_to_string(&state_file)
-        .map_err(|error| format!("Failed to read testing environment state file: {error}"))?;
-    serde_json::from_str::<PersistedTestingEnvironmentState>(&raw)
-        .map_err(|error| format!("Failed to parse testing environment state file: {error}"))
-}
-
-fn write_persisted_testing_environment_state(
-    app: &AppHandle,
-    state: &PersistedTestingEnvironmentState,
-) -> Result<(), String> {
-    let state_file = testing_environment_state_file(app)?;
-    let body = serde_json::to_string_pretty(state)
-        .map_err(|error| format!("Failed to serialize testing environment state file: {error}"))?;
-    fs::write(&state_file, format!("{body}\n"))
-        .map_err(|error| format!("Failed to write testing environment state file: {error}"))
-}
-
-fn clear_persisted_testing_environment_state(app: &AppHandle) -> Result<(), String> {
-    let state_file = testing_environment_state_file(app)?;
-    if state_file.exists() {
-        fs::remove_file(&state_file)
-            .map_err(|error| format!("Failed to clear testing environment state file: {error}"))?;
-    }
-
-    Ok(())
-}
-
 fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
     let now = now_iso();
     WorkspaceMeta {
@@ -1502,15 +1107,10 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         disable_groove_loading_section: false,
         show_fps: false,
         play_groove_command: default_play_groove_command(),
-        testing_ports: default_testing_ports(),
         open_terminal_at_worktree_command: None,
         run_local_command: None,
         worktree_symlink_paths: default_worktree_symlink_paths(),
-        consellour_settings: default_consellour_settings(),
-        jira_settings: default_jira_settings(),
         opencode_settings: default_opencode_settings(),
-        tasks: Vec::new(),
-        worktree_task_assignments: HashMap::new(),
         worktree_records: HashMap::new(),
         summaries: Vec::new(),
     }
@@ -1578,11 +1178,6 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 .and_then(|parsed| parsed.as_object())
                 .map(|obj| obj.contains_key("playGrooveCommand"))
                 .unwrap_or(true);
-            let has_testing_ports = parsed_workspace_json
-                .as_ref()
-                .and_then(|parsed| parsed.as_object())
-                .map(|obj| obj.contains_key("testingPorts"))
-                .unwrap_or(true);
             let has_run_local_command = parsed_workspace_json
                 .as_ref()
                 .and_then(|parsed| parsed.as_object())
@@ -1593,30 +1188,10 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 .and_then(|parsed| parsed.as_object())
                 .map(|obj| obj.contains_key("worktreeSymlinkPaths"))
                 .unwrap_or(true);
-            let has_consellour_settings = parsed_workspace_json
-                .as_ref()
-                .and_then(|parsed| parsed.as_object())
-                .map(|obj| obj.contains_key("consellourSettings"))
-                .unwrap_or(true);
-            let has_jira_settings = parsed_workspace_json
-                .as_ref()
-                .and_then(|parsed| parsed.as_object())
-                .map(|obj| obj.contains_key("jiraSettings"))
-                .unwrap_or(true);
             let has_opencode_settings = parsed_workspace_json
                 .as_ref()
                 .and_then(|parsed| parsed.as_object())
                 .map(|obj| obj.contains_key("opencodeSettings"))
-                .unwrap_or(true);
-            let has_tasks = parsed_workspace_json
-                .as_ref()
-                .and_then(|parsed| parsed.as_object())
-                .map(|obj| obj.contains_key("tasks"))
-                .unwrap_or(true);
-            let has_worktree_task_assignments = parsed_workspace_json
-                .as_ref()
-                .and_then(|parsed| parsed.as_object())
-                .map(|obj| obj.contains_key("worktreeTaskAssignments"))
                 .unwrap_or(true);
             if workspace_meta.root_name != expected_root_name {
                 workspace_meta.root_name = expected_root_name;
@@ -1671,13 +1246,6 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 }
             }
 
-            let normalized_testing_ports =
-                normalize_testing_ports_from_u16(&workspace_meta.testing_ports);
-            if normalized_testing_ports != workspace_meta.testing_ports {
-                workspace_meta.testing_ports = normalized_testing_ports;
-                did_update = true;
-            }
-
             let normalized_open_terminal_at_worktree_command =
                 normalize_open_terminal_at_worktree_command(
                     workspace_meta.open_terminal_at_worktree_command.as_deref(),
@@ -1706,57 +1274,6 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 did_update = true;
             }
 
-            let normalized_model =
-                normalize_consellour_model(&workspace_meta.consellour_settings.model)
-                    .unwrap_or_else(|_| default_consellour_model());
-            if workspace_meta.consellour_settings.model != normalized_model {
-                workspace_meta.consellour_settings.model = normalized_model;
-                workspace_meta.consellour_settings.updated_at = now_iso();
-                did_update = true;
-            }
-
-            let normalized_reasoning_level = normalize_consellour_reasoning_level(
-                &workspace_meta.consellour_settings.reasoning_level,
-            )
-            .unwrap_or_else(|_| default_consellour_reasoning_level());
-            if workspace_meta.consellour_settings.reasoning_level != normalized_reasoning_level {
-                workspace_meta.consellour_settings.reasoning_level = normalized_reasoning_level;
-                workspace_meta.consellour_settings.updated_at = now_iso();
-                did_update = true;
-            }
-
-            let normalized_openai_api_key = normalize_openai_api_key(
-                workspace_meta.consellour_settings.openai_api_key.as_deref(),
-            )
-            .unwrap_or(None);
-            if workspace_meta.consellour_settings.openai_api_key != normalized_openai_api_key {
-                workspace_meta.consellour_settings.openai_api_key = normalized_openai_api_key;
-                workspace_meta.consellour_settings.updated_at = now_iso();
-                did_update = true;
-            }
-
-            let normalized_jira_settings = normalize_jira_settings(&workspace_meta.jira_settings)
-                .unwrap_or_else(|_| default_jira_settings());
-            if workspace_meta.jira_settings.enabled != normalized_jira_settings.enabled
-                || workspace_meta.jira_settings.site_url != normalized_jira_settings.site_url
-                || workspace_meta.jira_settings.account_email
-                    != normalized_jira_settings.account_email
-                || workspace_meta.jira_settings.default_project_key
-                    != normalized_jira_settings.default_project_key
-                || workspace_meta.jira_settings.jql != normalized_jira_settings.jql
-                || workspace_meta.jira_settings.sync_enabled
-                    != normalized_jira_settings.sync_enabled
-                || workspace_meta.jira_settings.sync_open_issues_only
-                    != normalized_jira_settings.sync_open_issues_only
-                || workspace_meta.jira_settings.last_sync_at
-                    != normalized_jira_settings.last_sync_at
-                || workspace_meta.jira_settings.last_sync_error
-                    != normalized_jira_settings.last_sync_error
-            {
-                workspace_meta.jira_settings = normalized_jira_settings;
-                did_update = true;
-            }
-
             let normalized_opencode_settings =
                 normalize_opencode_settings(&workspace_meta.opencode_settings);
             if workspace_meta.opencode_settings.enabled != normalized_opencode_settings.enabled
@@ -1769,74 +1286,8 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 did_update = true;
             }
 
-            let mut normalized_tasks = workspace_meta.tasks.clone();
-            let mut normalized_any_task = false;
-            for task in &mut normalized_tasks {
-                if task.id.trim().is_empty() {
-                    task.id = Uuid::new_v4().to_string();
-                    normalized_any_task = true;
-                }
-
-                let normalized_title = normalize_task_title(&task.title).unwrap_or_else(|_| {
-                    normalized_any_task = true;
-                    "Untitled task".to_string()
-                });
-                if task.title != normalized_title {
-                    task.title = normalized_title;
-                    normalized_any_task = true;
-                }
-
-                let normalized_description = normalize_task_description(&task.description)
-                    .unwrap_or_else(|_| {
-                        normalized_any_task = true;
-                        "Task details were unavailable and have been reset.".to_string()
-                    });
-                if task.description != normalized_description {
-                    task.description = normalized_description;
-                    normalized_any_task = true;
-                }
-
-                let normalized_external_id =
-                    normalize_optional_external_id(task.external_id.as_deref()).unwrap_or(None);
-                if task.external_id != normalized_external_id {
-                    task.external_id = normalized_external_id;
-                    normalized_any_task = true;
-                }
-
-                let normalized_external_url =
-                    normalize_optional_external_url(task.external_url.as_deref()).unwrap_or(None);
-                if task.external_url != normalized_external_url {
-                    task.external_url = normalized_external_url;
-                    normalized_any_task = true;
-                }
-
-                let normalized_pr = normalize_task_pr_entries(&task.pr);
-                if task.pr != normalized_pr {
-                    task.pr = normalized_pr;
-                    normalized_any_task = true;
-                }
-            }
-            if normalized_any_task {
-                workspace_meta.tasks = normalized_tasks;
-                did_update = true;
-            }
-
-            let normalized_worktree_task_assignments = normalize_worktree_task_assignments(
-                &workspace_meta.worktree_task_assignments,
-                &workspace_meta.tasks,
-            );
-            if workspace_meta.worktree_task_assignments != normalized_worktree_task_assignments {
-                workspace_meta.worktree_task_assignments = normalized_worktree_task_assignments;
-                did_update = true;
-            }
-
             if !has_play_groove_command {
                 workspace_meta.play_groove_command = default_play_groove_command();
-                did_update = true;
-            }
-
-            if !has_testing_ports {
-                workspace_meta.testing_ports = default_testing_ports();
                 did_update = true;
             }
 
@@ -1850,28 +1301,8 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 did_update = true;
             }
 
-            if !has_consellour_settings {
-                workspace_meta.consellour_settings = default_consellour_settings();
-                did_update = true;
-            }
-
-            if !has_jira_settings {
-                workspace_meta.jira_settings = default_jira_settings();
-                did_update = true;
-            }
-
             if !has_opencode_settings {
                 workspace_meta.opencode_settings = default_opencode_settings();
-                did_update = true;
-            }
-
-            if !has_tasks {
-                workspace_meta.tasks = Vec::new();
-                did_update = true;
-            }
-
-            if !has_worktree_task_assignments {
-                workspace_meta.worktree_task_assignments = HashMap::new();
                 did_update = true;
             }
 

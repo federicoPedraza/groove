@@ -1,7 +1,6 @@
 fn scan_workspace_worktrees(
     app: &AppHandle,
     workspace_root: &Path,
-    worktree_task_assignments: &HashMap<String, String>,
     worktree_records: &HashMap<String, WorktreeRecord>,
 ) -> Result<(bool, Vec<WorkspaceScanRow>), String> {
     let worktrees_dir = workspace_root.join(".worktrees");
@@ -50,7 +49,6 @@ fn scan_workspace_worktrees(
             last_executed_at: last_executed_by_worktree
                 .and_then(|entries| entries.get(&worktree))
                 .cloned(),
-            task_id: worktree_task_assignments.get(&worktree).cloned(),
             worktree,
         });
     }
@@ -86,7 +84,6 @@ fn scan_workspace_worktrees(
                 path: tombstone.worktree_path.clone(),
                 status: "deleted".to_string(),
                 last_executed_at: None,
-                task_id: worktree_task_assignments.get(worktree).cloned(),
             });
         }
 
@@ -166,7 +163,6 @@ fn build_workspace_context(
     let (has_worktrees_directory, rows) = match scan_workspace_worktrees(
         app,
         workspace_root,
-        &workspace_meta.worktree_task_assignments,
         &workspace_meta.worktree_records,
     ) {
         Ok(result) => result,
@@ -284,15 +280,6 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         .get("playGrooveCommand")
         .and_then(|v| v.as_str())
         .map(|v| v.to_string());
-    let testing_ports = obj.get("testingPorts").and_then(|v| {
-        v.as_array().map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_u64())
-                .filter_map(|value| u16::try_from(value).ok())
-                .collect::<Vec<_>>()
-        })
-    });
     let open_terminal_at_worktree_command = obj
         .get("openTerminalAtWorktreeCommand")
         .and_then(|v| v.as_str())
@@ -310,11 +297,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
                 .collect::<Vec<_>>()
         })
     });
-    let consellour_settings = None;
-    let jira_settings = None;
     let opencode_settings = None;
-    let tasks = None;
-    let worktree_task_assignments = None;
     let worktree_records = None;
 
     if version.is_none()
@@ -327,15 +310,10 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         && disable_groove_loading_section.is_none()
         && show_fps.is_none()
         && play_groove_command.is_none()
-        && testing_ports.is_none()
         && open_terminal_at_worktree_command.is_none()
         && run_local_command.is_none()
         && worktree_symlink_paths.is_none()
-        && consellour_settings.is_none()
-        && jira_settings.is_none()
         && opencode_settings.is_none()
-        && tasks.is_none()
-        && worktree_task_assignments.is_none()
         && worktree_records.is_none()
     {
         return None;
@@ -352,15 +330,10 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         disable_groove_loading_section,
         show_fps,
         play_groove_command,
-        testing_ports,
         open_terminal_at_worktree_command,
         run_local_command,
         worktree_symlink_paths,
-        consellour_settings,
-        jira_settings,
         opencode_settings,
-        tasks,
-        worktree_task_assignments,
         worktree_records,
     })
 }
@@ -412,12 +385,6 @@ fn workspace_meta_matches(
 
     if let Some(expected_play_groove_command) = &expected.play_groove_command {
         if observed.play_groove_command.as_ref() != Some(expected_play_groove_command) {
-            return false;
-        }
-    }
-
-    if let Some(expected_testing_ports) = &expected.testing_ports {
-        if observed.testing_ports.as_ref() != Some(expected_testing_ports) {
             return false;
         }
     }

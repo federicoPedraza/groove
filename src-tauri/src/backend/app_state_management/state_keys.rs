@@ -3,7 +3,6 @@
 use std::path::Path;
 
 pub(crate) const WORKSPACE_EVENT_STATE_KEY: &str = "workspace_events";
-pub(crate) const TESTING_ENVIRONMENT_STATE_KEY: &str = "testing_environment";
 
 pub(crate) fn workspace_root_key(workspace_root: &Path) -> String {
     workspace_root

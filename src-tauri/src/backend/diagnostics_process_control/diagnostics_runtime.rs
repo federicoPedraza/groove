@@ -107,26 +107,6 @@ fn list_worktree_node_app_rows() -> Result<(Vec<DiagnosticsNodeAppRow>, Option<S
     Ok((rows, warning))
 }
 
-fn resolve_node_app_pids_for_worktree(worktree_path: &Path) -> Vec<i32> {
-    let Ok((snapshot_rows, _warning)) = list_process_snapshot_rows() else {
-        return Vec::new();
-    };
-
-    let mut pids = snapshot_rows
-        .into_iter()
-        .filter(|row| {
-            is_worktree_node_process(row.process_name.as_deref(), &row.command)
-                && (command_mentions_worktree_path(&row.command, worktree_path)
-                    || command_mentions_worktree_name(&row.command, worktree_path))
-        })
-        .map(|row| row.pid)
-        .collect::<Vec<_>>();
-
-    pids.sort_unstable();
-    pids.dedup();
-    pids
-}
-
 fn get_msot_consuming_programs_output() -> Result<String, String> {
     crate::backend::common::platform_env::top_memory_consumers()
 }

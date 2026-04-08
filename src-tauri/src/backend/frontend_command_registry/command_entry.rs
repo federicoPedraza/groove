@@ -1,7 +1,6 @@
 pub(crate) fn run() {
     tauri::Builder::default()
         .manage(WorkspaceEventState::default())
-        .manage(TestingEnvironmentState::default())
         .manage(WorkspaceContextCacheState::default())
         .manage(GrooveListCacheState::default())
         .manage(GrooveBinStatusState::default())
@@ -39,15 +38,6 @@ pub(crate) fn run() {
             workspace_update_commands_settings,
             workspace_update_worktree_symlink_paths,
             workspace_list_symlink_entries,
-            consellour_get_settings,
-            consellour_update_settings,
-            tasks_list,
-            workspace_set_worktree_task_assignment,
-            consellour_get_task,
-            consellour_get_recommended_task,
-            consellour_tool_create_task,
-            consellour_tool_edit_task,
-            consellour_tool_delete_task,
             workspace_open_terminal,
             workspace_open_workspace_terminal,
             groove_terminal_open,
@@ -80,11 +70,6 @@ pub(crate) fn run() {
             groove_rm,
             groove_stop,
             groove_summary,
-            testing_environment_get_status,
-            testing_environment_set_target,
-            testing_environment_start,
-            testing_environment_start_separate_terminal,
-            testing_environment_stop,
             groove_bin_status,
             groove_bin_repair,
             diagnostics_list_opencode_instances,
@@ -96,12 +81,6 @@ pub(crate) fn run() {
             diagnostics_get_msot_consuming_programs,
             diagnostics_get_system_overview,
             workspace_events,
-            jira_connection_status,
-            jira_connect_api_token,
-            jira_disconnect,
-            jira_projects_list,
-            jira_sync_pull,
-            jira_issue_open_in_browser,
             opencode_integration_status,
             opencode_update_workspace_settings,
             opencode_update_global_settings,

@@ -70,11 +70,11 @@ info "rustc: $(rustc --version)"
 
 step "Run fast macOS setup"
 cd "$repo_root"
-run_cmd "executing ./bash/setup-macos-fast" ./bash/setup-macos-fast
+run_cmd "executing ./scripts/setup-macos-fast" ./scripts/setup-macos-fast
 pass "Fast setup completed"
 
 step "Validate macOS sidecar readiness"
-run_cmd "executing ./bash/check-macos-sidecars" ./bash/check-macos-sidecars
+run_cmd "executing ./scripts/check-macos-sidecars" ./scripts/check-macos-sidecars
 pass "macOS sidecar check passed"
 
 step "Build macOS distributables"

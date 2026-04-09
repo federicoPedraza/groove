@@ -1,39 +1,4 @@
 #[tauri::command]
-fn diagnostics_list_opencode_instances(app: AppHandle) -> DiagnosticsOpencodeInstancesResponse {
-    let started_at = Instant::now();
-    let request_id = request_id();
-    let telemetry_enabled = telemetry_enabled_for_app(&app);
-
-    let response = match list_opencode_process_rows() {
-        Ok(rows) => DiagnosticsOpencodeInstancesResponse {
-            request_id,
-            ok: true,
-            rows,
-            error: None,
-        },
-        Err(error) => DiagnosticsOpencodeInstancesResponse {
-            request_id,
-            ok: false,
-            rows: Vec::new(),
-            error: Some(error),
-        },
-    };
-
-    let details = format!(
-        "outcome={} rows={}",
-        if response.ok { "ok" } else { "error" },
-        response.rows.len(),
-    );
-    log_backend_timing(
-        telemetry_enabled,
-        "diagnostics.list_opencode_instances",
-        started_at.elapsed(),
-        details.as_str(),
-    );
-    response
-}
-
-#[tauri::command]
 fn diagnostics_stop_process(pid: i32) -> DiagnosticsStopResponse {
     let request_id = request_id();
     if pid <= 0 {
@@ -65,53 +30,7 @@ fn diagnostics_stop_process(pid: i32) -> DiagnosticsStopResponse {
 }
 
 #[tauri::command]
-fn diagnostics_stop_all_opencode_instances() -> DiagnosticsStopAllResponse {
-    let request_id = request_id();
-
-    let rows = match list_opencode_process_rows() {
-        Ok(rows) => rows,
-        Err(error) => {
-            return DiagnosticsStopAllResponse {
-                request_id,
-                ok: false,
-                attempted: 0,
-                stopped: 0,
-                already_stopped: 0,
-                failed: 0,
-                errors: Vec::new(),
-                error: Some(error),
-            }
-        }
-    };
-
-    let unique_pids = rows
-        .into_iter()
-        .map(|row| row.pid)
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
-
-    let (stopped, already_stopped, failed, errors) = stop_pid_set(&unique_pids);
-    let has_errors = !errors.is_empty();
-
-    DiagnosticsStopAllResponse {
-        request_id,
-        ok: failed == 0,
-        attempted: unique_pids.len(),
-        stopped,
-        already_stopped,
-        failed,
-        errors,
-        error: if has_errors {
-            Some(format!("Failed to stop {} process(es).", failed))
-        } else {
-            None
-        },
-    }
-}
-
-#[tauri::command]
-fn diagnostics_kill_all_node_and_opencode_instances() -> DiagnosticsStopAllResponse {
+fn diagnostics_kill_all_node_instances() -> DiagnosticsStopAllResponse {
     let request_id = request_id();
 
     let (snapshot_rows, _warning) = match list_process_snapshot_rows() {
@@ -132,10 +51,7 @@ fn diagnostics_kill_all_node_and_opencode_instances() -> DiagnosticsStopAllRespo
 
     let unique_pids = snapshot_rows
         .into_iter()
-        .filter(|row| {
-            is_opencode_process(row.process_name.as_deref(), &row.command)
-                || is_likely_node_command(row.process_name.as_deref(), &row.command)
-        })
+        .filter(|row| is_likely_node_command(row.process_name.as_deref(), &row.command))
         .map(|row| row.pid)
         .collect::<HashSet<_>>()
         .into_iter()
@@ -154,7 +70,7 @@ fn diagnostics_kill_all_node_and_opencode_instances() -> DiagnosticsStopAllRespo
         errors,
         error: if has_errors {
             Some(format!(
-                "Failed to stop {} Node/OpenCode process(es).",
+                "Failed to stop {} Node process(es).",
                 failed
             ))
         } else {
@@ -232,9 +148,9 @@ fn diagnostics_clean_all_dev_servers(app: AppHandle) -> DiagnosticsStopAllRespon
     let pids = snapshot_rows
         .into_iter()
         .filter(|row| {
-            is_worktree_opencode_process(row.process_name.as_deref(), &row.command)
-                || is_worktree_node_process(row.process_name.as_deref(), &row.command)
-                || command_matches_turbo_dev(&row.command)
+            is_worktree_node_process(row.process_name.as_deref(), &row.command)
+                || (command_mentions_worktrees(&row.command)
+                    && command_matches_turbo_dev(&row.command))
         })
         .map(|row| row.pid)
         .collect::<HashSet<_>>()

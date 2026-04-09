@@ -16,11 +16,8 @@ import type {
   WorkspaceWorktreeSymlinkPathsPayload,
   WorkspaceBrowseEntriesPayload,
   WorkspaceBrowseEntriesResponse,
-  CommandIntent,
 } from "./types-core";
 import type {
-  GrooveListPayload,
-  GrooveListResponse,
   GrooveRestorePayload,
   GrooveRestoreResponse,
   GrooveNewPayload,
@@ -33,7 +30,6 @@ import type {
   GrooveSummaryResponse,
   WorkspaceOpenTerminalPayload,
   WorkspaceOpenWorkspaceTerminalPayload,
-  DiagnosticsOpencodeInstancesResponse,
   DiagnosticsStopResponse,
   DiagnosticsStopAllResponse,
   DiagnosticsNodeAppsResponse,
@@ -49,15 +45,15 @@ type WorkspaceEvent = {
   kind?: string;
 };
 
-export function grooveList(payload: GrooveListPayload, options?: { intent?: CommandIntent }): Promise<GrooveListResponse> {
-  return invokeCommand<GrooveListResponse>("groove_list", { payload }, options);
-}
-
-export function grooveRestore(payload: GrooveRestorePayload): Promise<GrooveRestoreResponse> {
+export function grooveRestore(
+  payload: GrooveRestorePayload,
+): Promise<GrooveRestoreResponse> {
   return invokeCommand<GrooveRestoreResponse>("groove_restore", { payload });
 }
 
-export function grooveNew(payload: GrooveNewPayload): Promise<GrooveNewResponse> {
+export function grooveNew(
+  payload: GrooveNewPayload,
+): Promise<GrooveNewResponse> {
   return invokeCommand<GrooveNewResponse>("groove_new", { payload });
 }
 
@@ -65,54 +61,70 @@ export function grooveRm(payload: GrooveRmPayload): Promise<GrooveRmResponse> {
   return invokeCommand<GrooveRmResponse>("groove_rm", { payload });
 }
 
-export function grooveStop(payload: GrooveStopPayload): Promise<GrooveStopResponse> {
+export function grooveStop(
+  payload: GrooveStopPayload,
+): Promise<GrooveStopResponse> {
   return invokeCommand<GrooveStopResponse>("groove_stop", { payload });
 }
 
-export function grooveSummary(payload: GrooveSummaryPayload): Promise<GrooveSummaryResponse> {
+export function grooveSummary(
+  payload: GrooveSummaryPayload,
+): Promise<GrooveSummaryResponse> {
   return invokeCommand<GrooveSummaryResponse>("groove_summary", { payload });
 }
 
-export function workspaceEvents(payload: WorkspaceEventsPayload): Promise<WorkspaceEventsResponse> {
-  return invokeCommand<WorkspaceEventsResponse>("workspace_events", { payload });
+export function workspaceEvents(
+  payload: WorkspaceEventsPayload,
+): Promise<WorkspaceEventsResponse> {
+  return invokeCommand<WorkspaceEventsResponse>("workspace_events", {
+    payload,
+  });
 }
 
 export function openExternalUrl(url: string): Promise<ExternalUrlOpenResponse> {
   return invokeCommand<ExternalUrlOpenResponse>("open_external_url", { url });
 }
 
-export function diagnosticsListOpencodeInstances(): Promise<DiagnosticsOpencodeInstancesResponse> {
-  return invokeCommand<DiagnosticsOpencodeInstancesResponse>("diagnostics_list_opencode_instances");
+export function diagnosticsStopProcess(
+  pid: number,
+): Promise<DiagnosticsStopResponse> {
+  return invokeCommand<DiagnosticsStopResponse>("diagnostics_stop_process", {
+    pid,
+  });
 }
 
-export function diagnosticsStopProcess(pid: number): Promise<DiagnosticsStopResponse> {
-  return invokeCommand<DiagnosticsStopResponse>("diagnostics_stop_process", { pid });
-}
-
-export function diagnosticsStopAllOpencodeInstances(): Promise<DiagnosticsStopAllResponse> {
-  return invokeCommand<DiagnosticsStopAllResponse>("diagnostics_stop_all_opencode_instances");
-}
-
-export function diagnosticsKillAllNodeAndOpencodeInstances(): Promise<DiagnosticsStopAllResponse> {
-  return invokeCommand<DiagnosticsStopAllResponse>("diagnostics_kill_all_node_and_opencode_instances");
+export function diagnosticsKillAllNodeInstances(): Promise<DiagnosticsStopAllResponse> {
+  return invokeCommand<DiagnosticsStopAllResponse>(
+    "diagnostics_kill_all_node_instances",
+  );
 }
 
 export function diagnosticsListWorktreeNodeApps(): Promise<DiagnosticsNodeAppsResponse> {
-  return invokeCommand<DiagnosticsNodeAppsResponse>("diagnostics_list_worktree_node_apps");
+  return invokeCommand<DiagnosticsNodeAppsResponse>(
+    "diagnostics_list_worktree_node_apps",
+  );
 }
 
 export function diagnosticsCleanAllDevServers(): Promise<DiagnosticsStopAllResponse> {
-  return invokeCommand<DiagnosticsStopAllResponse>("diagnostics_clean_all_dev_servers");
+  return invokeCommand<DiagnosticsStopAllResponse>(
+    "diagnostics_clean_all_dev_servers",
+  );
 }
 
 export function diagnosticsGetMsotConsumingPrograms(): Promise<DiagnosticsMostConsumingProgramsResponse> {
-  return invokeCommand<DiagnosticsMostConsumingProgramsResponse>("diagnostics_get_msot_consuming_programs");
+  return invokeCommand<DiagnosticsMostConsumingProgramsResponse>(
+    "diagnostics_get_msot_consuming_programs",
+  );
 }
 
 export function diagnosticsGetSystemOverview(): Promise<DiagnosticsSystemOverviewResponse> {
-  return invokeCommand<DiagnosticsSystemOverviewResponse>("diagnostics_get_system_overview", undefined, {
-    intent: "background",
-  });
+  return invokeCommand<DiagnosticsSystemOverviewResponse>(
+    "diagnostics_get_system_overview",
+    undefined,
+    {
+      intent: "background",
+    },
+  );
 }
 
 export function listenWorkspaceChange(
@@ -123,7 +135,9 @@ export function listenWorkspaceChange(
   });
 }
 
-export function listenWorkspaceReady(callback: (event: Record<string, unknown>) => void): Promise<UnlistenFn> {
+export function listenWorkspaceReady(
+  callback: (event: Record<string, unknown>) => void,
+): Promise<UnlistenFn> {
   return listen<Record<string, unknown>>("workspace-ready", (event) => {
     callback(event.payload);
   });
@@ -142,9 +156,13 @@ export function workspacePickAndOpen(): Promise<WorkspaceContextResponse> {
   return invokeCommand<WorkspaceContextResponse>("workspace_pick_and_open");
 }
 
-export function workspaceOpen(workspaceRoot: string): Promise<WorkspaceContextResponse> {
+export function workspaceOpen(
+  workspaceRoot: string,
+): Promise<WorkspaceContextResponse> {
   invalidateWorkspaceGetActiveCache();
-  return invokeCommand<WorkspaceContextResponse>("workspace_open", { workspaceRoot });
+  return invokeCommand<WorkspaceContextResponse>("workspace_open", {
+    workspaceRoot,
+  });
 }
 
 let workspaceGetActiveCachedResult: WorkspaceContextResponse | null = null;
@@ -153,12 +171,19 @@ const WORKSPACE_GET_ACTIVE_CACHE_TTL_MS = 400;
 
 export function workspaceGetActive(): Promise<WorkspaceContextResponse> {
   const now = Date.now();
-  if (workspaceGetActiveCachedResult && now - workspaceGetActiveCachedAt < WORKSPACE_GET_ACTIVE_CACHE_TTL_MS) {
+  if (
+    workspaceGetActiveCachedResult &&
+    now - workspaceGetActiveCachedAt < WORKSPACE_GET_ACTIVE_CACHE_TTL_MS
+  ) {
     return Promise.resolve(workspaceGetActiveCachedResult);
   }
-  return invokeCommand<WorkspaceContextResponse>("workspace_get_active", undefined, {
-    intent: "background",
-  }).then((result) => {
+  return invokeCommand<WorkspaceContextResponse>(
+    "workspace_get_active",
+    undefined,
+    {
+      intent: "background",
+    },
+  ).then((result) => {
     workspaceGetActiveCachedResult = result;
     workspaceGetActiveCachedAt = Date.now();
     return result;
@@ -171,29 +196,45 @@ export function invalidateWorkspaceGetActiveCache(): void {
 }
 
 export function workspaceTermSanityCheck(): Promise<WorkspaceTermSanityResponse> {
-  return invokeCommand<WorkspaceTermSanityResponse>("workspace_term_sanity_check", undefined, {
-    intent: "background",
-  });
+  return invokeCommand<WorkspaceTermSanityResponse>(
+    "workspace_term_sanity_check",
+    undefined,
+    {
+      intent: "background",
+    },
+  );
 }
 
 export function workspaceTermSanityApply(): Promise<WorkspaceTermSanityResponse> {
-  return invokeCommand<WorkspaceTermSanityResponse>("workspace_term_sanity_apply");
+  return invokeCommand<WorkspaceTermSanityResponse>(
+    "workspace_term_sanity_apply",
+  );
 }
 
 export function workspaceGitignoreSanityCheck(): Promise<WorkspaceGitignoreSanityResponse> {
-  return invokeCommand<WorkspaceGitignoreSanityResponse>("workspace_gitignore_sanity_check", undefined, {
-    intent: "background",
-  });
+  return invokeCommand<WorkspaceGitignoreSanityResponse>(
+    "workspace_gitignore_sanity_check",
+    undefined,
+    {
+      intent: "background",
+    },
+  );
 }
 
 export function workspaceGitignoreSanityApply(): Promise<WorkspaceGitignoreSanityResponse> {
-  return invokeCommand<WorkspaceGitignoreSanityResponse>("workspace_gitignore_sanity_apply");
+  return invokeCommand<WorkspaceGitignoreSanityResponse>(
+    "workspace_gitignore_sanity_apply",
+  );
 }
 
 export function grooveBinStatus(): Promise<GrooveBinStatusResponse> {
-  return invokeCommand<GrooveBinStatusResponse>("groove_bin_status", undefined, {
-    intent: "background",
-  });
+  return invokeCommand<GrooveBinStatusResponse>(
+    "groove_bin_status",
+    undefined,
+    {
+      intent: "background",
+    },
+  );
 }
 
 export function grooveBinRepair(): Promise<GrooveBinRepairResponse> {
@@ -208,33 +249,55 @@ export function workspaceClearActive(): Promise<WorkspaceContextResponse> {
 export function workspaceUpdateTerminalSettings(
   payload: WorkspaceTerminalSettingsPayload,
 ): Promise<WorkspaceTerminalSettingsResponse> {
-  return invokeCommand<WorkspaceTerminalSettingsResponse>("workspace_update_terminal_settings", { payload });
+  return invokeCommand<WorkspaceTerminalSettingsResponse>(
+    "workspace_update_terminal_settings",
+    { payload },
+  );
 }
 
 export function workspaceUpdateCommandsSettings(
   payload: WorkspaceCommandSettingsPayload,
 ): Promise<WorkspaceCommandSettingsResponse> {
-  return invokeCommand<WorkspaceCommandSettingsResponse>("workspace_update_commands_settings", { payload });
+  return invokeCommand<WorkspaceCommandSettingsResponse>(
+    "workspace_update_commands_settings",
+    { payload },
+  );
 }
 
 export function workspaceUpdateWorktreeSymlinkPaths(
   payload: WorkspaceWorktreeSymlinkPathsPayload,
 ): Promise<WorkspaceCommandSettingsResponse> {
-  return invokeCommand<WorkspaceCommandSettingsResponse>("workspace_update_worktree_symlink_paths", { payload });
+  return invokeCommand<WorkspaceCommandSettingsResponse>(
+    "workspace_update_worktree_symlink_paths",
+    { payload },
+  );
 }
 
 export function workspaceListSymlinkEntries(
   payload: WorkspaceBrowseEntriesPayload = {},
 ): Promise<WorkspaceBrowseEntriesResponse> {
-  return invokeCommand<WorkspaceBrowseEntriesResponse>("workspace_list_symlink_entries", { payload }, {
-    intent: "background",
+  return invokeCommand<WorkspaceBrowseEntriesResponse>(
+    "workspace_list_symlink_entries",
+    { payload },
+    {
+      intent: "background",
+    },
+  );
+}
+
+export function workspaceOpenTerminal(
+  payload: WorkspaceOpenTerminalPayload,
+): Promise<GrooveRestoreResponse> {
+  return invokeCommand<GrooveRestoreResponse>("workspace_open_terminal", {
+    payload,
   });
 }
 
-export function workspaceOpenTerminal(payload: WorkspaceOpenTerminalPayload): Promise<GrooveRestoreResponse> {
-  return invokeCommand<GrooveRestoreResponse>("workspace_open_terminal", { payload });
-}
-
-export function workspaceOpenWorkspaceTerminal(payload: WorkspaceOpenWorkspaceTerminalPayload): Promise<GrooveRestoreResponse> {
-  return invokeCommand<GrooveRestoreResponse>("workspace_open_workspace_terminal", { payload });
+export function workspaceOpenWorkspaceTerminal(
+  payload: WorkspaceOpenWorkspaceTerminalPayload,
+): Promise<GrooveRestoreResponse> {
+  return invokeCommand<GrooveRestoreResponse>(
+    "workspace_open_workspace_terminal",
+    { payload },
+  );
 }

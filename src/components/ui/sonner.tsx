@@ -1,6 +1,12 @@
 "use client";
 
-import { CheckCircle2, Info, LoaderCircle, TriangleAlert, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  Info,
+  LoaderCircle,
+  TriangleAlert,
+  XCircle,
+} from "lucide-react";
 import type { ComponentProps } from "react";
 import { Toaster as Sonner } from "sonner";
 
@@ -30,20 +36,41 @@ function Toaster(props: ToasterProps) {
           description: "line-clamp-2 text-[11px] text-muted-foreground",
           closeButton:
             "ml-1 inline-flex size-5 items-center justify-center rounded border border-border/70 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-          success: "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950",
-          error: "border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950",
+          success:
+            "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950",
+          error:
+            "border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950",
           info: "border-sky-200 bg-sky-50 dark:border-sky-800 dark:bg-sky-950",
-          warning: "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950",
-          loading: "border-sky-200 bg-sky-50 dark:border-sky-800 dark:bg-sky-950",
+          warning:
+            "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950",
+          loading:
+            "border-sky-200 bg-sky-50 dark:border-sky-800 dark:bg-sky-950",
           default: "border-border/80",
         },
       }}
       icons={{
-        success: <CheckCircle2 className="size-3.5 text-emerald-700" aria-hidden="true" />,
-        error: <XCircle className="size-3.5 text-rose-700" aria-hidden="true" />,
+        success: (
+          <CheckCircle2
+            className="size-3.5 text-emerald-700"
+            aria-hidden="true"
+          />
+        ),
+        error: (
+          <XCircle className="size-3.5 text-rose-700" aria-hidden="true" />
+        ),
         info: <Info className="size-3.5 text-sky-700" aria-hidden="true" />,
-        warning: <TriangleAlert className="size-3.5 text-amber-700" aria-hidden="true" />,
-        loading: <LoaderCircle className="size-3.5 animate-spin text-sky-700" aria-hidden="true" />,
+        warning: (
+          <TriangleAlert
+            className="size-3.5 text-amber-700"
+            aria-hidden="true"
+          />
+        ),
+        loading: (
+          <LoaderCircle
+            className="size-3.5 animate-spin text-sky-700"
+            aria-hidden="true"
+          />
+        ),
       }}
       {...props}
     />

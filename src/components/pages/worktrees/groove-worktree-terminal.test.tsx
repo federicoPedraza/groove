@@ -69,6 +69,7 @@ vi.mock("@xterm/addon-clipboard", () => ({
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 
 const {
+  grooveTerminalCheckActivityMock,
   grooveTerminalCloseMock,
   grooveTerminalGetSessionMock,
   grooveTerminalListSessionsMock,
@@ -78,6 +79,7 @@ const {
   listenGrooveTerminalOutputMock,
   openExternalUrlMock,
 } = vi.hoisted(() => ({
+  grooveTerminalCheckActivityMock: vi.fn(),
   grooveTerminalCloseMock: vi.fn(),
   grooveTerminalGetSessionMock: vi.fn(),
   grooveTerminalListSessionsMock: vi.fn(),
@@ -94,6 +96,7 @@ vi.mock("@/src/lib/ipc", () => ({
     void callback;
     return () => {};
   }),
+  grooveTerminalCheckActivity: grooveTerminalCheckActivityMock,
   grooveTerminalClose: grooveTerminalCloseMock,
   grooveTerminalGetSession: grooveTerminalGetSessionMock,
   grooveTerminalListSessions: grooveTerminalListSessionsMock,
@@ -183,6 +186,10 @@ describe("GrooveWorktreeTerminal", () => {
       ok: true,
       session: null,
     });
+    grooveTerminalCheckActivityMock.mockResolvedValue({
+      ok: true,
+      entries: [],
+    });
     grooveTerminalCloseMock.mockResolvedValue({ ok: true });
     grooveTerminalWriteMock.mockResolvedValue({ ok: true });
     grooveTerminalResizeMock.mockResolvedValue({ ok: true });
@@ -198,7 +205,9 @@ describe("GrooveWorktreeTerminal", () => {
     terminalMockInstance.focus.mockClear();
     terminalMockInstance.refresh.mockClear();
     terminalMockInstance.reset.mockClear();
-    terminalMockInstance.onData.mockClear().mockReturnValue({ dispose: vi.fn() });
+    terminalMockInstance.onData
+      .mockClear()
+      .mockReturnValue({ dispose: vi.fn() });
     terminalMockInstance.attachCustomKeyEventHandler.mockClear();
     TerminalConstructor.mockClear();
     fitAddonMockInstance.fit.mockClear();
@@ -213,7 +222,9 @@ describe("GrooveWorktreeTerminal", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(screen.getByText("No active in-app sessions for this worktree.")).toBeInTheDocument();
+    expect(
+      screen.getByText("No active in-app sessions for this worktree."),
+    ).toBeInTheDocument();
   });
 
   it("renders terminal panes when sessions exist", async () => {
@@ -244,7 +255,9 @@ describe("GrooveWorktreeTerminal", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(screen.getByText("No active in-app sessions for this worktree.")).toBeInTheDocument();
+    expect(
+      screen.getByText("No active in-app sessions for this worktree."),
+    ).toBeInTheDocument();
   });
 
   it("creates Terminal instance when session is rendered", async () => {
@@ -285,7 +298,9 @@ describe("GrooveWorktreeTerminal", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Close session/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Close session/ }),
+      ).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -300,7 +315,10 @@ describe("GrooveWorktreeTerminal", () => {
 
   it("shows toast error when close split fails", async () => {
     const { toast } = await import("@/src/lib/toast");
-    grooveTerminalCloseMock.mockResolvedValue({ ok: false, error: "Close failed" });
+    grooveTerminalCloseMock.mockResolvedValue({
+      ok: false,
+      error: "Close failed",
+    });
     grooveTerminalListSessionsMock.mockResolvedValue({
       ok: true,
       sessions: [mockSession],
@@ -311,7 +329,9 @@ describe("GrooveWorktreeTerminal", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Close session/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Close session/ }),
+      ).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -337,7 +357,9 @@ describe("GrooveWorktreeTerminal", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Close session/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Close session/ }),
+      ).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -346,7 +368,9 @@ describe("GrooveWorktreeTerminal", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Failed to close split terminal session.");
+      expect(toast.error).toHaveBeenCalledWith(
+        "Failed to close split terminal session.",
+      );
     });
   });
 
@@ -363,7 +387,9 @@ describe("GrooveWorktreeTerminal", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Close session/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Close session/ }),
+      ).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -372,7 +398,9 @@ describe("GrooveWorktreeTerminal", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Failed to close split terminal session.");
+      expect(toast.error).toHaveBeenCalledWith(
+        "Failed to close split terminal session.",
+      );
     });
   });
 
@@ -410,12 +438,19 @@ describe("GrooveWorktreeTerminal", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    rerender(<GrooveWorktreeTerminal {...defaultProps} knownWorktrees={["feature-1", "feature-2"]} />);
+    rerender(
+      <GrooveWorktreeTerminal
+        {...defaultProps}
+        knownWorktrees={["feature-1", "feature-2"]}
+      />,
+    );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     // Should not crash
-    expect(screen.getByText("No active in-app sessions for this worktree.")).toBeInTheDocument();
+    expect(
+      screen.getByText("No active in-app sessions for this worktree."),
+    ).toBeInTheDocument();
   });
 
   it("uses sessionId as fallback when pid is not available", async () => {
@@ -467,11 +502,14 @@ describe("GrooveWorktreeTerminal", () => {
   });
 
   it("writes terminal output from output listener", async () => {
-    let outputCallback: ((event: Record<string, unknown>) => void) | null = null;
-    listenGrooveTerminalOutputMock.mockImplementation(async (cb: (event: Record<string, unknown>) => void) => {
-      outputCallback = cb;
-      return () => {};
-    });
+    let outputCallback: ((event: Record<string, unknown>) => void) | null =
+      null;
+    listenGrooveTerminalOutputMock.mockImplementation(
+      async (cb: (event: Record<string, unknown>) => void) => {
+        outputCallback = cb;
+        return () => {};
+      },
+    );
 
     grooveTerminalListSessionsMock.mockResolvedValue({
       ok: true,
@@ -500,11 +538,14 @@ describe("GrooveWorktreeTerminal", () => {
   });
 
   it("ignores output events for different session", async () => {
-    let outputCallback: ((event: Record<string, unknown>) => void) | null = null;
-    listenGrooveTerminalOutputMock.mockImplementation(async (cb: (event: Record<string, unknown>) => void) => {
-      outputCallback = cb;
-      return () => {};
-    });
+    let outputCallback: ((event: Record<string, unknown>) => void) | null =
+      null;
+    listenGrooveTerminalOutputMock.mockImplementation(
+      async (cb: (event: Record<string, unknown>) => void) => {
+        outputCallback = cb;
+        return () => {};
+      },
+    );
 
     grooveTerminalListSessionsMock.mockResolvedValue({
       ok: true,
@@ -533,11 +574,14 @@ describe("GrooveWorktreeTerminal", () => {
   });
 
   it("resets terminal on lifecycle started event", async () => {
-    let lifecycleCallback: ((event: Record<string, unknown>) => void) | null = null;
-    listenGrooveTerminalLifecycleMock.mockImplementation(async (cb: (event: Record<string, unknown>) => void) => {
-      lifecycleCallback = cb;
-      return () => {};
-    });
+    let lifecycleCallback: ((event: Record<string, unknown>) => void) | null =
+      null;
+    listenGrooveTerminalLifecycleMock.mockImplementation(
+      async (cb: (event: Record<string, unknown>) => void) => {
+        lifecycleCallback = cb;
+        return () => {};
+      },
+    );
 
     grooveTerminalListSessionsMock.mockResolvedValue({
       ok: true,
@@ -680,7 +724,9 @@ describe("GrooveWorktreeTerminal", () => {
 
     // Terminal should have loaded multiple addons (clipboard, fit, unicode11, webgl, weblinks)
     expect(terminalMockInstance.loadAddon).toHaveBeenCalled();
-    expect(terminalMockInstance.loadAddon.mock.calls.length).toBeGreaterThanOrEqual(4);
+    expect(
+      terminalMockInstance.loadAddon.mock.calls.length,
+    ).toBeGreaterThanOrEqual(4);
   });
 
   it("attaches custom key event handler", async () => {
@@ -712,11 +758,14 @@ describe("GrooveWorktreeTerminal", () => {
   });
 
   it("ignores lifecycle events for a different worktree", async () => {
-    let lifecycleCallback: ((event: Record<string, unknown>) => void) | null = null;
-    listenGrooveTerminalLifecycleMock.mockImplementation(async (cb: (event: Record<string, unknown>) => void) => {
-      lifecycleCallback = cb;
-      return () => {};
-    });
+    let lifecycleCallback: ((event: Record<string, unknown>) => void) | null =
+      null;
+    listenGrooveTerminalLifecycleMock.mockImplementation(
+      async (cb: (event: Record<string, unknown>) => void) => {
+        lifecycleCallback = cb;
+        return () => {};
+      },
+    );
 
     grooveTerminalListSessionsMock.mockResolvedValue({
       ok: true,
@@ -745,11 +794,14 @@ describe("GrooveWorktreeTerminal", () => {
   });
 
   it("ignores lifecycle events for a different workspace root", async () => {
-    let lifecycleCallback: ((event: Record<string, unknown>) => void) | null = null;
-    listenGrooveTerminalLifecycleMock.mockImplementation(async (cb: (event: Record<string, unknown>) => void) => {
-      lifecycleCallback = cb;
-      return () => {};
-    });
+    let lifecycleCallback: ((event: Record<string, unknown>) => void) | null =
+      null;
+    listenGrooveTerminalLifecycleMock.mockImplementation(
+      async (cb: (event: Record<string, unknown>) => void) => {
+        lifecycleCallback = cb;
+        return () => {};
+      },
+    );
 
     grooveTerminalListSessionsMock.mockResolvedValue({
       ok: true,
@@ -807,11 +859,15 @@ describe("GrooveWorktreeTerminal", () => {
   });
 
   it("handles WebGL addon initialization failure gracefully", async () => {
-    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
     const { WebglAddon } = await import("@xterm/addon-webgl");
-    (WebglAddon as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      throw new Error("WebGL not supported");
-    });
+    (WebglAddon as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      () => {
+        throw new Error("WebGL not supported");
+      },
+    );
 
     grooveTerminalListSessionsMock.mockResolvedValue({
       ok: true,
@@ -829,7 +885,9 @@ describe("GrooveWorktreeTerminal", () => {
     );
 
     consoleWarnSpy.mockRestore();
-    (WebglAddon as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => webglAddonMockInstance);
+    (WebglAddon as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      () => webglAddonMockInstance,
+    );
   });
 
   it("does not write snapshot when getSession returns not ok", async () => {
@@ -871,8 +929,11 @@ describe("GrooveWorktreeTerminal", () => {
   });
 
   it("uses detectTerminalInstanceKind for non-Terminal sessions", async () => {
-    const { detectTerminalInstanceKind } = await import("@/src/lib/utils/worktree/process-grouping");
-    (detectTerminalInstanceKind as ReturnType<typeof vi.fn>).mockReturnValue("Opencode");
+    const { detectTerminalInstanceKind } =
+      await import("@/src/lib/utils/worktree/process-grouping");
+    (detectTerminalInstanceKind as ReturnType<typeof vi.fn>).mockReturnValue(
+      "Opencode",
+    );
 
     const opencodeSession: GrooveTerminalSession = {
       ...mockSession,
@@ -893,7 +954,9 @@ describe("GrooveWorktreeTerminal", () => {
       expect(screen.getByText(/Opencode terminal - 1234/)).toBeInTheDocument();
     });
 
-    (detectTerminalInstanceKind as ReturnType<typeof vi.fn>).mockReturnValue("Terminal");
+    (detectTerminalInstanceKind as ReturnType<typeof vi.fn>).mockReturnValue(
+      "Terminal",
+    );
   });
 
   it("updates theme when themeMode changes", async () => {
@@ -926,23 +989,64 @@ describe("GrooveWorktreeTerminal", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    const keyHandler = terminalMockInstance.attachCustomKeyEventHandler.mock.calls[0]?.[0];
+    const keyHandler =
+      terminalMockInstance.attachCustomKeyEventHandler.mock.calls[0]?.[0];
     expect(keyHandler).toBeDefined();
 
     // Non-keydown should pass through
-    expect(keyHandler({ type: "keyup", key: "=", ctrlKey: true, metaKey: false, shiftKey: false })).toBe(true);
+    expect(
+      keyHandler({
+        type: "keyup",
+        key: "=",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+      }),
+    ).toBe(true);
 
     // No modifier should pass through
-    expect(keyHandler({ type: "keydown", key: "a", ctrlKey: false, metaKey: false, shiftKey: false })).toBe(true);
+    expect(
+      keyHandler({
+        type: "keydown",
+        key: "a",
+        ctrlKey: false,
+        metaKey: false,
+        shiftKey: false,
+      }),
+    ).toBe(true);
 
     // Ctrl+= should zoom in and return false
-    expect(keyHandler({ type: "keydown", key: "=", ctrlKey: true, metaKey: false, shiftKey: false })).toBe(false);
+    expect(
+      keyHandler({
+        type: "keydown",
+        key: "=",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+      }),
+    ).toBe(false);
 
     // Ctrl+- should zoom out and return false
-    expect(keyHandler({ type: "keydown", key: "-", ctrlKey: true, metaKey: false, shiftKey: false })).toBe(false);
+    expect(
+      keyHandler({
+        type: "keydown",
+        key: "-",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+      }),
+    ).toBe(false);
 
     // Ctrl+0 should reset zoom and return false
-    expect(keyHandler({ type: "keydown", key: "0", ctrlKey: true, metaKey: false, shiftKey: false })).toBe(false);
+    expect(
+      keyHandler({
+        type: "keydown",
+        key: "0",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+      }),
+    ).toBe(false);
   });
 
   it("handles the custom key event handler for copy with selection", async () => {
@@ -956,7 +1060,8 @@ describe("GrooveWorktreeTerminal", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    const keyHandler = terminalMockInstance.attachCustomKeyEventHandler.mock.calls[0]?.[0];
+    const keyHandler =
+      terminalMockInstance.attachCustomKeyEventHandler.mock.calls[0]?.[0];
     expect(keyHandler).toBeDefined();
 
     // Ctrl+C with selection should attempt clipboard copy
@@ -966,7 +1071,15 @@ describe("GrooveWorktreeTerminal", () => {
     const writeTextMock = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText: writeTextMock } });
 
-    expect(keyHandler({ type: "keydown", key: "c", ctrlKey: true, metaKey: false, shiftKey: false })).toBe(false);
+    expect(
+      keyHandler({
+        type: "keydown",
+        key: "c",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+      }),
+    ).toBe(false);
 
     // Reset selection mock
     terminalMockInstance.hasSelection.mockReturnValue(false);
@@ -983,11 +1096,20 @@ describe("GrooveWorktreeTerminal", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    const keyHandler = terminalMockInstance.attachCustomKeyEventHandler.mock.calls[0]?.[0];
+    const keyHandler =
+      terminalMockInstance.attachCustomKeyEventHandler.mock.calls[0]?.[0];
     terminalMockInstance.hasSelection.mockReturnValue(false);
 
     // Ctrl+C without selection should pass through
-    expect(keyHandler({ type: "keydown", key: "c", ctrlKey: true, metaKey: false, shiftKey: false })).toBe(true);
+    expect(
+      keyHandler({
+        type: "keydown",
+        key: "c",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+      }),
+    ).toBe(true);
   });
 
   it("handles close split with duplicate session id (idempotent pending tracking)", async () => {
@@ -996,9 +1118,12 @@ describe("GrooveWorktreeTerminal", () => {
       sessions: [mockSession],
     });
     // Make close slow to test pending state
-    grooveTerminalCloseMock.mockImplementation(() => new Promise((resolve) => {
-      setTimeout(() => resolve({ ok: true }), 100);
-    }));
+    grooveTerminalCloseMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve({ ok: true }), 100);
+        }),
+    );
 
     render(<GrooveWorktreeTerminal {...defaultProps} />);
     await act(async () => {
@@ -1006,7 +1131,9 @@ describe("GrooveWorktreeTerminal", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Close session/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Close session/ }),
+      ).toBeInTheDocument();
     });
 
     // Click close twice rapidly - second click should still work without duplicating in pending array
@@ -1024,10 +1151,12 @@ describe("GrooveWorktreeTerminal", () => {
 
   it("opens terminal on WebGL context loss", async () => {
     let contextLossHandler: (() => void) | null = null;
-    webglAddonMockInstance.onContextLoss.mockImplementation((...args: unknown[]) => {
-      contextLossHandler = args[0] as () => void;
-      return { dispose: vi.fn() };
-    });
+    webglAddonMockInstance.onContextLoss.mockImplementation(
+      (...args: unknown[]) => {
+        contextLossHandler = args[0] as () => void;
+        return { dispose: vi.fn() };
+      },
+    );
 
     grooveTerminalListSessionsMock.mockResolvedValue({
       ok: true,
@@ -1048,12 +1177,15 @@ describe("GrooveWorktreeTerminal", () => {
   });
 
   it("syncs sessions on lifecycle event for same worktree", async () => {
-    let lifecycleCallback: ((event: Record<string, unknown>) => void) | null = null;
+    let lifecycleCallback: ((event: Record<string, unknown>) => void) | null =
+      null;
     // First call for the top-level component lifecycle listener
-    listenGrooveTerminalLifecycleMock.mockImplementation(async (cb: (event: Record<string, unknown>) => void) => {
-      lifecycleCallback = cb;
-      return () => {};
-    });
+    listenGrooveTerminalLifecycleMock.mockImplementation(
+      async (cb: (event: Record<string, unknown>) => void) => {
+        lifecycleCallback = cb;
+        return () => {};
+      },
+    );
 
     grooveTerminalListSessionsMock.mockResolvedValue({
       ok: true,

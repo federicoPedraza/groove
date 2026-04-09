@@ -9,8 +9,14 @@ import {
 
 describe("detectWorktreeNameFromCommand", () => {
   it("detects worktree names from unix and windows command paths", () => {
-    expect(detectWorktreeNameFromCommand("/tmp/.worktrees/feature-123/bin/run")).toBe("feature-123");
-    expect(detectWorktreeNameFromCommand("C:\\repo\\.worktree\\hotfix-2\\script.ps1")).toBe("hotfix-2");
+    expect(
+      detectWorktreeNameFromCommand("/tmp/.worktrees/feature-123/bin/run"),
+    ).toBe("feature-123");
+    expect(
+      detectWorktreeNameFromCommand(
+        "C:\\repo\\.worktree\\hotfix-2\\script.ps1",
+      ),
+    ).toBe("hotfix-2");
   });
 
   it("returns null when no .worktree path segment exists", () => {
@@ -28,7 +34,11 @@ describe("groupRowsByWorktree", () => {
 
     const grouped = groupRowsByWorktree(rows, (row) => row.command);
 
-    expect(grouped.map((group) => group.worktree)).toEqual(["alpha", "bravo", UNKNOWN_WORKTREE_LABEL]);
+    expect(grouped.map((group) => group.worktree)).toEqual([
+      "alpha",
+      "bravo",
+      UNKNOWN_WORKTREE_LABEL,
+    ]);
     expect(grouped[2]?.rows.map((row) => row.id)).toEqual([3]);
   });
 
@@ -45,7 +55,10 @@ describe("groupRowsByWorktree", () => {
   });
 
   it("returns empty array for empty input", () => {
-    const grouped = groupRowsByWorktree([], (row: { command: string }) => row.command);
+    const grouped = groupRowsByWorktree(
+      [],
+      (row: { command: string }) => row.command,
+    );
     expect(grouped).toEqual([]);
   });
 
@@ -68,11 +81,15 @@ describe("detectWorktreeNameFromCommand (additional)", () => {
   });
 
   it("handles quoted paths", () => {
-    expect(detectWorktreeNameFromCommand('"/path/.worktrees/my-branch/run"')).toBe("my-branch");
+    expect(
+      detectWorktreeNameFromCommand('"/path/.worktrees/my-branch/run"'),
+    ).toBe("my-branch");
   });
 
   it("handles .worktree singular form", () => {
-    expect(detectWorktreeNameFromCommand("/repo/.worktree/feat/script.sh")).toBe("feat");
+    expect(
+      detectWorktreeNameFromCommand("/repo/.worktree/feat/script.sh"),
+    ).toBe("feat");
   });
 });
 
@@ -110,11 +127,15 @@ describe("detectTerminalInstanceKind", () => {
   });
 
   it("extracts executable from full path", () => {
-    expect(detectTerminalInstanceKind("/usr/bin/python script.py")).toBe("Python");
+    expect(detectTerminalInstanceKind("/usr/bin/python script.py")).toBe(
+      "Python",
+    );
   });
 
   it("extracts executable from windows path", () => {
-    expect(detectTerminalInstanceKind("C:\\Programs\\node server.js")).toBe("Node");
+    expect(detectTerminalInstanceKind("C:\\Programs\\node server.js")).toBe(
+      "Node",
+    );
   });
 
   it("returns 'Terminal' when executable is empty after splitting", () => {

@@ -671,6 +671,32 @@ struct GlobalSettingsUpdatePayload {
     keyboard_shortcut_leader: Option<String>,
     keyboard_leader_bindings: Option<HashMap<String, String>>,
     opencode_settings: Option<OpencodeSettingsUpdatePayload>,
+    sound_library: Option<Vec<SoundLibraryEntry>>,
+    claude_code_sound_settings: Option<ClaudeCodeSoundSettings>,
+    groove_sound_settings: Option<GrooveSoundSettings>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundLibraryRemovePayload {
+    sound_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundLibraryReadPayload {
+    file_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundLibraryReadResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -797,29 +823,11 @@ struct GrooveTerminalSessionPayload {
 struct RuntimeStateRow {
     branch: String,
     worktree: String,
-    opencode_state: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    opencode_instance_id: Option<String>,
     log_state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     log_target: Option<String>,
-    opencode_activity_state: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    opencode_activity_detail: Option<OpencodeActivityDetail>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct OpencodeActivityDetail {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    age_s: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    marker: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    log: Option<String>,
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -976,6 +984,33 @@ struct GrooveTerminalLifecycleEvent {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct GrooveTerminalActiveWorktreesResponse {
+    request_id: String,
+    ok: bool,
+    worktrees: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalActivityEntry {
+    session_id: String,
+    has_activity: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveTerminalActivityResponse {
+    request_id: String,
+    ok: bool,
+    entries: Vec<GrooveTerminalActivityEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkspaceTerminalSettingsResponse {
     request_id: String,
     ok: bool,
@@ -1010,6 +1045,98 @@ struct WorkspaceBrowseEntriesResponse {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct SoundLibraryEntry {
+    pub id: String,
+    pub name: String,
+    pub file_name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ClaudeCodeHookSoundEntry {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound_id: Option<String>,
+}
+
+impl Default for ClaudeCodeHookSoundEntry {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            sound_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ClaudeCodeSoundSettings {
+    #[serde(default)]
+    pub notification: ClaudeCodeHookSoundEntry,
+    #[serde(default)]
+    pub stop: ClaudeCodeHookSoundEntry,
+}
+
+impl Default for ClaudeCodeSoundSettings {
+    fn default() -> Self {
+        Self {
+            notification: ClaudeCodeHookSoundEntry::default(),
+            stop: ClaudeCodeHookSoundEntry::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GrooveSoundHookEntry {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound_id: Option<String>,
+}
+
+impl Default for GrooveSoundHookEntry {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            sound_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GrooveSoundSettings {
+    #[serde(default)]
+    pub play: GrooveSoundHookEntry,
+    #[serde(default)]
+    pub pause: GrooveSoundHookEntry,
+    #[serde(default)]
+    pub summary_start: GrooveSoundHookEntry,
+    #[serde(default)]
+    pub summary_end: GrooveSoundHookEntry,
+    #[serde(default)]
+    pub emergency: GrooveSoundHookEntry,
+    #[serde(default)]
+    pub remove: GrooveSoundHookEntry,
+}
+
+impl Default for GrooveSoundSettings {
+    fn default() -> Self {
+        Self {
+            play: GrooveSoundHookEntry::default(),
+            pause: GrooveSoundHookEntry::default(),
+            summary_start: GrooveSoundHookEntry::default(),
+            summary_end: GrooveSoundHookEntry::default(),
+            emergency: GrooveSoundHookEntry::default(),
+            remove: GrooveSoundHookEntry::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GlobalSettings {
     #[serde(default = "default_true")]
     telemetry_enabled: bool,
@@ -1029,6 +1156,12 @@ struct GlobalSettings {
     keyboard_leader_bindings: HashMap<String, String>,
     #[serde(default = "default_opencode_settings")]
     opencode_settings: OpencodeSettings,
+    #[serde(default)]
+    sound_library: Vec<SoundLibraryEntry>,
+    #[serde(default)]
+    claude_code_sound_settings: ClaudeCodeSoundSettings,
+    #[serde(default)]
+    groove_sound_settings: GrooveSoundSettings,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1326,25 +1459,6 @@ struct GitFileStatesResponse {
     untracked: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     output_snippet: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DiagnosticsProcessRow {
-    pid: i32,
-    process_name: String,
-    command: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DiagnosticsOpencodeInstancesResponse {
-    request_id: String,
-    ok: bool,
-    #[serde(default)]
-    rows: Vec<DiagnosticsProcessRow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }

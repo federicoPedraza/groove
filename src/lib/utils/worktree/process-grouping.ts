@@ -15,11 +15,15 @@ export function detectWorktreeNameFromCommand(command: string): string | null {
   return worktree.length > 0 ? worktree : null;
 }
 
-export function groupRowsByWorktree<T>(rows: T[], getCommand: (row: T) => string): WorktreeProcessGroup<T>[] {
+export function groupRowsByWorktree<T>(
+  rows: T[],
+  getCommand: (row: T) => string,
+): WorktreeProcessGroup<T>[] {
   const grouped = new Map<string, T[]>();
 
   for (const row of rows) {
-    const worktree = detectWorktreeNameFromCommand(getCommand(row)) ?? UNKNOWN_WORKTREE_LABEL;
+    const worktree =
+      detectWorktreeNameFromCommand(getCommand(row)) ?? UNKNOWN_WORKTREE_LABEL;
     const existingRows = grouped.get(worktree);
     if (existingRows) {
       existingRows.push(row);
@@ -37,7 +41,9 @@ export function groupRowsByWorktree<T>(rows: T[], getCommand: (row: T) => string
   const knownGroups = groups
     .filter((group) => group.worktree !== UNKNOWN_WORKTREE_LABEL)
     .sort((left, right) => left.worktree.localeCompare(right.worktree));
-  const unknownGroups = groups.filter((group) => group.worktree === UNKNOWN_WORKTREE_LABEL);
+  const unknownGroups = groups.filter(
+    (group) => group.worktree === UNKNOWN_WORKTREE_LABEL,
+  );
 
   return [...knownGroups, ...unknownGroups];
 }
@@ -55,7 +61,12 @@ export function detectTerminalInstanceKind(command: string): string {
   }
 
   const normalized = executable.toLowerCase();
-  if (normalized === "node" || normalized === "npm" || normalized === "pnpm" || normalized === "yarn") {
+  if (
+    normalized === "node" ||
+    normalized === "npm" ||
+    normalized === "pnpm" ||
+    normalized === "yarn"
+  ) {
     return "Node";
   }
 

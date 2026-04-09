@@ -1,9 +1,22 @@
-export type ThemeMode = "light" | "groove" | "ice" | "gum" | "lava" | "earth" | "wind" | "dark-groove" | "dark";
+export type ThemeMode =
+  | "light"
+  | "groove"
+  | "ice"
+  | "gum"
+  | "lava"
+  | "earth"
+  | "wind"
+  | "dark-groove"
+  | "dark";
 
 export const DEFAULT_THEME_MODE: ThemeMode = "groove";
 export const THEME_STORAGE_KEY = "groove.theme-mode";
 
-export const THEME_MODE_OPTIONS: Array<{ value: ThemeMode; label: string; description: string }> = [
+export const THEME_MODE_OPTIONS: Array<{
+  value: ThemeMode;
+  label: string;
+  description: string;
+}> = [
   {
     value: "light",
     label: "Light",

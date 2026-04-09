@@ -18,7 +18,11 @@ export function HelpModal({ open, onOpenChange }: HelpModalProps) {
           <DialogTitle>Help</DialogTitle>
         </DialogHeader>
         <div className="flex items-center justify-center">
-          <img src="/nohelp.jpg" alt="No help available" className="max-h-[50vh] rounded-lg object-contain" />
+          <img
+            src="/nohelp.jpg"
+            alt="No help available"
+            className="max-h-[50vh] rounded-lg object-contain"
+          />
         </div>
       </DialogContent>
     </Dialog>

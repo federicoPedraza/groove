@@ -22,7 +22,10 @@ type Props = {
   onOpenChange?: (open: boolean) => void;
   onBranchChange?: (value: string) => void;
   onBaseChange?: (value: string) => void;
-  onSubmit?: (options?: { branchOverride?: string; baseOverride?: string }) => void;
+  onSubmit?: (options?: {
+    branchOverride?: string;
+    baseOverride?: string;
+  }) => void;
   onCancel?: () => void;
 };
 
@@ -57,7 +60,9 @@ describe("CreateWorktreeModal", () => {
     renderModal();
 
     expect(screen.getByText("Create worktree")).toBeInTheDocument();
-    expect(screen.getByText("Enter a branch name and choose the base branch.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Enter a branch name and choose the base branch."),
+    ).toBeInTheDocument();
   });
 
   it("does not render dialog content when closed", () => {
@@ -70,7 +75,10 @@ describe("CreateWorktreeModal", () => {
   });
 
   it("fetches branches on open and sets current branch as base", async () => {
-    gitListBranchesMock.mockResolvedValue({ ok: true, branches: ["main", "develop"] });
+    gitListBranchesMock.mockResolvedValue({
+      ok: true,
+      branches: ["main", "develop"],
+    });
     gitCurrentBranchMock.mockResolvedValue({ ok: true, branch: "develop" });
 
     const { props } = renderModal();
@@ -86,7 +94,10 @@ describe("CreateWorktreeModal", () => {
   });
 
   it("falls back to first branch when current branch is not in list", async () => {
-    gitListBranchesMock.mockResolvedValue({ ok: true, branches: ["main", "develop"] });
+    gitListBranchesMock.mockResolvedValue({
+      ok: true,
+      branches: ["main", "develop"],
+    });
     gitCurrentBranchMock.mockResolvedValue({ ok: true, branch: "nonexistent" });
 
     const { props } = renderModal();
@@ -97,7 +108,10 @@ describe("CreateWorktreeModal", () => {
   });
 
   it("falls back to first branch when gitCurrentBranch fails", async () => {
-    gitListBranchesMock.mockResolvedValue({ ok: true, branches: ["main", "develop"] });
+    gitListBranchesMock.mockResolvedValue({
+      ok: true,
+      branches: ["main", "develop"],
+    });
     gitCurrentBranchMock.mockResolvedValue({ ok: false, error: "fail" });
 
     const { props } = renderModal();
@@ -119,7 +133,10 @@ describe("CreateWorktreeModal", () => {
   });
 
   it("shows error when gitListBranches fails", async () => {
-    gitListBranchesMock.mockResolvedValue({ ok: false, error: "Network error" });
+    gitListBranchesMock.mockResolvedValue({
+      ok: false,
+      error: "Network error",
+    });
     gitCurrentBranchMock.mockResolvedValue({ ok: true, branch: "main" });
 
     const { props } = renderModal();
@@ -221,12 +238,17 @@ describe("CreateWorktreeModal", () => {
     renderModal();
 
     await waitFor(() => {
-      expect(screen.getByText("No branches were found in this repository.")).toBeInTheDocument();
+      expect(
+        screen.getByText("No branches were found in this repository."),
+      ).toBeInTheDocument();
     });
   });
 
   it("submits with baseOverride when form is valid", async () => {
-    gitListBranchesMock.mockResolvedValue({ ok: true, branches: ["main", "develop"] });
+    gitListBranchesMock.mockResolvedValue({
+      ok: true,
+      branches: ["main", "develop"],
+    });
     gitCurrentBranchMock.mockResolvedValue({ ok: true, branch: "main" });
 
     const { props } = renderModal({ branch: "feature/test", base: "main" });
@@ -258,7 +280,9 @@ describe("CreateWorktreeModal", () => {
 
     fireEvent.click(createButton);
 
-    expect(screen.getByText("Select a branch from the existing branch list.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Select a branch from the existing branch list."),
+    ).toBeInTheDocument();
     expect(props.onSubmit).not.toHaveBeenCalled();
   });
 
@@ -266,7 +290,11 @@ describe("CreateWorktreeModal", () => {
     gitListBranchesMock.mockResolvedValue({ ok: true, branches: ["main"] });
     gitCurrentBranchMock.mockResolvedValue({ ok: true, branch: "main" });
 
-    const { props } = renderModal({ loading: true, branch: "feat", base: "main" });
+    const { props } = renderModal({
+      loading: true,
+      branch: "feat",
+      base: "main",
+    });
 
     // The create button is disabled, but let's verify via onSubmit
     expect(props.onSubmit).not.toHaveBeenCalled();
@@ -284,19 +312,9 @@ describe("CreateWorktreeModal", () => {
 
     gitListBranchesMock.mockResolvedValue({ ok: true, branches: ["main"] });
 
-    rerender(
-      <CreateWorktreeModal
-        {...props}
-        open={false}
-      />,
-    );
+    rerender(<CreateWorktreeModal {...props} open={false} />);
 
-    rerender(
-      <CreateWorktreeModal
-        {...props}
-        open={true}
-      />,
-    );
+    rerender(<CreateWorktreeModal {...props} open={true} />);
 
     await waitFor(() => {
       expect(screen.queryByText("Some error")).not.toBeInTheDocument();

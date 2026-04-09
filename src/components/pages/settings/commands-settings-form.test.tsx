@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CommandsSettingsForm } from "@/src/components/pages/settings/commands-settings-form";
@@ -21,7 +27,9 @@ describe("CommandsSettingsForm", () => {
     vi.useRealTimers();
   });
 
-  function renderForm(overrides: Partial<Parameters<typeof CommandsSettingsForm>[0]> = {}) {
+  function renderForm(
+    overrides: Partial<Parameters<typeof CommandsSettingsForm>[0]> = {},
+  ) {
     return render(
       <CommandsSettingsForm
         playGrooveCommand={GROOVE_PLAY_COMMAND_SENTINEL}
@@ -124,13 +132,19 @@ describe("CommandsSettingsForm", () => {
       vi.advanceTimersByTime(500);
     });
 
-    expect(screen.getByText("Play Groove command is required.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Play Groove command is required."),
+    ).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
   });
 
   it("shows saving message during save", async () => {
     let resolvePromise: (value: { ok: boolean }) => void = () => {};
-    onSave.mockReturnValue(new Promise((resolve) => { resolvePromise = resolve; }));
+    onSave.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePromise = resolve;
+      }),
+    );
 
     renderForm({
       playGrooveCommand: DEFAULT_PLAY_GROOVE_COMMAND,
@@ -174,28 +188,38 @@ describe("CommandsSettingsForm", () => {
   it("resolves template label for play groove when matching known command", () => {
     renderForm({ playGrooveCommand: GROOVE_PLAY_COMMAND_SENTINEL });
 
-    const trigger = screen.getByRole("button", { name: /select play groove terminal template/i });
+    const trigger = screen.getByRole("button", {
+      name: /select play groove terminal template/i,
+    });
     expect(trigger).toHaveTextContent("Groove: Opencode");
   });
 
   it("shows Custom command label for play groove with unknown command", () => {
     renderForm({ playGrooveCommand: "my-custom-launcher {worktree}" });
 
-    const trigger = screen.getByRole("button", { name: /select play groove terminal template/i });
+    const trigger = screen.getByRole("button", {
+      name: /select play groove terminal template/i,
+    });
     expect(trigger).toHaveTextContent("Custom command");
   });
 
   it("resolves template label for open terminal when matching known command", () => {
-    renderForm({ openTerminalAtWorktreeCommand: GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL });
+    renderForm({
+      openTerminalAtWorktreeCommand: GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
+    });
 
-    const trigger = screen.getByRole("button", { name: /select open terminal template/i });
+    const trigger = screen.getByRole("button", {
+      name: /select open terminal template/i,
+    });
     expect(trigger).toHaveTextContent("Groove");
   });
 
   it("resolves template label for run local when matching known command", () => {
     renderForm({ runLocalCommand: DEFAULT_RUN_LOCAL_COMMAND });
 
-    const trigger = screen.getByRole("button", { name: /select run local template/i });
+    const trigger = screen.getByRole("button", {
+      name: /select run local template/i,
+    });
     expect(trigger).toHaveTextContent("pnpm");
   });
 
@@ -261,7 +285,9 @@ describe("CommandsSettingsForm", () => {
       vi.advanceTimersByTime(500);
     });
 
-    expect(screen.getByText("Failed to save command settings.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Failed to save command settings."),
+    ).toBeInTheDocument();
   });
 
   it("resets state when props change (workspace scope change)", () => {
@@ -283,12 +309,18 @@ describe("CommandsSettingsForm", () => {
       />,
     );
 
-    expect(document.getElementById("play-groove-command")!).toHaveValue("cmd-b");
+    expect(document.getElementById("play-groove-command")!).toHaveValue(
+      "cmd-b",
+    );
   });
 
   it("disables inputs when saveState is saving", async () => {
     let resolvePromise: (value: { ok: boolean }) => void = () => {};
-    onSave.mockReturnValue(new Promise((resolve) => { resolvePromise = resolve; }));
+    onSave.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePromise = resolve;
+      }),
+    );
 
     renderForm({
       playGrooveCommand: DEFAULT_PLAY_GROOVE_COMMAND,
@@ -304,7 +336,9 @@ describe("CommandsSettingsForm", () => {
     });
 
     expect(document.getElementById("play-groove-command")!).toBeDisabled();
-    expect(document.getElementById("open-terminal-at-worktree-command")!).toBeDisabled();
+    expect(
+      document.getElementById("open-terminal-at-worktree-command")!,
+    ).toBeDisabled();
     expect(document.getElementById("run-local-command")!).toBeDisabled();
 
     await act(async () => {
@@ -319,11 +353,15 @@ describe("CommandsSettingsForm", () => {
       runLocalCommand: "",
     });
 
-    const trigger = screen.getByRole("button", { name: /select play groove terminal template/i });
+    const trigger = screen.getByRole("button", {
+      name: /select play groove terminal template/i,
+    });
     expect(trigger).toHaveTextContent("Custom command");
 
     const input = document.getElementById("play-groove-command")!;
-    fireEvent.change(input, { target: { value: GROOVE_PLAY_COMMAND_SENTINEL } });
+    fireEvent.change(input, {
+      target: { value: GROOVE_PLAY_COMMAND_SENTINEL },
+    });
 
     expect(trigger).toHaveTextContent("Groove: Opencode");
   });
@@ -335,11 +373,15 @@ describe("CommandsSettingsForm", () => {
       runLocalCommand: "",
     });
 
-    const trigger = screen.getByRole("button", { name: /select open terminal template/i });
+    const trigger = screen.getByRole("button", {
+      name: /select open terminal template/i,
+    });
     expect(trigger).toHaveTextContent("Custom command");
 
     const input = document.getElementById("open-terminal-at-worktree-command")!;
-    fireEvent.change(input, { target: { value: GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL } });
+    fireEvent.change(input, {
+      target: { value: GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL },
+    });
 
     expect(trigger).toHaveTextContent("Groove");
   });
@@ -351,7 +393,9 @@ describe("CommandsSettingsForm", () => {
       runLocalCommand: "something",
     });
 
-    const trigger = screen.getByRole("button", { name: /select run local template/i });
+    const trigger = screen.getByRole("button", {
+      name: /select run local template/i,
+    });
     expect(trigger).toHaveTextContent("Custom command");
 
     const input = document.getElementById("run-local-command")!;

@@ -46,7 +46,10 @@ function ConfirmModal({
   onSecondaryAction,
   onCancel,
 }: ConfirmModalProps) {
-  const hasSecondaryAction = typeof secondaryActionLabel === "string" && secondaryActionLabel.trim().length > 0 && typeof onSecondaryAction === "function";
+  const hasSecondaryAction =
+    typeof secondaryActionLabel === "string" &&
+    secondaryActionLabel.trim().length > 0 &&
+    typeof onSecondaryAction === "function";
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -86,7 +89,13 @@ function ConfirmModal({
             >
               <button
                 type="button"
-                className={cn(buttonVariants({ variant: secondaryActionDestructive ? "destructive" : "secondary" }))}
+                className={cn(
+                  buttonVariants({
+                    variant: secondaryActionDestructive
+                      ? "destructive"
+                      : "secondary",
+                  }),
+                )}
                 disabled={loading}
               >
                 <span>{secondaryActionLabel}</span>
@@ -106,10 +115,16 @@ function ConfirmModal({
           >
             <button
               type="button"
-              className={cn(buttonVariants({ variant: destructive ? "destructive" : "default" }))}
+              className={cn(
+                buttonVariants({
+                  variant: destructive ? "destructive" : "default",
+                }),
+              )}
               disabled={loading}
             >
-              {loading ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+              {loading ? (
+                <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+              ) : null}
               <span>{confirmLabel}</span>
             </button>
           </AlertDialogAction>

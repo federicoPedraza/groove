@@ -23,7 +23,9 @@ describe("DiagnosticsHeader", () => {
     );
 
     expect(screen.getByText("Diagnostics")).toBeInTheDocument();
-    expect(screen.getByText(/Inspect and stop local processes/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Inspect and stop local processes/),
+    ).toBeInTheDocument();
   });
 
   it("renders the load top processes button and calls handler on click", () => {
@@ -36,7 +38,9 @@ describe("DiagnosticsHeader", () => {
       />,
     );
 
-    const loadButton = screen.getByRole("button", { name: /load top processes/i });
+    const loadButton = screen.getByRole("button", {
+      name: /load top processes/i,
+    });
     expect(loadButton).not.toBeDisabled();
 
     fireEvent.click(loadButton);
@@ -53,7 +57,9 @@ describe("DiagnosticsHeader", () => {
       />,
     );
 
-    const loadButton = screen.getByRole("button", { name: /load top processes/i });
+    const loadButton = screen.getByRole("button", {
+      name: /load top processes/i,
+    });
     expect(loadButton).toBeDisabled();
   });
 
@@ -67,7 +73,9 @@ describe("DiagnosticsHeader", () => {
       />,
     );
 
-    const cleanButton = screen.getByRole("button", { name: /clean all processes/i });
+    const cleanButton = screen.getByRole("button", {
+      name: /clean all processes/i,
+    });
     expect(cleanButton).not.toBeDisabled();
 
     fireEvent.click(cleanButton);
@@ -84,7 +92,9 @@ describe("DiagnosticsHeader", () => {
       />,
     );
 
-    const cleanButton = screen.getByRole("button", { name: /cleaning all processes/i });
+    const cleanButton = screen.getByRole("button", {
+      name: /cleaning all processes/i,
+    });
     expect(cleanButton).toBeDisabled();
   });
 });

@@ -1,3 +1,41 @@
+fn has_child_processes(pid: u32) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(content) =
+            std::fs::read_to_string(format!("/proc/{}/task/{}/children", pid, pid))
+        {
+            return !content.trim().is_empty();
+        }
+
+        Command::new("pgrep")
+            .arg("-P")
+            .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("pgrep")
+            .arg("-P")
+            .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = pid;
+        false
+    }
+}
+
 fn request_id() -> String {
     Uuid::new_v4().to_string()
 }
@@ -61,6 +99,23 @@ fn latest_session_id_for_worktree(
         .get(worktree_key)
         .and_then(|session_ids| session_ids.last())
         .cloned()
+}
+
+fn active_worktrees_for_workspace(
+    sessions_state: &GrooveTerminalSessionsState,
+    workspace_root: &Path,
+) -> Vec<String> {
+    let workspace_key_prefix = format!("{}::", workspace_root_storage_key(workspace_root));
+    sessions_state
+        .session_ids_by_worktree
+        .iter()
+        .filter(|(_, session_ids)| !session_ids.is_empty())
+        .filter_map(|(worktree_key, _)| {
+            worktree_key
+                .strip_prefix(&workspace_key_prefix)
+                .map(|worktree| worktree.to_string())
+        })
+        .collect()
 }
 
 fn sessions_for_worktree(
@@ -240,7 +295,11 @@ fn resolve_plain_terminal_command() -> (String, Vec<String>) {
 }
 
 fn augmented_child_path() -> Option<String> {
-    let mut paths = std::env::var_os("PATH")
+    // In an AppImage, PATH is contaminated with FUSE mount paths.
+    // Use the original PATH (saved as PATH_ORIG by AppImage) when available.
+    let base_path = std::env::var_os("PATH_ORIG")
+        .or_else(|| std::env::var_os("PATH"));
+    let mut paths = base_path
         .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
         .unwrap_or_default();
 
@@ -505,9 +564,21 @@ fn open_groove_terminal_session(
         spawn_command.arg(arg);
     }
     spawn_command.cwd(worktree_path);
+    spawn_command.env("PWD", worktree_path.display().to_string());
     spawn_command.env("GROOVE_WORKTREE", worktree_path.display().to_string());
     if let Some(path) = augmented_child_path() {
         spawn_command.env("PATH", path);
+    }
+
+    // Clean AppImage-injected environment variables so the child shell uses
+    // system libraries and paths instead of the FUSE-mounted AppImage ones.
+    // Skip PATH — already handled by augmented_child_path() using PATH_ORIG.
+    for (key, value) in crate::backend::common::platform_env::appimage_cleaned_env() {
+        if key == "PATH" { continue; }
+        match value {
+            Some(restored) => { spawn_command.env(&key, restored); }
+            None => { spawn_command.env_remove(&key); }
+        }
     }
 
     let child = pair.slave.spawn_command(spawn_command).map_err(|error| {

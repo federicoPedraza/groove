@@ -899,6 +899,15 @@ fn global_settings_update(
                 .unwrap_or_else(|| global_settings.opencode_settings.settings_directory.clone()),
         });
     }
+    if let Some(sound_library) = payload.sound_library {
+        global_settings.sound_library = sound_library;
+    }
+    if let Some(claude_code_sound_settings) = payload.claude_code_sound_settings {
+        global_settings.claude_code_sound_settings = claude_code_sound_settings;
+    }
+    if let Some(groove_sound_settings) = payload.groove_sound_settings {
+        global_settings.groove_sound_settings = groove_sound_settings;
+    }
     let settings_file = match global_settings_file(&app) {
         Ok(path) => path,
         Err(error) => {
@@ -908,6 +917,288 @@ fn global_settings_update(
                 global_settings: Some(global_settings),
                 error: Some(error),
             }
+        }
+    };
+
+    if let Err(error) = write_global_settings_file(&settings_file, &global_settings) {
+        return GlobalSettingsResponse {
+            request_id,
+            ok: false,
+            global_settings: Some(global_settings),
+            error: Some(error),
+        };
+    }
+
+    GlobalSettingsResponse {
+        request_id,
+        ok: true,
+        global_settings: Some(global_settings),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn sound_library_read(app: AppHandle, payload: SoundLibraryReadPayload) -> SoundLibraryReadResponse {
+    let request_id = request_id();
+
+    let app_data_dir = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            return SoundLibraryReadResponse {
+                request_id,
+                ok: false,
+                data: None,
+                error: Some(format!("Failed to resolve app data directory: {error}")),
+            };
+        }
+    };
+
+    let sound_file = app_data_dir.join("sounds").join(&payload.file_name);
+    if !sound_file.is_file() {
+        return SoundLibraryReadResponse {
+            request_id,
+            ok: false,
+            data: None,
+            error: Some(format!(
+                "Sound file not found: {} (resolved path: {})",
+                payload.file_name,
+                sound_file.display()
+            )),
+        };
+    }
+
+    match fs::read(&sound_file) {
+        Ok(bytes) => {
+            use base64::Engine;
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            SoundLibraryReadResponse {
+                request_id,
+                ok: true,
+                data: Some(encoded),
+                error: None,
+            }
+        }
+        Err(error) => SoundLibraryReadResponse {
+            request_id,
+            ok: false,
+            data: None,
+            error: Some(format!("Failed to read sound file: {error}")),
+        },
+    }
+}
+
+#[tauri::command]
+fn sound_library_import(app: AppHandle) -> GlobalSettingsResponse {
+    let request_id = request_id();
+
+    let picked = rfd::FileDialog::new()
+        .set_title("Import sound file")
+        .add_filter(
+            "Audio files",
+            &["mp3", "wav", "ogg", "flac", "m4a", "aac", "webm"],
+        )
+        .pick_files();
+
+    let files = match picked {
+        Some(files) if !files.is_empty() => files,
+        _ => {
+            return match ensure_global_settings(&app) {
+                Ok(global_settings) => GlobalSettingsResponse {
+                    request_id,
+                    ok: true,
+                    global_settings: Some(global_settings),
+                    error: None,
+                },
+                Err(error) => GlobalSettingsResponse {
+                    request_id,
+                    ok: false,
+                    global_settings: None,
+                    error: Some(error),
+                },
+            };
+        }
+    };
+
+    let app_data_dir = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            return GlobalSettingsResponse {
+                request_id,
+                ok: false,
+                global_settings: None,
+                error: Some(format!("Failed to resolve app data directory: {error}")),
+            };
+        }
+    };
+
+    let sounds_dir = app_data_dir.join("sounds");
+    if let Err(error) = fs::create_dir_all(&sounds_dir) {
+        return GlobalSettingsResponse {
+            request_id,
+            ok: false,
+            global_settings: None,
+            error: Some(format!("Failed to create sounds directory: {error}")),
+        };
+    }
+
+    let mut global_settings = match ensure_global_settings(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return GlobalSettingsResponse {
+                request_id,
+                ok: false,
+                global_settings: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let mut errors: Vec<String> = Vec::new();
+
+    for file_path in &files {
+        let original_name = file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("sound");
+        let extension = file_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("mp3");
+
+        let file_size = match fs::metadata(file_path) {
+            Ok(meta) => meta.len(),
+            Err(error) => {
+                errors.push(format!("Cannot read {original_name}: {error}"));
+                continue;
+            }
+        };
+
+        if file_size > 10 * 1024 * 1024 {
+            errors.push(format!("{original_name}: file exceeds 10 MB limit"));
+            continue;
+        }
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let dest_file_name = format!("{id}.{extension}");
+        let dest_path = sounds_dir.join(&dest_file_name);
+
+        if let Err(error) = fs::copy(file_path, &dest_path) {
+            errors.push(format!("Failed to copy {original_name}: {error}"));
+            continue;
+        }
+
+        let display_name = original_name
+            .rsplit_once('.')
+            .map(|(name, _)| name)
+            .unwrap_or(original_name)
+            .to_string();
+
+        global_settings.sound_library.push(SoundLibraryEntry {
+            id,
+            name: display_name,
+            file_name: dest_file_name,
+        });
+    }
+
+    let settings_file = match global_settings_file(&app) {
+        Ok(path) => path,
+        Err(error) => {
+            return GlobalSettingsResponse {
+                request_id,
+                ok: false,
+                global_settings: Some(global_settings),
+                error: Some(error),
+            };
+        }
+    };
+
+    if let Err(error) = write_global_settings_file(&settings_file, &global_settings) {
+        return GlobalSettingsResponse {
+            request_id,
+            ok: false,
+            global_settings: Some(global_settings),
+            error: Some(error),
+        };
+    }
+
+    let error = if errors.is_empty() {
+        None
+    } else {
+        Some(errors.join("; "))
+    };
+
+    GlobalSettingsResponse {
+        request_id,
+        ok: true,
+        global_settings: Some(global_settings),
+        error,
+    }
+}
+
+#[tauri::command]
+fn sound_library_remove(app: AppHandle, payload: SoundLibraryRemovePayload) -> GlobalSettingsResponse {
+    let request_id = request_id();
+
+    let mut global_settings = match ensure_global_settings(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return GlobalSettingsResponse {
+                request_id,
+                ok: false,
+                global_settings: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let removed_entry = global_settings
+        .sound_library
+        .iter()
+        .find(|entry| entry.id == payload.sound_id)
+        .cloned();
+
+    global_settings
+        .sound_library
+        .retain(|entry| entry.id != payload.sound_id);
+
+    if let Some(entry) = &removed_entry {
+        if let Ok(app_data_dir) = app.path().app_data_dir() {
+            let sound_file = app_data_dir.join("sounds").join(&entry.file_name);
+            let _ = fs::remove_file(sound_file);
+        }
+    }
+
+    let hook_settings = &mut global_settings.claude_code_sound_settings;
+    if hook_settings.notification.sound_id.as_deref() == Some(&payload.sound_id) {
+        hook_settings.notification.sound_id = None;
+    }
+    if hook_settings.stop.sound_id.as_deref() == Some(&payload.sound_id) {
+        hook_settings.stop.sound_id = None;
+    }
+
+    let groove_hooks = &mut global_settings.groove_sound_settings;
+    for entry in [
+        &mut groove_hooks.play,
+        &mut groove_hooks.pause,
+        &mut groove_hooks.summary_start,
+        &mut groove_hooks.summary_end,
+        &mut groove_hooks.emergency,
+        &mut groove_hooks.remove,
+    ] {
+        if entry.sound_id.as_deref() == Some(&payload.sound_id) {
+            entry.sound_id = None;
+        }
+    }
+
+    let settings_file = match global_settings_file(&app) {
+        Ok(path) => path,
+        Err(error) => {
+            return GlobalSettingsResponse {
+                request_id,
+                ok: false,
+                global_settings: Some(global_settings),
+                error: Some(error),
+            };
         }
     };
 

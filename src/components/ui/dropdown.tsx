@@ -4,8 +4,17 @@ import type { ReactNode } from "react";
 import { Check, ChevronDown } from "lucide-react";
 
 import { Button } from "@/src/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/src/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/src/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/src/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/src/components/ui/tooltip";
 import { cn } from "@/src/lib/utils";
 
 export type DropdownOption = {
@@ -55,23 +64,47 @@ export function Dropdown({
   open,
   onOpenChange,
 }: DropdownProps) {
-  const selectedOption = value ? options.find((option) => option.value === value) ?? null : null;
+  const selectedOption = value
+    ? (options.find((option) => option.value === value) ?? null)
+    : null;
   const triggerLabel = selectedOption ? selectedOption.label : placeholder;
-  const isIconOnlyTrigger = Boolean(triggerIcon) && hideChevron && triggerLabel.length === 0;
+  const isIconOnlyTrigger =
+    Boolean(triggerIcon) && hideChevron && triggerLabel.length === 0;
 
   const triggerButton = (
     <Button
       type="button"
       variant="outline"
       disabled={disabled}
-      className={cn("w-full gap-2", isIconOnlyTrigger ? "justify-center" : "justify-between", triggerClassName)}
+      className={cn(
+        "w-full gap-2",
+        isIconOnlyTrigger ? "justify-center" : "justify-between",
+        triggerClassName,
+      )}
       aria-label={ariaLabel}
     >
-      <span className={cn("flex min-w-0 items-center", isIconOnlyTrigger ? "" : "gap-2", className)}>
-        {triggerIcon ? <span aria-hidden="true" className="shrink-0 text-muted-foreground">{triggerIcon}</span> : null}
-        {!isIconOnlyTrigger ? <span className="truncate">{triggerLabel}</span> : null}
+      <span
+        className={cn(
+          "flex min-w-0 items-center",
+          isIconOnlyTrigger ? "" : "gap-2",
+          className,
+        )}
+      >
+        {triggerIcon ? (
+          <span aria-hidden="true" className="shrink-0 text-muted-foreground">
+            {triggerIcon}
+          </span>
+        ) : null}
+        {!isIconOnlyTrigger ? (
+          <span className="truncate">{triggerLabel}</span>
+        ) : null}
       </span>
-      {!hideChevron ? <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" /> : null}
+      {!hideChevron ? (
+        <ChevronDown
+          aria-hidden="true"
+          className="size-4 shrink-0 text-muted-foreground"
+        />
+      ) : null}
     </Button>
   );
 
@@ -97,7 +130,9 @@ export function Dropdown({
       >
         {menuHeader}
         {options.length === 0 ? (
-          <p className="px-2 py-1.5 text-sm text-muted-foreground">{emptyLabel}</p>
+          <p className="px-2 py-1.5 text-sm text-muted-foreground">
+            {emptyLabel}
+          </p>
         ) : (
           options.map((option) => {
             const isSelected = selectedOption?.value === option.value;
@@ -113,13 +148,29 @@ export function Dropdown({
                 className="min-w-0"
               >
                 <div className="flex min-w-0 flex-1 items-center gap-2">
-                  {option.icon ? <span aria-hidden="true" className="shrink-0 text-muted-foreground">{option.icon}</span> : null}
+                  {option.icon ? (
+                    <span
+                      aria-hidden="true"
+                      className="shrink-0 text-muted-foreground"
+                    >
+                      {option.icon}
+                    </span>
+                  ) : null}
                   <div className="min-w-0">
                     <p className="truncate">{option.label}</p>
-                    {option.valueLabel ? <p className="truncate text-xs text-muted-foreground">{option.valueLabel}</p> : null}
+                    {option.valueLabel ? (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {option.valueLabel}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
-                {isSelected ? <Check aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" /> : null}
+                {isSelected ? (
+                  <Check
+                    aria-hidden="true"
+                    className="size-4 shrink-0 text-muted-foreground"
+                  />
+                ) : null}
               </DropdownMenuItem>
             );
           })

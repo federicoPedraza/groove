@@ -28,7 +28,9 @@ describe("appendRequestId", () => {
   });
 
   it("returns 'detail (requestId: X)' when both are present", () => {
-    expect(appendRequestId("Something failed", "req-42")).toBe("Something failed (requestId: req-42)");
+    expect(appendRequestId("Something failed", "req-42")).toBe(
+      "Something failed (requestId: req-42)",
+    );
   });
 
   it("returns undefined when both are undefined", () => {

@@ -38,9 +38,12 @@ vi.mock("@/src/components/app-navigation", () => ({
   AppNavigation: () => <nav data-testid="app-navigation">Nav</nav>,
 }));
 
-vi.mock("@/src/components/pages/diagnostics/diagnostics-system-sidebar", () => ({
-  DiagnosticsSystemSidebar: () => <div data-testid="diagnostics-sidebar" />,
-}));
+vi.mock(
+  "@/src/components/pages/diagnostics/diagnostics-system-sidebar",
+  () => ({
+    DiagnosticsSystemSidebar: () => <div data-testid="diagnostics-sidebar" />,
+  }),
+);
 
 vi.mock("@/src/components/pages/help/help-modal", () => ({
   HelpModal: ({ open }: { open: boolean }) =>
@@ -58,10 +61,14 @@ vi.mock("@/src/lib/toast", () => ({
 // Import after mocks
 import { PageShell } from "@/src/components/pages/page-shell";
 
-function renderShell(props: Partial<React.ComponentProps<typeof PageShell>> = {}) {
+function renderShell(
+  props: Partial<React.ComponentProps<typeof PageShell>> = {},
+) {
   return render(
     <MemoryRouter>
-      <PageShell {...{ children: <div data-testid="children">Content</div>, ...props }} />
+      <PageShell
+        {...{ children: <div data-testid="children">Content</div>, ...props }}
+      />
     </MemoryRouter>,
   );
 }
@@ -92,7 +99,12 @@ describe("PageShell component", () => {
       ok: true,
       workspaceRoot: "/test/workspace",
       rows: [],
-      workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+      workspaceMeta: {
+        version: 1,
+        rootName: "test",
+        createdAt: "",
+        updatedAt: "",
+      },
     });
     grooveBinStatusMock.mockResolvedValue({
       ok: true,
@@ -328,7 +340,11 @@ describe("PageShell component", () => {
     grooveBinRepairMock.mockResolvedValue({
       ok: true,
       changed: true,
-      status: { hasIssue: false, effectiveBinarySource: "sidecar", effectiveBinaryPath: "/bin/groove" },
+      status: {
+        hasIssue: false,
+        effectiveBinarySource: "sidecar",
+        effectiveBinaryPath: "/bin/groove",
+      },
     });
     renderShell();
     await act(async () => {
@@ -379,7 +395,9 @@ describe("PageShell component", () => {
     });
 
     await waitFor(() => {
-      expect(toast.info).toHaveBeenCalledWith("No GROOVE_BIN repair was needed.");
+      expect(toast.info).toHaveBeenCalledWith(
+        "No GROOVE_BIN repair was needed.",
+      );
     });
   });
 
@@ -409,7 +427,10 @@ describe("PageShell component", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Failed to repair GROOVE_BIN.", expect.anything());
+      expect(toast.error).toHaveBeenCalledWith(
+        "Failed to repair GROOVE_BIN.",
+        expect.anything(),
+      );
     });
   });
 
@@ -541,7 +562,10 @@ describe("PageShell component", () => {
   });
 
   it("handles non-array stored recent directories", async () => {
-    window.localStorage.setItem("groove:recent-directories", JSON.stringify("not-array"));
+    window.localStorage.setItem(
+      "groove:recent-directories",
+      JSON.stringify("not-array"),
+    );
     renderShell({
       noDirectoryOpenState: {
         isVisible: true,
@@ -780,7 +804,9 @@ describe("PageShell component", () => {
 
   it("renders pageSidebar function prop", async () => {
     renderShell({
-      pageSidebar: ({ collapsed }) => <div data-testid="fn-sidebar">c:{String(collapsed)}</div>,
+      pageSidebar: ({ collapsed }) => (
+        <div data-testid="fn-sidebar">c:{String(collapsed)}</div>
+      ),
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -824,7 +850,12 @@ describe("PageShell component", () => {
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       rows: [],
-      workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+      workspaceMeta: {
+        version: 1,
+        rootName: "test",
+        createdAt: "",
+        updatedAt: "",
+      },
     });
     renderShell();
     await act(async () => {
@@ -835,8 +866,11 @@ describe("PageShell component", () => {
   });
 
   it("handles diagnostics overview error response", async () => {
-    const { isAlwaysShowDiagnosticsSidebarEnabled } = await import("@/src/lib/ipc");
-    (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { isAlwaysShowDiagnosticsSidebarEnabled } =
+      await import("@/src/lib/ipc");
+    (
+      isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>
+    ).mockReturnValue(true);
 
     diagnosticsGetSystemOverviewMock.mockResolvedValue({
       ok: false,
@@ -852,8 +886,11 @@ describe("PageShell component", () => {
   });
 
   it("handles diagnostics overview throwing", async () => {
-    const { isAlwaysShowDiagnosticsSidebarEnabled } = await import("@/src/lib/ipc");
-    (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { isAlwaysShowDiagnosticsSidebarEnabled } =
+      await import("@/src/lib/ipc");
+    (
+      isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>
+    ).mockReturnValue(true);
 
     diagnosticsGetSystemOverviewMock.mockRejectedValue(new Error("Net"));
 
@@ -866,8 +903,11 @@ describe("PageShell component", () => {
   });
 
   it("handles diagnostics overview ok but no overview", async () => {
-    const { isAlwaysShowDiagnosticsSidebarEnabled } = await import("@/src/lib/ipc");
-    (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { isAlwaysShowDiagnosticsSidebarEnabled } =
+      await import("@/src/lib/ipc");
+    (
+      isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>
+    ).mockReturnValue(true);
 
     diagnosticsGetSystemOverviewMock.mockResolvedValue({
       ok: true,
@@ -981,8 +1021,7 @@ describe("PageShell component", () => {
     (isShowFpsEnabled as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it("shows development mode label when DEV and Tauri runtime available", async () => {
-    // Set up __TAURI_INTERNALS__ to make isTauriRuntimeAvailable() return true
+  it("does not render development mode label (moved to command history panel)", async () => {
     const win = window as Window & { __TAURI_INTERNALS__?: unknown };
     win.__TAURI_INTERNALS__ = {};
 
@@ -991,36 +1030,38 @@ describe("PageShell component", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    expect(screen.getByText("Development mode")).toBeTruthy();
-
-    delete win.__TAURI_INTERNALS__;
-  });
-
-  it("does not show development mode label when Tauri runtime not available", async () => {
-    const win = window as Window & { __TAURI_INTERNALS__?: unknown };
-    delete win.__TAURI_INTERNALS__;
-
-    renderShell();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
-
     expect(screen.queryByText("Development mode")).not.toBeInTheDocument();
+
+    delete win.__TAURI_INTERNALS__;
   });
 
   it("renders diagnostics sidebar when always-show setting is enabled and workspace is open", async () => {
-    const { isAlwaysShowDiagnosticsSidebarEnabled } = await import("@/src/lib/ipc");
-    (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { isAlwaysShowDiagnosticsSidebarEnabled } =
+      await import("@/src/lib/ipc");
+    (
+      isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>
+    ).mockReturnValue(true);
 
     // We need to render AppNavigation with the actual pageSidebar callback to see the sidebar.
     // Since AppNavigation is mocked, we need to check the passed props instead.
     // Let's unmock AppNavigation to a version that calls pageSidebar:
     // Re-mock AppNavigation to render pageSidebar
-    (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (({ pageSidebar }: { pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode }) => (
+    (
+      (await import("@/src/components/app-navigation")) as Record<
+        string,
+        unknown
+      >
+    ).AppNavigation = ({
+      pageSidebar,
+    }: {
+      pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode;
+    }) => (
       <nav data-testid="app-navigation">
-        {typeof pageSidebar === "function" ? pageSidebar({ collapsed: false }) : pageSidebar}
+        {typeof pageSidebar === "function"
+          ? pageSidebar({ collapsed: false })
+          : pageSidebar}
       </nav>
-    ));
+    );
 
     renderShell();
     await act(async () => {
@@ -1030,22 +1071,45 @@ describe("PageShell component", () => {
     expect(screen.getByTestId("diagnostics-sidebar")).toBeTruthy();
 
     // Reset
-    (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (() => <nav data-testid="app-navigation">Nav</nav>);
-    (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (
+      (await import("@/src/components/app-navigation")) as Record<
+        string,
+        unknown
+      >
+    ).AppNavigation = () => <nav data-testid="app-navigation">Nav</nav>;
+    (
+      isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>
+    ).mockReturnValue(false);
   });
 
   it("renders pageSidebar function inside resolvedNavigationSidebar", async () => {
-    const { isAlwaysShowDiagnosticsSidebarEnabled } = await import("@/src/lib/ipc");
-    (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    const { isAlwaysShowDiagnosticsSidebarEnabled } =
+      await import("@/src/lib/ipc");
+    (
+      isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>
+    ).mockReturnValue(false);
 
-    (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (({ pageSidebar }: { pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode }) => (
+    (
+      (await import("@/src/components/app-navigation")) as Record<
+        string,
+        unknown
+      >
+    ).AppNavigation = ({
+      pageSidebar,
+    }: {
+      pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode;
+    }) => (
       <nav data-testid="app-navigation">
-        {typeof pageSidebar === "function" ? pageSidebar({ collapsed: true }) : pageSidebar}
+        {typeof pageSidebar === "function"
+          ? pageSidebar({ collapsed: true })
+          : pageSidebar}
       </nav>
-    ));
+    );
 
     renderShell({
-      pageSidebar: ({ collapsed }) => <div data-testid="custom-sidebar">collapsed:{String(collapsed)}</div>,
+      pageSidebar: ({ collapsed }) => (
+        <div data-testid="custom-sidebar">collapsed:{String(collapsed)}</div>
+      ),
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -1055,16 +1119,34 @@ describe("PageShell component", () => {
     expect(screen.getByText("collapsed:true")).toBeTruthy();
 
     // Reset
-    (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (() => <nav data-testid="app-navigation">Nav</nav>);
-    (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (
+      (await import("@/src/components/app-navigation")) as Record<
+        string,
+        unknown
+      >
+    ).AppNavigation = () => <nav data-testid="app-navigation">Nav</nav>;
+    (
+      isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>
+    ).mockReturnValue(false);
   });
 
   it("renders pageSidebar ReactNode inside resolvedNavigationSidebar", async () => {
-    (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (({ pageSidebar }: { pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode }) => (
+    (
+      (await import("@/src/components/app-navigation")) as Record<
+        string,
+        unknown
+      >
+    ).AppNavigation = ({
+      pageSidebar,
+    }: {
+      pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode;
+    }) => (
       <nav data-testid="app-navigation">
-        {typeof pageSidebar === "function" ? pageSidebar({ collapsed: false }) : pageSidebar}
+        {typeof pageSidebar === "function"
+          ? pageSidebar({ collapsed: false })
+          : pageSidebar}
       </nav>
-    ));
+    );
 
     renderShell({
       pageSidebar: <div data-testid="static-sidebar">static content</div>,
@@ -1076,7 +1158,12 @@ describe("PageShell component", () => {
     expect(screen.getByTestId("static-sidebar")).toBeTruthy();
 
     // Reset
-    (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (() => <nav data-testid="app-navigation">Nav</nav>);
+    (
+      (await import("@/src/components/app-navigation")) as Record<
+        string,
+        unknown
+      >
+    ).AppNavigation = () => <nav data-testid="app-navigation">Nav</nav>;
   });
 
   it("sets document title via Tauri API when runtime is available", async () => {
@@ -1127,7 +1214,9 @@ describe("PageShell component", () => {
     (isTelemetryEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     // Set up navigation start marker
-    (window as Window & { __grooveNavigationTelemetryStart?: unknown }).__grooveNavigationTelemetryStart = {
+    (
+      window as Window & { __grooveNavigationTelemetryStart?: unknown }
+    ).__grooveNavigationTelemetryStart = {
       from: "/settings",
       to: "/",
       startedAtUnixMs: Date.now(),
@@ -1158,7 +1247,9 @@ describe("PageShell component", () => {
     (isTelemetryEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
     // Set marker with a different destination than current pathname "/"
-    (window as Window & { __grooveNavigationTelemetryStart?: unknown }).__grooveNavigationTelemetryStart = {
+    (
+      window as Window & { __grooveNavigationTelemetryStart?: unknown }
+    ).__grooveNavigationTelemetryStart = {
       from: "/settings",
       to: "/worktrees",
       startedAtUnixMs: Date.now(),
@@ -1174,13 +1265,17 @@ describe("PageShell component", () => {
 
     // Should not log navigation.end with the mismatched marker
     const navEndCalls = consoleSpy.mock.calls.filter(
-      (call) => typeof call[0] === "string" && call[0].includes("navigation.end") && call[1]?.from === "/settings",
+      (call) =>
+        typeof call[0] === "string" &&
+        call[0].includes("navigation.end") &&
+        call[1]?.from === "/settings",
     );
     expect(navEndCalls.length).toBe(0);
 
     // Marker should be cleared
     expect(
-      (window as Window & { __grooveNavigationTelemetryStart?: unknown }).__grooveNavigationTelemetryStart,
+      (window as Window & { __grooveNavigationTelemetryStart?: unknown })
+        .__grooveNavigationTelemetryStart,
     ).toBeUndefined();
 
     consoleSpy.mockRestore();
@@ -1210,14 +1305,28 @@ describe("PageShell component", () => {
   });
 
   it("does not show diagnostics sidebar on /diagnostics route", async () => {
-    const { isAlwaysShowDiagnosticsSidebarEnabled } = await import("@/src/lib/ipc");
-    (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { isAlwaysShowDiagnosticsSidebarEnabled } =
+      await import("@/src/lib/ipc");
+    (
+      isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>
+    ).mockReturnValue(true);
 
-    (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (({ pageSidebar }: { pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode }) => (
+    (
+      (await import("@/src/components/app-navigation")) as Record<
+        string,
+        unknown
+      >
+    ).AppNavigation = ({
+      pageSidebar,
+    }: {
+      pageSidebar?: (args: { collapsed: boolean }) => React.ReactNode;
+    }) => (
       <nav data-testid="app-navigation">
-        {typeof pageSidebar === "function" ? pageSidebar({ collapsed: false }) : pageSidebar}
+        {typeof pageSidebar === "function"
+          ? pageSidebar({ collapsed: false })
+          : pageSidebar}
       </nav>
-    ));
+    );
 
     render(
       <MemoryRouter initialEntries={["/diagnostics"]}>
@@ -1232,8 +1341,15 @@ describe("PageShell component", () => {
     expect(screen.queryByTestId("diagnostics-sidebar")).not.toBeInTheDocument();
 
     // Reset
-    (await import("@/src/components/app-navigation") as Record<string, unknown>).AppNavigation = (() => <nav data-testid="app-navigation">Nav</nav>);
-    (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (
+      (await import("@/src/components/app-navigation")) as Record<
+        string,
+        unknown
+      >
+    ).AppNavigation = () => <nav data-testid="app-navigation">Nav</nav>;
+    (
+      isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>
+    ).mockReturnValue(false);
   });
 
   it("handles refreshActiveWorkspaceDirectoryName catch branch", async () => {
@@ -1243,7 +1359,12 @@ describe("PageShell component", () => {
         ok: true,
         workspaceRoot: "/test/workspace",
         rows: [],
-        workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+        workspaceMeta: {
+          version: 1,
+          rootName: "test",
+          createdAt: "",
+          updatedAt: "",
+        },
       })
       .mockRejectedValue(new Error("IPC error"));
 
@@ -1389,7 +1510,12 @@ describe("PageShell component", () => {
       ok: true,
       workspaceRoot: "/home/user/project",
       rows: [],
-      workspaceMeta: { version: 1, rootName: "   ", createdAt: "", updatedAt: "" },
+      workspaceMeta: {
+        version: 1,
+        rootName: "   ",
+        createdAt: "",
+        updatedAt: "",
+      },
     });
     renderShell();
     await act(async () => {
@@ -1403,8 +1529,11 @@ describe("PageShell component", () => {
   });
 
   it("diagnostics overview error with null error field uses fallback message", async () => {
-    const { isAlwaysShowDiagnosticsSidebarEnabled } = await import("@/src/lib/ipc");
-    (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { isAlwaysShowDiagnosticsSidebarEnabled } =
+      await import("@/src/lib/ipc");
+    (
+      isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>
+    ).mockReturnValue(true);
 
     diagnosticsGetSystemOverviewMock.mockResolvedValue({
       ok: false,
@@ -1420,12 +1549,18 @@ describe("PageShell component", () => {
     // Should not crash; fallback error message used internally
     expect(screen.getByTestId("children")).toBeInTheDocument();
 
-    (isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (
+      isAlwaysShowDiagnosticsSidebarEnabled as ReturnType<typeof vi.fn>
+    ).mockReturnValue(false);
   });
 
   it("invokes PerformanceObserver callback with longtask entries when marker exists", async () => {
     const originalPO = window.PerformanceObserver;
-    let observerCallback: ((list: { getEntries: () => Array<{ startTime: number; duration: number }> }) => void) | null = null;
+    let observerCallback:
+      | ((list: {
+          getEntries: () => Array<{ startTime: number; duration: number }>;
+        }) => void)
+      | null = null;
     const observeMock = vi.fn();
     const disconnectMock = vi.fn();
 
@@ -1450,7 +1585,9 @@ describe("PageShell component", () => {
     });
 
     // Set marker after render so the navigation.end effect doesn't clear it
-    (window as Window & { __grooveNavigationTelemetryStart?: unknown }).__grooveNavigationTelemetryStart = {
+    (
+      window as Window & { __grooveNavigationTelemetryStart?: unknown }
+    ).__grooveNavigationTelemetryStart = {
       from: "/",
       to: "/worktrees",
       startedAtUnixMs: Date.now(),
@@ -1477,13 +1614,18 @@ describe("PageShell component", () => {
 
     consoleSpy.mockRestore();
     (isTelemetryEnabled as ReturnType<typeof vi.fn>).mockReturnValue(false);
-    delete (window as Window & { __grooveNavigationTelemetryStart?: unknown }).__grooveNavigationTelemetryStart;
+    delete (window as Window & { __grooveNavigationTelemetryStart?: unknown })
+      .__grooveNavigationTelemetryStart;
     window.PerformanceObserver = originalPO;
   });
 
   it("PerformanceObserver callback returns early when no marker exists", async () => {
     const originalPO = window.PerformanceObserver;
-    let observerCallback: ((list: { getEntries: () => Array<{ startTime: number; duration: number }> }) => void) | null = null;
+    let observerCallback:
+      | ((list: {
+          getEntries: () => Array<{ startTime: number; duration: number }>;
+        }) => void)
+      | null = null;
     const observeMock = vi.fn();
 
     window.PerformanceObserver = Object.assign(
@@ -1498,7 +1640,8 @@ describe("PageShell component", () => {
     ) as unknown as typeof PerformanceObserver;
 
     // Ensure no navigation marker
-    delete (window as Window & { __grooveNavigationTelemetryStart?: unknown }).__grooveNavigationTelemetryStart;
+    delete (window as Window & { __grooveNavigationTelemetryStart?: unknown })
+      .__grooveNavigationTelemetryStart;
 
     const consoleSpy = vi.spyOn(console, "info").mockImplementation(() => {});
 
@@ -1518,7 +1661,8 @@ describe("PageShell component", () => {
 
     // Should not log any longtask telemetry since there's no marker
     const longtaskCalls = consoleSpy.mock.calls.filter(
-      (call) => typeof call[0] === "string" && call[0].includes("navigation.longtask"),
+      (call) =>
+        typeof call[0] === "string" && call[0].includes("navigation.longtask"),
     );
     expect(longtaskCalls.length).toBe(0);
 
@@ -1532,10 +1676,14 @@ describe("PageShell component", () => {
     let resolveChange: ((fn: () => void) => void) | null = null;
 
     listenWorkspaceReadyMock.mockReturnValue(
-      new Promise<() => void>((r) => { resolveReady = r; }),
+      new Promise<() => void>((r) => {
+        resolveReady = r;
+      }),
     );
     listenWorkspaceChangeMock.mockReturnValue(
-      new Promise<() => void>((r) => { resolveChange = r; }),
+      new Promise<() => void>((r) => {
+        resolveChange = r;
+      }),
     );
 
     const { unmount } = renderShell();
@@ -1568,13 +1716,23 @@ describe("PageShell component", () => {
         ok: true,
         workspaceRoot: "/test/workspace",
         rows: [],
-        workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+        workspaceMeta: {
+          version: 1,
+          rootName: "test",
+          createdAt: "",
+          updatedAt: "",
+        },
       })
       .mockResolvedValueOnce({
         ok: true,
         workspaceRoot: "/test/workspace",
         rows: [],
-        workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+        workspaceMeta: {
+          version: 1,
+          rootName: "test",
+          createdAt: "",
+          updatedAt: "",
+        },
       })
       .mockRejectedValue(new Error("Workspace fetch failed"));
 

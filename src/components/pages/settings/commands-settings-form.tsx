@@ -9,7 +9,12 @@ import {
   DropdownMenuTrigger,
 } from "@/src/components/ui/dropdown-menu";
 import { Input } from "@/src/components/ui/input";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/src/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/src/components/ui/tooltip";
 import type { SaveState } from "@/src/components/pages/settings/types";
 import {
   DEFAULT_PLAY_GROOVE_COMMAND,
@@ -32,7 +37,11 @@ type CommandsSettingsFormProps = {
   section?: "all" | "commands";
   disabled?: boolean;
   disabledMessage?: string;
-  onSave: (payload: CommandsSettingsPayload) => Promise<{ ok: boolean; error?: string; payload?: CommandsSettingsPayload }>;
+  onSave: (payload: CommandsSettingsPayload) => Promise<{
+    ok: boolean;
+    error?: string;
+    payload?: CommandsSettingsPayload;
+  }>;
 };
 
 const CUSTOM_TEMPLATE_VALUE = "__custom__";
@@ -45,10 +54,13 @@ const PLAY_GROOVE_TEMPLATE_COMMANDS = {
   warp: "warp --working-directory {worktree} --command opencode",
   kitty: "kitty --directory {worktree} opencode",
   gnome: "gnome-terminal --working-directory={worktree} -- opencode",
-  xterm: "xterm -e bash -lc \"cd \\\"{worktree}\\\" && opencode\"",
+  xterm: 'xterm -e bash -lc "cd \\"{worktree}\\" && opencode"',
 } as const;
 
-const PLAY_GROOVE_COMMAND_TEMPLATES: Array<{ value: keyof typeof PLAY_GROOVE_TEMPLATE_COMMANDS; label: string }> = [
+const PLAY_GROOVE_COMMAND_TEMPLATES: Array<{
+  value: keyof typeof PLAY_GROOVE_TEMPLATE_COMMANDS;
+  label: string;
+}> = [
   { value: "grooveOpencode", label: "Groove: Opencode" },
   { value: "grooveClaudeCode", label: "Groove: Claude Code" },
   { value: "system", label: "System default" },
@@ -67,7 +79,10 @@ const OPEN_TERMINAL_TEMPLATE_COMMANDS = {
   gnome: "gnome-terminal --working-directory={worktree}",
 } as const;
 
-const OPEN_TERMINAL_COMMAND_TEMPLATES: Array<{ value: keyof typeof OPEN_TERMINAL_TEMPLATE_COMMANDS; label: string }> = [
+const OPEN_TERMINAL_COMMAND_TEMPLATES: Array<{
+  value: keyof typeof OPEN_TERMINAL_TEMPLATE_COMMANDS;
+  label: string;
+}> = [
   { value: "groove", label: "Groove" },
   { value: "ghostty", label: "Ghostty" },
   { value: "warp", label: "Warp" },
@@ -84,7 +99,10 @@ const RUN_LOCAL_TEMPLATE_COMMANDS = {
   deno: "deno task dev",
 } as const;
 
-const RUN_LOCAL_COMMAND_TEMPLATES: Array<{ value: keyof typeof RUN_LOCAL_TEMPLATE_COMMANDS; label: string }> = [
+const RUN_LOCAL_COMMAND_TEMPLATES: Array<{
+  value: keyof typeof RUN_LOCAL_TEMPLATE_COMMANDS;
+  label: string;
+}> = [
   { value: "pnpm", label: "pnpm" },
   { value: "npm", label: "npm" },
   { value: "bun", label: "bun" },
@@ -93,11 +111,19 @@ const RUN_LOCAL_COMMAND_TEMPLATES: Array<{ value: keyof typeof RUN_LOCAL_TEMPLAT
   { value: "deno", label: "Deno" },
 ];
 
-type PlayGrooveTemplateValue = (typeof PLAY_GROOVE_COMMAND_TEMPLATES)[number]["value"] | typeof CUSTOM_TEMPLATE_VALUE;
-type OpenTerminalTemplateValue = (typeof OPEN_TERMINAL_COMMAND_TEMPLATES)[number]["value"] | typeof CUSTOM_TEMPLATE_VALUE;
-type RunLocalTemplateValue = (typeof RUN_LOCAL_COMMAND_TEMPLATES)[number]["value"] | typeof CUSTOM_TEMPLATE_VALUE;
+type PlayGrooveTemplateValue =
+  | (typeof PLAY_GROOVE_COMMAND_TEMPLATES)[number]["value"]
+  | typeof CUSTOM_TEMPLATE_VALUE;
+type OpenTerminalTemplateValue =
+  | (typeof OPEN_TERMINAL_COMMAND_TEMPLATES)[number]["value"]
+  | typeof CUSTOM_TEMPLATE_VALUE;
+type RunLocalTemplateValue =
+  | (typeof RUN_LOCAL_COMMAND_TEMPLATES)[number]["value"]
+  | typeof CUSTOM_TEMPLATE_VALUE;
 
-function resolvePlayGrooveTemplateFromCommand(command: string): PlayGrooveTemplateValue {
+function resolvePlayGrooveTemplateFromCommand(
+  command: string,
+): PlayGrooveTemplateValue {
   const trimmed = command.trim();
   const matchedTemplate = PLAY_GROOVE_COMMAND_TEMPLATES.find(
     (template) => PLAY_GROOVE_TEMPLATE_COMMANDS[template.value] === trimmed,
@@ -109,7 +135,9 @@ function resolvePlayGrooveTemplateFromCommand(command: string): PlayGrooveTempla
   return CUSTOM_TEMPLATE_VALUE;
 }
 
-function resolveOpenTerminalTemplateFromCommand(command: string): OpenTerminalTemplateValue {
+function resolveOpenTerminalTemplateFromCommand(
+  command: string,
+): OpenTerminalTemplateValue {
   const trimmed = command.trim();
   const matchedTemplate = OPEN_TERMINAL_COMMAND_TEMPLATES.find(
     (template) => OPEN_TERMINAL_TEMPLATE_COMMANDS[template.value] === trimmed,
@@ -121,9 +149,13 @@ function resolveOpenTerminalTemplateFromCommand(command: string): OpenTerminalTe
   return CUSTOM_TEMPLATE_VALUE;
 }
 
-function resolveRunLocalTemplateFromCommand(command: string): RunLocalTemplateValue {
+function resolveRunLocalTemplateFromCommand(
+  command: string,
+): RunLocalTemplateValue {
   const trimmed = command.trim();
-  const matchedTemplate = RUN_LOCAL_COMMAND_TEMPLATES.find((template) => RUN_LOCAL_TEMPLATE_COMMANDS[template.value] === trimmed);
+  const matchedTemplate = RUN_LOCAL_COMMAND_TEMPLATES.find(
+    (template) => RUN_LOCAL_TEMPLATE_COMMANDS[template.value] === trimmed,
+  );
   if (matchedTemplate) {
     return matchedTemplate.value;
   }
@@ -145,25 +177,33 @@ export function CommandsSettingsForm({
   onSave,
 }: CommandsSettingsFormProps) {
   const [playCommandValue, setPlayCommandValue] = useState(playGrooveCommand);
-  const [openTerminalAtWorktreeCommandValue, setOpenTerminalAtWorktreeCommandValue] = useState(openTerminalAtWorktreeCommand);
-  const [runLocalCommandValue, setRunLocalCommandValue] = useState(runLocalCommand);
+  const [
+    openTerminalAtWorktreeCommandValue,
+    setOpenTerminalAtWorktreeCommandValue,
+  ] = useState(openTerminalAtWorktreeCommand);
+  const [runLocalCommandValue, setRunLocalCommandValue] =
+    useState(runLocalCommand);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [selectedPlayTemplate, setSelectedPlayTemplate] = useState<PlayGrooveTemplateValue>(
-    resolvePlayGrooveTemplateFromCommand(playGrooveCommand),
-  );
-  const [selectedOpenTerminalTemplate, setSelectedOpenTerminalTemplate] = useState<OpenTerminalTemplateValue>(
-    resolveOpenTerminalTemplateFromCommand(openTerminalAtWorktreeCommand),
-  );
-  const [selectedRunLocalTemplate, setSelectedRunLocalTemplate] = useState<RunLocalTemplateValue>(
-    resolveRunLocalTemplateFromCommand(runLocalCommand),
-  );
+  const [selectedPlayTemplate, setSelectedPlayTemplate] =
+    useState<PlayGrooveTemplateValue>(
+      resolvePlayGrooveTemplateFromCommand(playGrooveCommand),
+    );
+  const [selectedOpenTerminalTemplate, setSelectedOpenTerminalTemplate] =
+    useState<OpenTerminalTemplateValue>(
+      resolveOpenTerminalTemplateFromCommand(openTerminalAtWorktreeCommand),
+    );
+  const [selectedRunLocalTemplate, setSelectedRunLocalTemplate] =
+    useState<RunLocalTemplateValue>(
+      resolveRunLocalTemplateFromCommand(runLocalCommand),
+    );
   const workspaceScopeVersionRef = useRef(0);
   const saveRequestVersionRef = useRef(0);
   const lastSavedSignatureRef = useRef(
     toCommandsSignature({
       playGrooveCommand: playGrooveCommand.trim(),
-      openTerminalAtWorktreeCommand: openTerminalAtWorktreeCommand.trim() || null,
+      openTerminalAtWorktreeCommand:
+        openTerminalAtWorktreeCommand.trim() || null,
       runLocalCommand: runLocalCommand.trim() || null,
     }),
   );
@@ -174,20 +214,30 @@ export function CommandsSettingsForm({
     setPlayCommandValue(playGrooveCommand);
     setOpenTerminalAtWorktreeCommandValue(openTerminalAtWorktreeCommand);
     setRunLocalCommandValue(runLocalCommand);
-    setSelectedPlayTemplate(resolvePlayGrooveTemplateFromCommand(playGrooveCommand));
-    setSelectedOpenTerminalTemplate(resolveOpenTerminalTemplateFromCommand(openTerminalAtWorktreeCommand));
-    setSelectedRunLocalTemplate(resolveRunLocalTemplateFromCommand(runLocalCommand));
+    setSelectedPlayTemplate(
+      resolvePlayGrooveTemplateFromCommand(playGrooveCommand),
+    );
+    setSelectedOpenTerminalTemplate(
+      resolveOpenTerminalTemplateFromCommand(openTerminalAtWorktreeCommand),
+    );
+    setSelectedRunLocalTemplate(
+      resolveRunLocalTemplateFromCommand(runLocalCommand),
+    );
     lastSavedSignatureRef.current = toCommandsSignature({
       playGrooveCommand: playGrooveCommand.trim(),
-      openTerminalAtWorktreeCommand: openTerminalAtWorktreeCommand.trim() || null,
+      openTerminalAtWorktreeCommand:
+        openTerminalAtWorktreeCommand.trim() || null,
       runLocalCommand: runLocalCommand.trim() || null,
     });
     setSaveState("idle");
     setSaveMessage(null);
   }, [openTerminalAtWorktreeCommand, playGrooveCommand, runLocalCommand]);
 
-  const buildPayload = useCallback(
-    (): { payload: CommandsSettingsPayload | null; error: string | null; suppressErrorMessage?: boolean } => {
+  const buildPayload = useCallback((): {
+    payload: CommandsSettingsPayload | null;
+    error: string | null;
+    suppressErrorMessage?: boolean;
+  } => {
     const trimmedPlayCommand = playCommandValue.trim();
     if (!trimmedPlayCommand) {
       return {
@@ -199,14 +249,17 @@ export function CommandsSettingsForm({
     return {
       payload: {
         playGrooveCommand: trimmedPlayCommand,
-        openTerminalAtWorktreeCommand: openTerminalAtWorktreeCommandValue.trim() || null,
+        openTerminalAtWorktreeCommand:
+          openTerminalAtWorktreeCommandValue.trim() || null,
         runLocalCommand: runLocalCommandValue.trim() || null,
       },
       error: null,
     };
-    },
-    [openTerminalAtWorktreeCommandValue, playCommandValue, runLocalCommandValue],
-  );
+  }, [
+    openTerminalAtWorktreeCommandValue,
+    playCommandValue,
+    runLocalCommandValue,
+  ]);
 
   const onAutoSave = useCallback(async (): Promise<void> => {
     if (disabled) {
@@ -251,18 +304,29 @@ export function CommandsSettingsForm({
       return;
     }
 
-    const savedPlayCommand = result.payload?.playGrooveCommand ?? payload.playGrooveCommand;
-    const savedOpenTerminalAtWorktreeCommand = result.payload?.openTerminalAtWorktreeCommand ?? "";
+    const savedPlayCommand =
+      result.payload?.playGrooveCommand ?? payload.playGrooveCommand;
+    const savedOpenTerminalAtWorktreeCommand =
+      result.payload?.openTerminalAtWorktreeCommand ?? "";
     const savedRunLocalCommand = result.payload?.runLocalCommand ?? "";
     setPlayCommandValue(savedPlayCommand);
-    setSelectedPlayTemplate(resolvePlayGrooveTemplateFromCommand(savedPlayCommand));
+    setSelectedPlayTemplate(
+      resolvePlayGrooveTemplateFromCommand(savedPlayCommand),
+    );
     setOpenTerminalAtWorktreeCommandValue(savedOpenTerminalAtWorktreeCommand);
-    setSelectedOpenTerminalTemplate(resolveOpenTerminalTemplateFromCommand(savedOpenTerminalAtWorktreeCommand));
+    setSelectedOpenTerminalTemplate(
+      resolveOpenTerminalTemplateFromCommand(
+        savedOpenTerminalAtWorktreeCommand,
+      ),
+    );
     setRunLocalCommandValue(savedRunLocalCommand);
-    setSelectedRunLocalTemplate(resolveRunLocalTemplateFromCommand(savedRunLocalCommand));
+    setSelectedRunLocalTemplate(
+      resolveRunLocalTemplateFromCommand(savedRunLocalCommand),
+    );
     lastSavedSignatureRef.current = toCommandsSignature({
       playGrooveCommand: savedPlayCommand.trim(),
-      openTerminalAtWorktreeCommand: savedOpenTerminalAtWorktreeCommand.trim() || null,
+      openTerminalAtWorktreeCommand:
+        savedOpenTerminalAtWorktreeCommand.trim() || null,
       runLocalCommand: savedRunLocalCommand.trim() || null,
     });
     setSaveState("success");
@@ -281,25 +345,42 @@ export function CommandsSettingsForm({
     return () => {
       window.clearTimeout(debounceHandle);
     };
-  }, [disabled, onAutoSave, openTerminalAtWorktreeCommandValue, playCommandValue, runLocalCommandValue]);
+  }, [
+    disabled,
+    onAutoSave,
+    openTerminalAtWorktreeCommandValue,
+    playCommandValue,
+    runLocalCommandValue,
+  ]);
 
   const selectedPlayTemplateLabel =
     selectedPlayTemplate === CUSTOM_TEMPLATE_VALUE
       ? "Custom command"
-      : PLAY_GROOVE_COMMAND_TEMPLATES.find((template) => template.value === selectedPlayTemplate)?.label ?? "Custom command";
+      : (PLAY_GROOVE_COMMAND_TEMPLATES.find(
+          (template) => template.value === selectedPlayTemplate,
+        )?.label ?? "Custom command");
   const selectedOpenTerminalTemplateLabel =
     selectedOpenTerminalTemplate === CUSTOM_TEMPLATE_VALUE
       ? "Custom command"
-      : OPEN_TERMINAL_COMMAND_TEMPLATES.find((template) => template.value === selectedOpenTerminalTemplate)?.label ??
-        "Custom command";
+      : (OPEN_TERMINAL_COMMAND_TEMPLATES.find(
+          (template) => template.value === selectedOpenTerminalTemplate,
+        )?.label ?? "Custom command");
   const selectedRunLocalTemplateLabel =
     selectedRunLocalTemplate === CUSTOM_TEMPLATE_VALUE
       ? "Custom command"
-      : RUN_LOCAL_COMMAND_TEMPLATES.find((template) => template.value === selectedRunLocalTemplate)?.label ?? "Custom command";
+      : (RUN_LOCAL_COMMAND_TEMPLATES.find(
+          (template) => template.value === selectedRunLocalTemplate,
+        )?.label ?? "Custom command");
   const showCommandsSection = section === "all" || section === "commands";
 
   return (
-    <div className={section === "all" ? "space-y-3 rounded-md border px-3 py-3" : "space-y-3"}>
+    <div
+      className={
+        section === "all"
+          ? "space-y-3 rounded-md border px-3 py-3"
+          : "space-y-3"
+      }
+    >
       {section === "all" && (
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-medium text-foreground">Commands</h2>
@@ -335,7 +416,9 @@ export function CommandsSettingsForm({
                   value={playCommandValue}
                   onChange={(event) => {
                     setPlayCommandValue(event.target.value);
-                    setSelectedPlayTemplate(resolvePlayGrooveTemplateFromCommand(event.target.value));
+                    setSelectedPlayTemplate(
+                      resolvePlayGrooveTemplateFromCommand(event.target.value),
+                    );
                     setSaveState("idle");
                     setSaveMessage(null);
                   }}
@@ -343,7 +426,10 @@ export function CommandsSettingsForm({
                   disabled={saveState === "saving" || disabled}
                   className="sm:flex-1"
                 />
-                <label htmlFor="play-groove-command-template" className="sr-only">
+                <label
+                  htmlFor="play-groove-command-template"
+                  className="sr-only"
+                >
                   Terminal template
                 </label>
                 <DropdownMenu>
@@ -360,15 +446,21 @@ export function CommandsSettingsForm({
                       <ChevronsUpDown className="size-4 opacity-60" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                  <DropdownMenuContent
+                    align="end"
+                    className="w-[var(--radix-dropdown-menu-trigger-width)]"
+                  >
                     {PLAY_GROOVE_COMMAND_TEMPLATES.map((template) => {
-                      const isSelected = template.value === selectedPlayTemplate;
+                      const isSelected =
+                        template.value === selectedPlayTemplate;
 
                       return (
                         <DropdownMenuItem
                           key={template.value}
                           onSelect={() => {
-                            setPlayCommandValue(PLAY_GROOVE_TEMPLATE_COMMANDS[template.value]);
+                            setPlayCommandValue(
+                              PLAY_GROOVE_TEMPLATE_COMMANDS[template.value],
+                            );
                             setSelectedPlayTemplate(template.value);
                             setSaveState("idle");
                             setSaveMessage(null);
@@ -403,7 +495,10 @@ export function CommandsSettingsForm({
                   </TooltipTrigger>
                   <TooltipContent>Launch worktree terminal</TooltipContent>
                 </Tooltip>
-                <label htmlFor="open-terminal-at-worktree-command" className="sr-only">
+                <label
+                  htmlFor="open-terminal-at-worktree-command"
+                  className="sr-only"
+                >
                   Open terminal command
                 </label>
                 <Input
@@ -411,7 +506,11 @@ export function CommandsSettingsForm({
                   value={openTerminalAtWorktreeCommandValue}
                   onChange={(event) => {
                     setOpenTerminalAtWorktreeCommandValue(event.target.value);
-                    setSelectedOpenTerminalTemplate(resolveOpenTerminalTemplateFromCommand(event.target.value));
+                    setSelectedOpenTerminalTemplate(
+                      resolveOpenTerminalTemplateFromCommand(
+                        event.target.value,
+                      ),
+                    );
                     setSaveState("idle");
                     setSaveMessage(null);
                   }}
@@ -419,7 +518,10 @@ export function CommandsSettingsForm({
                   disabled={saveState === "saving" || disabled}
                   className="sm:flex-1"
                 />
-                <label htmlFor="open-terminal-at-worktree-command-template" className="sr-only">
+                <label
+                  htmlFor="open-terminal-at-worktree-command-template"
+                  className="sr-only"
+                >
                   Open terminal template
                 </label>
                 <DropdownMenu>
@@ -436,15 +538,21 @@ export function CommandsSettingsForm({
                       <ChevronsUpDown className="size-4 opacity-60" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                  <DropdownMenuContent
+                    align="end"
+                    className="w-[var(--radix-dropdown-menu-trigger-width)]"
+                  >
                     {OPEN_TERMINAL_COMMAND_TEMPLATES.map((template) => {
-                      const isSelected = template.value === selectedOpenTerminalTemplate;
+                      const isSelected =
+                        template.value === selectedOpenTerminalTemplate;
 
                       return (
                         <DropdownMenuItem
                           key={template.value}
                           onSelect={() => {
-                            setOpenTerminalAtWorktreeCommandValue(OPEN_TERMINAL_TEMPLATE_COMMANDS[template.value]);
+                            setOpenTerminalAtWorktreeCommandValue(
+                              OPEN_TERMINAL_TEMPLATE_COMMANDS[template.value],
+                            );
                             setSelectedOpenTerminalTemplate(template.value);
                             setSaveState("idle");
                             setSaveMessage(null);
@@ -487,7 +595,9 @@ export function CommandsSettingsForm({
                   value={runLocalCommandValue}
                   onChange={(event) => {
                     setRunLocalCommandValue(event.target.value);
-                    setSelectedRunLocalTemplate(resolveRunLocalTemplateFromCommand(event.target.value));
+                    setSelectedRunLocalTemplate(
+                      resolveRunLocalTemplateFromCommand(event.target.value),
+                    );
                     setSaveState("idle");
                     setSaveMessage(null);
                   }}
@@ -512,15 +622,21 @@ export function CommandsSettingsForm({
                       <ChevronsUpDown className="size-4 opacity-60" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                  <DropdownMenuContent
+                    align="end"
+                    className="w-[var(--radix-dropdown-menu-trigger-width)]"
+                  >
                     {RUN_LOCAL_COMMAND_TEMPLATES.map((template) => {
-                      const isSelected = template.value === selectedRunLocalTemplate;
+                      const isSelected =
+                        template.value === selectedRunLocalTemplate;
 
                       return (
                         <DropdownMenuItem
                           key={template.value}
                           onSelect={() => {
-                            setRunLocalCommandValue(RUN_LOCAL_TEMPLATE_COMMANDS[template.value]);
+                            setRunLocalCommandValue(
+                              RUN_LOCAL_TEMPLATE_COMMANDS[template.value],
+                            );
                             setSelectedRunLocalTemplate(template.value);
                             setSaveState("idle");
                             setSaveMessage(null);
@@ -540,9 +656,21 @@ export function CommandsSettingsForm({
         )}
 
         <>
-          {saveState === "saving" && <span className="mr-2 inline-flex items-center text-sm text-muted-foreground">Saving command settings...</span>}
-          {disabled && disabledMessage && <span className="mr-2 inline-flex items-center text-sm text-muted-foreground">{disabledMessage}</span>}
-          {saveState === "error" && saveMessage && <span className="mr-2 inline-flex items-center text-sm text-destructive">{saveMessage}</span>}
+          {saveState === "saving" && (
+            <span className="mr-2 inline-flex items-center text-sm text-muted-foreground">
+              Saving command settings...
+            </span>
+          )}
+          {disabled && disabledMessage && (
+            <span className="mr-2 inline-flex items-center text-sm text-muted-foreground">
+              {disabledMessage}
+            </span>
+          )}
+          {saveState === "error" && saveMessage && (
+            <span className="mr-2 inline-flex items-center text-sm text-destructive">
+              {saveMessage}
+            </span>
+          )}
         </>
       </TooltipProvider>
     </div>

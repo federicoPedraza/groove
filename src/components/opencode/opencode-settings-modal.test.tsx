@@ -13,17 +13,28 @@ vi.mock("@/src/lib/ipc", () => ({
   DEFAULT_OPENCODE_SETTINGS_DIRECTORY: "~/.config/opencode",
   opencodeListSkills: (...args: unknown[]) => opencodeListSkillsMock(...args),
   opencodeCopySkills: (...args: unknown[]) => opencodeCopySkillsMock(...args),
-  validateOpencodeSettingsDirectory: (...args: unknown[]) => validateOpencodeSettingsDirectoryMock(...args),
-  opencodeUpdateWorkspaceSettings: (...args: unknown[]) => opencodeUpdateWorkspaceSettingsMock(...args),
-  opencodeUpdateGlobalSettings: (...args: unknown[]) => opencodeUpdateGlobalSettingsMock(...args),
+  validateOpencodeSettingsDirectory: (...args: unknown[]) =>
+    validateOpencodeSettingsDirectoryMock(...args),
+  opencodeUpdateWorkspaceSettings: (...args: unknown[]) =>
+    opencodeUpdateWorkspaceSettingsMock(...args),
+  opencodeUpdateGlobalSettings: (...args: unknown[]) =>
+    opencodeUpdateGlobalSettingsMock(...args),
 }));
 
 const defaultProps = {
   open: true,
   workspaceRoot: "/repo" as string | null,
   effectiveScope: "workspace" as const,
-  workspaceSettings: { enabled: true, defaultModel: null, settingsDirectory: "~/.config/opencode" },
-  globalSettings: { enabled: true, defaultModel: null, settingsDirectory: "~/.config/opencode" },
+  workspaceSettings: {
+    enabled: true,
+    defaultModel: null,
+    settingsDirectory: "~/.config/opencode",
+  },
+  globalSettings: {
+    enabled: true,
+    defaultModel: null,
+    settingsDirectory: "~/.config/opencode",
+  },
   statusMessage: null as string | null,
   errorMessage: null as string | null,
   onSettingsSaved: vi.fn(),
@@ -50,14 +61,28 @@ describe("OpencodeSettingsModal", () => {
         rootPath: "/home/test/.opencode",
         skillsPath: "/home/test/.opencode/skills",
         skillsDirectoryExists: true,
-        skills: [{ name: "react-19", path: "/home/test/.opencode/skills/react-19", isDirectory: true, hasSkillMarkdown: true }],
+        skills: [
+          {
+            name: "react-19",
+            path: "/home/test/.opencode/skills/react-19",
+            isDirectory: true,
+            hasSkillMarkdown: true,
+          },
+        ],
       },
       workspaceScope: {
         scope: "workspace",
         rootPath: "/repo/.opencode",
         skillsPath: "/repo/.opencode/skills",
         skillsDirectoryExists: true,
-        skills: [{ name: "sdd-apply", path: "/repo/.opencode/skills/sdd-apply", isDirectory: true, hasSkillMarkdown: true }],
+        skills: [
+          {
+            name: "sdd-apply",
+            path: "/repo/.opencode/skills/sdd-apply",
+            isDirectory: true,
+            hasSkillMarkdown: true,
+          },
+        ],
       },
     });
 
@@ -110,7 +135,9 @@ describe("OpencodeSettingsModal", () => {
     fireEvent.click(screen.getByText("Validate"));
 
     await waitFor(() => {
-      expect(screen.getByText(/Validated Opencode settings directory at/)).toBeTruthy();
+      expect(
+        screen.getByText(/Validated Opencode settings directory at/),
+      ).toBeTruthy();
     });
   });
 
@@ -161,7 +188,9 @@ describe("OpencodeSettingsModal", () => {
 
   it("handles validation exception", async () => {
     opencodeListSkillsMock.mockResolvedValueOnce({ ok: true });
-    validateOpencodeSettingsDirectoryMock.mockRejectedValueOnce(new Error("Net"));
+    validateOpencodeSettingsDirectoryMock.mockRejectedValueOnce(
+      new Error("Net"),
+    );
 
     render(<OpencodeSettingsModal {...defaultProps} />);
 
@@ -172,7 +201,9 @@ describe("OpencodeSettingsModal", () => {
     fireEvent.click(screen.getByText("Validate"));
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to validate Opencode settings directory.")).toBeTruthy();
+      expect(
+        screen.getByText("Failed to validate Opencode settings directory."),
+      ).toBeTruthy();
     });
   });
 
@@ -190,9 +221,13 @@ describe("OpencodeSettingsModal", () => {
 
     await waitFor(() => {
       expect(opencodeUpdateWorkspaceSettingsMock).toHaveBeenCalled();
-      expect(screen.getByText("Opencode settings directory saved.")).toBeTruthy();
+      expect(
+        screen.getByText("Opencode settings directory saved."),
+      ).toBeTruthy();
     });
-    expect(defaultProps.onSettingsSaved).toHaveBeenCalledWith("Opencode settings updated.");
+    expect(defaultProps.onSettingsSaved).toHaveBeenCalledWith(
+      "Opencode settings updated.",
+    );
   });
 
   it("saves global settings directory when effectiveScope is global", async () => {
@@ -209,7 +244,9 @@ describe("OpencodeSettingsModal", () => {
 
     await waitFor(() => {
       expect(opencodeUpdateGlobalSettingsMock).toHaveBeenCalled();
-      expect(screen.getByText("Opencode settings directory saved.")).toBeTruthy();
+      expect(
+        screen.getByText("Opencode settings directory saved."),
+      ).toBeTruthy();
     });
   });
 
@@ -266,7 +303,9 @@ describe("OpencodeSettingsModal", () => {
     fireEvent.click(screen.getByText("Save path"));
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to save Opencode settings directory.")).toBeTruthy();
+      expect(
+        screen.getByText("Failed to save Opencode settings directory."),
+      ).toBeTruthy();
     });
   });
 
@@ -341,7 +380,9 @@ describe("OpencodeSettingsModal", () => {
     render(<OpencodeSettingsModal {...defaultProps} />);
 
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: "Close" }).length).toBeGreaterThan(0);
+      expect(
+        screen.getAllByRole("button", { name: "Close" }).length,
+      ).toBeGreaterThan(0);
     });
 
     // Click the last Close button (the one in the DialogFooter)
@@ -378,7 +419,9 @@ describe("OpencodeSettingsModal", () => {
     render(<OpencodeSettingsModal {...defaultProps} />);
 
     await waitFor(() => {
-      expect(screen.getAllByText("No skills directory found.").length).toBeGreaterThan(0);
+      expect(
+        screen.getAllByText("No skills directory found.").length,
+      ).toBeGreaterThan(0);
     });
   });
 
@@ -409,7 +452,14 @@ describe("OpencodeSettingsModal", () => {
         rootPath: "/home/test/.opencode",
         skillsPath: "/home/test/.opencode/skills",
         skillsDirectoryExists: true,
-        skills: [{ name: "skill-a", path: "/skills/skill-a", isDirectory: true, hasSkillMarkdown: true }],
+        skills: [
+          {
+            name: "skill-a",
+            path: "/skills/skill-a",
+            isDirectory: true,
+            hasSkillMarkdown: true,
+          },
+        ],
       },
     });
 
@@ -427,7 +477,14 @@ describe("OpencodeSettingsModal", () => {
         rootPath: "/home/test/.opencode",
         skillsPath: "/home/test/.opencode/skills",
         skillsDirectoryExists: true,
-        skills: [{ name: "skill-b", path: "/skills/skill-b", isDirectory: true, hasSkillMarkdown: true }],
+        skills: [
+          {
+            name: "skill-b",
+            path: "/skills/skill-b",
+            isDirectory: true,
+            hasSkillMarkdown: true,
+          },
+        ],
       },
     });
 
@@ -453,7 +510,9 @@ describe("OpencodeSettingsModal", () => {
     fireEvent.click(screen.getByText("Validate"));
 
     await waitFor(() => {
-      expect(screen.getByText("Validated Opencode settings directory.")).toBeTruthy();
+      expect(
+        screen.getByText("Validated Opencode settings directory."),
+      ).toBeTruthy();
     });
   });
 
@@ -465,7 +524,14 @@ describe("OpencodeSettingsModal", () => {
         rootPath: "/home/test/.opencode",
         skillsPath: "/home/test/.opencode/skills",
         skillsDirectoryExists: true,
-        skills: [{ name: "skill-a", path: "/skills/skill-a", isDirectory: true, hasSkillMarkdown: true }],
+        skills: [
+          {
+            name: "skill-a",
+            path: "/skills/skill-a",
+            isDirectory: true,
+            hasSkillMarkdown: true,
+          },
+        ],
       },
     });
 
@@ -492,7 +558,14 @@ describe("OpencodeSettingsModal", () => {
         rootPath: "/home/test/.opencode",
         skillsPath: "/home/test/.opencode/skills",
         skillsDirectoryExists: true,
-        skills: [{ name: "skill-a", path: "/skills/skill-a", isDirectory: true, hasSkillMarkdown: true }],
+        skills: [
+          {
+            name: "skill-a",
+            path: "/skills/skill-a",
+            isDirectory: true,
+            hasSkillMarkdown: true,
+          },
+        ],
       },
     });
 
@@ -519,7 +592,14 @@ describe("OpencodeSettingsModal", () => {
         rootPath: "/home/test/.opencode",
         skillsPath: "/home/test/.opencode/skills",
         skillsDirectoryExists: true,
-        skills: [{ name: "skill-a", path: "/skills/skill-a", isDirectory: true, hasSkillMarkdown: true }],
+        skills: [
+          {
+            name: "skill-a",
+            path: "/skills/skill-a",
+            isDirectory: true,
+            hasSkillMarkdown: true,
+          },
+        ],
       },
     });
 
@@ -544,7 +624,14 @@ describe("OpencodeSettingsModal", () => {
         rootPath: "/home/test/.opencode",
         skillsPath: "/home/test/.opencode/skills",
         skillsDirectoryExists: true,
-        skills: [{ name: "skill-a", path: "/skills/skill-a", isDirectory: true, hasSkillMarkdown: true }],
+        skills: [
+          {
+            name: "skill-a",
+            path: "/skills/skill-a",
+            isDirectory: true,
+            hasSkillMarkdown: true,
+          },
+        ],
       },
     });
 
@@ -568,7 +655,14 @@ describe("OpencodeSettingsModal", () => {
         rootPath: "/home/test/.opencode",
         skillsPath: "/home/test/.opencode/skills",
         skillsDirectoryExists: true,
-        skills: [{ name: "skill-a", path: "/skills/skill-a", isDirectory: true, hasSkillMarkdown: true }],
+        skills: [
+          {
+            name: "skill-a",
+            path: "/skills/skill-a",
+            isDirectory: true,
+            hasSkillMarkdown: true,
+          },
+        ],
       },
     });
 
@@ -600,7 +694,14 @@ describe("OpencodeSettingsModal", () => {
         rootPath: "/home/test/.opencode",
         skillsPath: "/home/test/.opencode/skills",
         skillsDirectoryExists: true,
-        skills: [{ name: "skill-a", path: "/skills/skill-a", isDirectory: true, hasSkillMarkdown: true }],
+        skills: [
+          {
+            name: "skill-a",
+            path: "/skills/skill-a",
+            isDirectory: true,
+            hasSkillMarkdown: true,
+          },
+        ],
       },
     });
 
@@ -636,7 +737,14 @@ describe("OpencodeSettingsModal", () => {
         rootPath: "/repo/.opencode",
         skillsPath: "/repo/.opencode/skill",
         skillsDirectoryExists: true,
-        skills: [{ name: "ws-skill", path: "/repo/.opencode/skill/ws-skill", isDirectory: true, hasSkillMarkdown: true }],
+        skills: [
+          {
+            name: "ws-skill",
+            path: "/repo/.opencode/skill/ws-skill",
+            isDirectory: true,
+            hasSkillMarkdown: true,
+          },
+        ],
       },
     });
 

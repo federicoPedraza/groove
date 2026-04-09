@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   READY_STATUS_CLASSES,
-  CLOSING_STATUS_CLASSES,
   PAUSED_STATUS_CLASSES,
   CORRUPTED_STATUS_CLASSES,
   DELETED_STATUS_CLASSES,
@@ -20,7 +19,6 @@ describe("dashboard constants", () => {
   it("exports all status class constants as non-empty strings", () => {
     const statusClasses = [
       READY_STATUS_CLASSES,
-      CLOSING_STATUS_CLASSES,
       PAUSED_STATUS_CLASSES,
       CORRUPTED_STATUS_CLASSES,
       DELETED_STATUS_CLASSES,
@@ -51,7 +49,6 @@ describe("dashboard constants", () => {
   it("each status class constant is unique", () => {
     const statusClasses = [
       READY_STATUS_CLASSES,
-      CLOSING_STATUS_CLASSES,
       PAUSED_STATUS_CLASSES,
       CORRUPTED_STATUS_CLASSES,
       DELETED_STATUS_CLASSES,

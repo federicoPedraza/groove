@@ -8,7 +8,9 @@ const { mockInvoke, mockListen } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mockInvoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: mockListen }));
 vi.mock("@/src/lib/command-history", () => ({
-  trackCommandExecution: vi.fn((_cmd: string, run: () => Promise<unknown>) => run()),
+  trackCommandExecution: vi.fn((_cmd: string, run: () => Promise<unknown>) =>
+    run(),
+  ),
 }));
 
 import {
@@ -18,36 +20,22 @@ import {
   diagnosticsCleanAllDevServers,
   diagnosticsGetMsotConsumingPrograms,
   diagnosticsGetSystemOverview,
-  diagnosticsKillAllNodeAndOpencodeInstances,
-  diagnosticsListOpencodeInstances,
+  diagnosticsKillAllNodeInstances,
   diagnosticsListWorktreeNodeApps,
-  diagnosticsStopAllOpencodeInstances,
   diagnosticsStopProcess,
+  getClaudeCodeSoundSettings,
   getGlobalSettingsSnapshot,
   getIpcTelemetrySummary,
   getOpencodeProfile,
+  getSoundLibrary,
   getThemeMode,
-  gitAdd,
-  gitAheadBehind,
-  gitCommit,
   gitCurrentBranch,
-  gitHasStagedChanges,
-  gitHasUpstream,
   gitListBranches,
-  gitListFileStates,
-  gitMerge,
-  gitMergeAbort,
-  gitMergeInProgress,
-  gitPull,
-  gitPush,
-  gitStageFiles,
-  gitStatus,
-  gitUnstageFiles,
   globalSettingsGet,
   globalSettingsUpdate,
   grooveBinRepair,
   grooveBinStatus,
-  grooveList,
+  grooveTerminalActiveWorktrees,
   grooveNew,
   grooveRestore,
   grooveRm,
@@ -81,6 +69,8 @@ import {
   repairOpencodeIntegration,
   runOpencodeFlow,
   setOpencodeProfile,
+  soundLibraryImport,
+  soundLibraryRemove,
   subscribeToBlockingInvokes,
   subscribeToGlobalSettings,
   subscribeToWorkspaceSettings,
@@ -101,7 +91,6 @@ import {
   workspaceUpdateCommandsSettings,
   workspaceUpdateTerminalSettings,
   workspaceUpdateWorktreeSymlinkPaths,
-  gitAuthStatus,
 } from "@/src/lib/ipc";
 
 beforeEach(() => {
@@ -148,7 +137,9 @@ describe("getter functions", () => {
     expect(snapshot.themeMode).toBe("groove");
     expect(snapshot.keyboardShortcutLeader).toBe("Space");
     expect(snapshot.opencodeSettings.enabled).toBe(false);
-    expect(snapshot.opencodeSettings.settingsDirectory).toBe("~/.config/opencode");
+    expect(snapshot.opencodeSettings.settingsDirectory).toBe(
+      "~/.config/opencode",
+    );
   });
 });
 
@@ -205,8 +196,15 @@ describe("subscribeToGlobalSettings", () => {
         periodicRerenderEnabled: false,
         themeMode: "groove",
         keyboardShortcutLeader: "Space",
-        keyboardLeaderBindings: { openActionLauncher: "k", openWorktreeDetailsLauncher: "p" },
-        opencodeSettings: { enabled: false, defaultModel: null, settingsDirectory: "~/.config/opencode" },
+        keyboardLeaderBindings: {
+          openActionLauncher: "k",
+          openWorktreeDetailsLauncher: "p",
+        },
+        opencodeSettings: {
+          enabled: false,
+          defaultModel: null,
+          settingsDirectory: "~/.config/opencode",
+        },
       },
     });
 
@@ -252,10 +250,17 @@ describe("blocking invokes", () => {
 
     let resolveInvoke!: (value: unknown) => void;
     mockInvoke.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveInvoke = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveInvoke = resolve;
+        }),
     );
 
-    const promise = grooveNew({ rootName: "test", knownWorktrees: [], branch: "feat" });
+    const promise = grooveNew({
+      rootName: "test",
+      knownWorktrees: [],
+      branch: "feat",
+    });
     // Allow microtask to run
     await vi.waitFor(() => expect(hasBlockingInvokeInFlight()).toBe(true));
     expect(listener).toHaveBeenCalled();
@@ -305,7 +310,11 @@ describe("telemetry summary", () => {
 
   it("printIpcTelemetrySummary calls console.table and returns rows", async () => {
     const tableCalls: unknown[][] = [];
-    const tablespy = vi.spyOn(console, "table").mockImplementation((...args: unknown[]) => { tableCalls.push(args); });
+    const tablespy = vi
+      .spyOn(console, "table")
+      .mockImplementation((...args: unknown[]) => {
+        tableCalls.push(args);
+      });
     await grooveNew({ rootName: "r", knownWorktrees: [], branch: "b" });
     const rows = printIpcTelemetrySummary();
     tablespy.mockRestore();
@@ -341,13 +350,16 @@ describe("deduplication", () => {
   it("deduplicates concurrent calls with same command and args", async () => {
     let resolveInvoke!: (v: unknown) => void;
     mockInvoke.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveInvoke = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveInvoke = resolve;
+        }),
     );
 
-    const p1 = grooveList({ knownWorktrees: [] });
-    const p2 = grooveList({ knownWorktrees: [] });
+    const p1 = grooveTerminalActiveWorktrees({ knownWorktrees: [] });
+    const p2 = grooveTerminalActiveWorktrees({ knownWorktrees: [] });
 
-    resolveInvoke({ ok: true, rows: {}, stdout: "", stderr: "" });
+    resolveInvoke({ ok: true, worktrees: [] });
 
     const [r1, r2] = await Promise.all([p1, p2]);
     expect(r1).toBe(r2);
@@ -357,7 +369,12 @@ describe("deduplication", () => {
 
   it("grooveTerminalWrite is not deduped", async () => {
     mockInvoke.mockResolvedValue({ ok: true });
-    const payload = { rootName: "r", knownWorktrees: [], worktree: "w", input: "x" };
+    const payload = {
+      rootName: "r",
+      knownWorktrees: [],
+      worktree: "w",
+      input: "x",
+    };
     const p1 = grooveTerminalWrite(payload);
     const p2 = grooveTerminalWrite(payload);
     await Promise.all([p1, p2]);
@@ -373,15 +390,24 @@ describe("telemetry logging", () => {
     // Ensure telemetry is enabled
     expect(isTelemetryEnabled()).toBe(true);
     const calls: unknown[][] = [];
-    const infoSpy = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => {
-      calls.push(args);
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
     });
-    mockInvoke.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: "", stderr: "" });
     await grooveNew({ rootName: "r", knownWorktrees: [], branch: "tel-1" });
     infoSpy.mockRestore();
 
     const telemetryCall = calls.find(
-      (c) => c[0] === "[ui-telemetry] ipc.invoke" && (c[1] as Record<string, unknown>)?.command === "groove_new",
+      (c) =>
+        c[0] === "[ui-telemetry] ipc.invoke" &&
+        (c[1] as Record<string, unknown>)?.command === "groove_new",
     );
     expect(telemetryCall).toBeDefined();
     expect((telemetryCall![1] as Record<string, unknown>).outcome).toBe("ok");
@@ -389,50 +415,86 @@ describe("telemetry logging", () => {
 
   it("logs outcome 'error' when result.ok is false", async () => {
     const calls: unknown[][] = [];
-    const infoSpy = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => { calls.push(args); });
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
     mockInvoke.mockResolvedValueOnce({ ok: false, error: "fail" });
     await grooveNew({ rootName: "r", knownWorktrees: [], branch: "err-1" });
     infoSpy.mockRestore();
     const telemetryCall = calls.find(
-      (c) => c[0] === "[ui-telemetry] ipc.invoke" && (c[1] as Record<string, unknown>)?.command === "groove_new",
+      (c) =>
+        c[0] === "[ui-telemetry] ipc.invoke" &&
+        (c[1] as Record<string, unknown>)?.command === "groove_new",
     );
     expect(telemetryCall).toBeDefined();
-    expect((telemetryCall![1] as Record<string, unknown>).outcome).toBe("error");
+    expect((telemetryCall![1] as Record<string, unknown>).outcome).toBe(
+      "error",
+    );
   });
 
   it("logs outcome 'success' when result has no ok field", async () => {
     const calls: unknown[][] = [];
-    const infoSpy = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => { calls.push(args); });
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
     mockInvoke.mockResolvedValueOnce({ data: 123 });
     await grooveNew({ rootName: "r", knownWorktrees: [], branch: "suc-1" });
     infoSpy.mockRestore();
     const telemetryCall = calls.find(
-      (c) => c[0] === "[ui-telemetry] ipc.invoke" && (c[1] as Record<string, unknown>)?.command === "groove_new",
+      (c) =>
+        c[0] === "[ui-telemetry] ipc.invoke" &&
+        (c[1] as Record<string, unknown>)?.command === "groove_new",
     );
     expect(telemetryCall).toBeDefined();
-    expect((telemetryCall![1] as Record<string, unknown>).outcome).toBe("success");
+    expect((telemetryCall![1] as Record<string, unknown>).outcome).toBe(
+      "success",
+    );
   });
 
   it("logs outcome 'throw' when invoke rejects", async () => {
     const calls: unknown[][] = [];
-    const infoSpy = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => { calls.push(args); });
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
     mockInvoke.mockRejectedValueOnce(new Error("network error"));
-    await expect(grooveNew({ rootName: "r", knownWorktrees: [], branch: "throw-1" })).rejects.toThrow("network error");
+    await expect(
+      grooveNew({ rootName: "r", knownWorktrees: [], branch: "throw-1" }),
+    ).rejects.toThrow("network error");
     infoSpy.mockRestore();
     const telemetryCall = calls.find(
-      (c) => c[0] === "[ui-telemetry] ipc.invoke" && (c[1] as Record<string, unknown>)?.command === "groove_new",
+      (c) =>
+        c[0] === "[ui-telemetry] ipc.invoke" &&
+        (c[1] as Record<string, unknown>)?.command === "groove_new",
     );
     expect(telemetryCall).toBeDefined();
-    expect((telemetryCall![1] as Record<string, unknown>).outcome).toBe("throw");
+    expect((telemetryCall![1] as Record<string, unknown>).outcome).toBe(
+      "throw",
+    );
   });
 
   it("logs args_summary for calls with arguments", async () => {
     const calls: unknown[][] = [];
-    const infoSpy = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => { calls.push(args); });
-    await grooveRestore({ rootName: "r", knownWorktrees: ["w1"], worktree: "w1" });
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
+    await grooveRestore({
+      rootName: "r",
+      knownWorktrees: ["w1"],
+      worktree: "w1",
+    });
     infoSpy.mockRestore();
     const call = calls.find(
-      (c) => c[0] === "[ui-telemetry] ipc.invoke" && (c[1] as Record<string, unknown>)?.command === "groove_restore",
+      (c) =>
+        c[0] === "[ui-telemetry] ipc.invoke" &&
+        (c[1] as Record<string, unknown>)?.command === "groove_restore",
     );
     expect(call).toBeDefined();
     expect((call![1] as Record<string, unknown>).args_summary).toBeDefined();
@@ -440,28 +502,43 @@ describe("telemetry logging", () => {
 
   it("summarizeArgValue handles long strings", async () => {
     const calls: unknown[][] = [];
-    const infoSpy = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => { calls.push(args); });
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
     const longStr = "a".repeat(50);
     await openExternalUrl(longStr);
     infoSpy.mockRestore();
     const call = calls.find(
-      (c) => c[0] === "[ui-telemetry] ipc.invoke" && (c[1] as Record<string, unknown>)?.command === "open_external_url",
+      (c) =>
+        c[0] === "[ui-telemetry] ipc.invoke" &&
+        (c[1] as Record<string, unknown>)?.command === "open_external_url",
     );
     expect(call).toBeDefined();
-    const summary = (call![1] as Record<string, unknown>).args_summary as string;
+    const summary = (call![1] as Record<string, unknown>)
+      .args_summary as string;
     expect(summary).toContain("string(len=50)");
   });
 
   it("summarizeArgValue handles numbers, booleans, null, arrays, objects", async () => {
     const calls: unknown[][] = [];
-    const infoSpy = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => { calls.push(args); });
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
     await diagnosticsStopProcess(42);
     infoSpy.mockRestore();
     const call = calls.find(
-      (c) => c[0] === "[ui-telemetry] ipc.invoke" && (c[1] as Record<string, unknown>)?.command === "diagnostics_stop_process",
+      (c) =>
+        c[0] === "[ui-telemetry] ipc.invoke" &&
+        (c[1] as Record<string, unknown>)?.command ===
+          "diagnostics_stop_process",
     );
     expect(call).toBeDefined();
-    const summary = (call![1] as Record<string, unknown>).args_summary as string;
+    const summary = (call![1] as Record<string, unknown>)
+      .args_summary as string;
     expect(summary).toContain("42");
   });
 
@@ -474,13 +551,28 @@ describe("telemetry logging", () => {
     await globalSettingsUpdate({ telemetryEnabled: false });
 
     const calls: unknown[][] = [];
-    const infoSpy = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => { calls.push(args); });
-    mockInvoke.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: "", stderr: "" });
-    await grooveNew({ rootName: "r", knownWorktrees: [], branch: "tel-disabled" });
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+    await grooveNew({
+      rootName: "r",
+      knownWorktrees: [],
+      branch: "tel-disabled",
+    });
     infoSpy.mockRestore();
 
     const telemetryCalls = calls.filter(
-      (c) => c[0] === "[ui-telemetry] ipc.invoke" && (c[1] as Record<string, unknown>)?.command === "groove_new",
+      (c) =>
+        c[0] === "[ui-telemetry] ipc.invoke" &&
+        (c[1] as Record<string, unknown>)?.command === "groove_new",
     );
     expect(telemetryCalls.length).toBe(0);
 
@@ -507,7 +599,11 @@ describe("global settings sync", () => {
         alwaysShowDiagnosticsSidebar: true,
         periodicRerenderEnabled: true,
         disableGrooveLoadingSection: true,
-        opencodeSettings: { enabled: true, defaultModel: "gpt-4", settingsDirectory: "/custom" },
+        opencodeSettings: {
+          enabled: true,
+          defaultModel: "gpt-4",
+          settingsDirectory: "/custom",
+        },
       },
     });
     await globalSettingsGet();
@@ -565,7 +661,11 @@ describe("global settings sync", () => {
     mockInvoke.mockResolvedValueOnce({
       ok: true,
       globalSettings: {
-        opencodeSettings: { enabled: false, defaultModel: "  ", settingsDirectory: "" },
+        opencodeSettings: {
+          enabled: false,
+          defaultModel: "  ",
+          settingsDirectory: "",
+        },
       },
     });
     await globalSettingsGet();
@@ -604,119 +704,173 @@ describe("global settings sync", () => {
 // IPC wrapper functions — verify correct command names
 // ---------------------------------------------------------------------------
 describe("IPC wrapper functions", () => {
-  it("grooveList calls groove_list", async () => {
-    await grooveList({ knownWorktrees: [] });
-    expect(mockInvoke).toHaveBeenCalledWith("groove_list", { payload: { knownWorktrees: [] } });
+  it("grooveTerminalActiveWorktrees calls groove_terminal_active_worktrees", async () => {
+    await grooveTerminalActiveWorktrees({ knownWorktrees: [] });
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "groove_terminal_active_worktrees",
+      { payload: { knownWorktrees: [] } },
+    );
   });
 
   it("grooveRestore calls groove_restore", async () => {
     await grooveRestore({ rootName: "r", knownWorktrees: [], worktree: "w" });
-    expect(mockInvoke).toHaveBeenCalledWith("groove_restore", { payload: { rootName: "r", knownWorktrees: [], worktree: "w" } });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_restore", {
+      payload: { rootName: "r", knownWorktrees: [], worktree: "w" },
+    });
   });
 
   it("grooveNew calls groove_new", async () => {
     await grooveNew({ rootName: "r", knownWorktrees: [], branch: "b" });
-    expect(mockInvoke).toHaveBeenCalledWith("groove_new", { payload: { rootName: "r", knownWorktrees: [], branch: "b" } });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_new", {
+      payload: { rootName: "r", knownWorktrees: [], branch: "b" },
+    });
   });
 
   it("grooveRm calls groove_rm", async () => {
-    await grooveRm({ rootName: "r", knownWorktrees: [], target: "t", worktree: "w" });
-    expect(mockInvoke).toHaveBeenCalledWith("groove_rm", { payload: { rootName: "r", knownWorktrees: [], target: "t", worktree: "w" } });
+    await grooveRm({
+      rootName: "r",
+      knownWorktrees: [],
+      target: "t",
+      worktree: "w",
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_rm", {
+      payload: {
+        rootName: "r",
+        knownWorktrees: [],
+        target: "t",
+        worktree: "w",
+      },
+    });
   });
 
   it("grooveStop calls groove_stop", async () => {
     await grooveStop({ rootName: "r", knownWorktrees: [], worktree: "w" });
-    expect(mockInvoke).toHaveBeenCalledWith("groove_stop", { payload: { rootName: "r", knownWorktrees: [], worktree: "w" } });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_stop", {
+      payload: { rootName: "r", knownWorktrees: [], worktree: "w" },
+    });
   });
 
   it("grooveSummary calls groove_summary", async () => {
     await grooveSummary({ rootName: "r", knownWorktrees: [], sessionIds: [] });
-    expect(mockInvoke).toHaveBeenCalledWith("groove_summary", { payload: { rootName: "r", knownWorktrees: [], sessionIds: [] } });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_summary", {
+      payload: { rootName: "r", knownWorktrees: [], sessionIds: [] },
+    });
   });
 
   it("workspaceEvents calls workspace_events", async () => {
     await workspaceEvents({ knownWorktrees: [] });
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_events", { payload: { knownWorktrees: [] } });
+    expect(mockInvoke).toHaveBeenCalledWith("workspace_events", {
+      payload: { knownWorktrees: [] },
+    });
   });
 
   it("openExternalUrl calls open_external_url", async () => {
     await openExternalUrl("https://example.com");
-    expect(mockInvoke).toHaveBeenCalledWith("open_external_url", { url: "https://example.com" });
-  });
-
-  it("diagnosticsListOpencodeInstances calls correct command", async () => {
-    await diagnosticsListOpencodeInstances();
-    expect(mockInvoke).toHaveBeenCalledWith("diagnostics_list_opencode_instances", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith("open_external_url", {
+      url: "https://example.com",
+    });
   });
 
   it("diagnosticsStopProcess calls correct command", async () => {
     await diagnosticsStopProcess(123);
-    expect(mockInvoke).toHaveBeenCalledWith("diagnostics_stop_process", { pid: 123 });
+    expect(mockInvoke).toHaveBeenCalledWith("diagnostics_stop_process", {
+      pid: 123,
+    });
   });
 
-  it("diagnosticsStopAllOpencodeInstances calls correct command", async () => {
-    await diagnosticsStopAllOpencodeInstances();
-    expect(mockInvoke).toHaveBeenCalledWith("diagnostics_stop_all_opencode_instances", undefined);
-  });
-
-  it("diagnosticsKillAllNodeAndOpencodeInstances calls correct command", async () => {
-    await diagnosticsKillAllNodeAndOpencodeInstances();
-    expect(mockInvoke).toHaveBeenCalledWith("diagnostics_kill_all_node_and_opencode_instances", undefined);
+  it("diagnosticsKillAllNodeInstances calls correct command", async () => {
+    await diagnosticsKillAllNodeInstances();
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "diagnostics_kill_all_node_instances",
+      undefined,
+    );
   });
 
   it("diagnosticsListWorktreeNodeApps calls correct command", async () => {
     await diagnosticsListWorktreeNodeApps();
-    expect(mockInvoke).toHaveBeenCalledWith("diagnostics_list_worktree_node_apps", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "diagnostics_list_worktree_node_apps",
+      undefined,
+    );
   });
 
   it("diagnosticsCleanAllDevServers calls correct command", async () => {
     await diagnosticsCleanAllDevServers();
-    expect(mockInvoke).toHaveBeenCalledWith("diagnostics_clean_all_dev_servers", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "diagnostics_clean_all_dev_servers",
+      undefined,
+    );
   });
 
   it("diagnosticsGetMsotConsumingPrograms calls correct command", async () => {
     await diagnosticsGetMsotConsumingPrograms();
-    expect(mockInvoke).toHaveBeenCalledWith("diagnostics_get_msot_consuming_programs", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "diagnostics_get_msot_consuming_programs",
+      undefined,
+    );
   });
 
   it("diagnosticsGetSystemOverview calls correct command with background intent", async () => {
     await diagnosticsGetSystemOverview();
-    expect(mockInvoke).toHaveBeenCalledWith("diagnostics_get_system_overview", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "diagnostics_get_system_overview",
+      undefined,
+    );
   });
 
   it("workspacePickAndOpen invalidates cache and calls command", async () => {
     await workspacePickAndOpen();
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_pick_and_open", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "workspace_pick_and_open",
+      undefined,
+    );
   });
 
   it("workspaceOpen invalidates cache and calls command", async () => {
     await workspaceOpen("/path");
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_open", { workspaceRoot: "/path" });
+    expect(mockInvoke).toHaveBeenCalledWith("workspace_open", {
+      workspaceRoot: "/path",
+    });
   });
 
   it("workspaceClearActive invalidates cache and calls command", async () => {
     await workspaceClearActive();
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_clear_active", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "workspace_clear_active",
+      undefined,
+    );
   });
 
   it("workspaceTermSanityCheck calls correct command", async () => {
     await workspaceTermSanityCheck();
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_term_sanity_check", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "workspace_term_sanity_check",
+      undefined,
+    );
   });
 
   it("workspaceTermSanityApply calls correct command", async () => {
     await workspaceTermSanityApply();
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_term_sanity_apply", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "workspace_term_sanity_apply",
+      undefined,
+    );
   });
 
   it("workspaceGitignoreSanityCheck calls correct command", async () => {
     await workspaceGitignoreSanityCheck();
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_gitignore_sanity_check", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "workspace_gitignore_sanity_check",
+      undefined,
+    );
   });
 
   it("workspaceGitignoreSanityApply calls correct command", async () => {
     await workspaceGitignoreSanityApply();
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_gitignore_sanity_apply", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "workspace_gitignore_sanity_apply",
+      undefined,
+    );
   });
 
   it("grooveBinStatus calls correct command", async () => {
@@ -729,89 +883,18 @@ describe("IPC wrapper functions", () => {
     expect(mockInvoke).toHaveBeenCalledWith("groove_bin_repair", undefined);
   });
 
-  it("gitAuthStatus calls correct command", async () => {
-    await gitAuthStatus({ workspaceRoot: "/root" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_auth_status", { payload: { workspaceRoot: "/root" } });
-  });
-
-  it("gitStatus calls correct command", async () => {
-    await gitStatus({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_status", { payload: { path: "/p" } });
-  });
-
   it("gitCurrentBranch calls correct command", async () => {
     await gitCurrentBranch({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_current_branch", { payload: { path: "/p" } });
+    expect(mockInvoke).toHaveBeenCalledWith("git_current_branch", {
+      payload: { path: "/p" },
+    });
   });
 
   it("gitListBranches calls correct command", async () => {
     await gitListBranches({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_list_branches", { payload: { path: "/p" } });
-  });
-
-  it("gitAheadBehind calls correct command", async () => {
-    await gitAheadBehind({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_ahead_behind", { payload: { path: "/p" } });
-  });
-
-  it("gitPull calls correct command", async () => {
-    await gitPull({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_pull", { payload: { path: "/p" } });
-  });
-
-  it("gitPush calls correct command", async () => {
-    await gitPush({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_push", { payload: { path: "/p" } });
-  });
-
-  it("gitMerge calls correct command", async () => {
-    await gitMerge({ path: "/p", targetBranch: "main" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_merge", { payload: { path: "/p", targetBranch: "main" } });
-  });
-
-  it("gitMergeAbort calls correct command", async () => {
-    await gitMergeAbort({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_merge_abort", { payload: { path: "/p" } });
-  });
-
-  it("gitHasStagedChanges calls correct command", async () => {
-    await gitHasStagedChanges({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_has_staged_changes", { payload: { path: "/p" } });
-  });
-
-  it("gitMergeInProgress calls correct command", async () => {
-    await gitMergeInProgress({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_merge_in_progress", { payload: { path: "/p" } });
-  });
-
-  it("gitHasUpstream calls correct command", async () => {
-    await gitHasUpstream({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_has_upstream", { payload: { path: "/p" } });
-  });
-
-  it("gitAdd calls correct command", async () => {
-    await gitAdd({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_add", { payload: { path: "/p" } });
-  });
-
-  it("gitListFileStates calls correct command", async () => {
-    await gitListFileStates({ path: "/p" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_list_file_states", { payload: { path: "/p" } });
-  });
-
-  it("gitStageFiles calls correct command", async () => {
-    await gitStageFiles({ path: "/p", files: ["a.ts"] });
-    expect(mockInvoke).toHaveBeenCalledWith("git_stage_files", { payload: { path: "/p", files: ["a.ts"] } });
-  });
-
-  it("gitUnstageFiles calls correct command", async () => {
-    await gitUnstageFiles({ path: "/p", files: ["a.ts"] });
-    expect(mockInvoke).toHaveBeenCalledWith("git_unstage_files", { payload: { path: "/p", files: ["a.ts"] } });
-  });
-
-  it("gitCommit calls correct command", async () => {
-    await gitCommit({ path: "/p", message: "msg" });
-    expect(mockInvoke).toHaveBeenCalledWith("git_commit", { payload: { path: "/p", message: "msg" } });
+    expect(mockInvoke).toHaveBeenCalledWith("git_list_branches", {
+      payload: { path: "/p" },
+    });
   });
 
   it("globalSettingsGet calls correct command", async () => {
@@ -821,68 +904,97 @@ describe("IPC wrapper functions", () => {
 
   it("globalSettingsUpdate calls correct command", async () => {
     await globalSettingsUpdate({ showFps: true });
-    expect(mockInvoke).toHaveBeenCalledWith("global_settings_update", { payload: { showFps: true } });
+    expect(mockInvoke).toHaveBeenCalledWith("global_settings_update", {
+      payload: { showFps: true },
+    });
   });
 
   it("workspaceUpdateTerminalSettings calls correct command", async () => {
     const payload = { defaultTerminal: "auto" as const };
     await workspaceUpdateTerminalSettings(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_update_terminal_settings", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "workspace_update_terminal_settings",
+      { payload },
+    );
   });
 
   it("workspaceUpdateCommandsSettings calls correct command", async () => {
     const payload = { playGrooveCommand: "cmd" };
     await workspaceUpdateCommandsSettings(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_update_commands_settings", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "workspace_update_commands_settings",
+      { payload },
+    );
   });
 
   it("workspaceUpdateWorktreeSymlinkPaths calls correct command", async () => {
     const payload = { worktreeSymlinkPaths: ["/a"] };
     await workspaceUpdateWorktreeSymlinkPaths(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_update_worktree_symlink_paths", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "workspace_update_worktree_symlink_paths",
+      { payload },
+    );
   });
 
   it("workspaceListSymlinkEntries calls correct command", async () => {
     await workspaceListSymlinkEntries();
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_list_symlink_entries", { payload: {} });
+    expect(mockInvoke).toHaveBeenCalledWith("workspace_list_symlink_entries", {
+      payload: {},
+    });
   });
 
   it("opencodeIntegrationStatus calls correct command", async () => {
     await opencodeIntegrationStatus();
-    expect(mockInvoke).toHaveBeenCalledWith("opencode_integration_status", undefined);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "opencode_integration_status",
+      undefined,
+    );
   });
 
   it("opencodeUpdateWorkspaceSettings calls correct command", async () => {
     const payload = { enabled: true };
     await opencodeUpdateWorkspaceSettings(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("opencode_update_workspace_settings", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "opencode_update_workspace_settings",
+      { payload },
+    );
   });
 
   it("opencodeUpdateGlobalSettings calls correct command", async () => {
     const payload = { enabled: true };
     await opencodeUpdateGlobalSettings(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("opencode_update_global_settings", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith("opencode_update_global_settings", {
+      payload,
+    });
   });
 
   it("checkOpencodeStatus calls correct command", async () => {
     await checkOpencodeStatus("/wt");
-    expect(mockInvoke).toHaveBeenCalledWith("check_opencode_status", { worktreePath: "/wt" });
+    expect(mockInvoke).toHaveBeenCalledWith("check_opencode_status", {
+      worktreePath: "/wt",
+    });
   });
 
   it("validateOpencodeSettingsDirectory calls correct command", async () => {
     await validateOpencodeSettingsDirectory("/dir", "/root");
-    expect(mockInvoke).toHaveBeenCalledWith("validate_opencode_settings_directory", {
-      settingsDirectory: "/dir",
-      workspaceRoot: "/root",
-    });
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "validate_opencode_settings_directory",
+      {
+        settingsDirectory: "/dir",
+        workspaceRoot: "/root",
+      },
+    );
   });
 
   it("validateOpencodeSettingsDirectory passes null when workspaceRoot is undefined", async () => {
     await validateOpencodeSettingsDirectory("/dir");
-    expect(mockInvoke).toHaveBeenCalledWith("validate_opencode_settings_directory", {
-      settingsDirectory: "/dir",
-      workspaceRoot: null,
-    });
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "validate_opencode_settings_directory",
+      {
+        settingsDirectory: "/dir",
+        workspaceRoot: null,
+      },
+    );
   });
 
   it("opencodeListSkills calls correct command", async () => {
@@ -904,89 +1016,154 @@ describe("IPC wrapper functions", () => {
   });
 
   it("opencodeCopySkills calls correct command", async () => {
-    const payload = { globalSkillsPath: "/g", workspaceSkillsPath: "/w", globalToWorkspace: [], workspaceToGlobal: [] };
+    const payload = {
+      globalSkillsPath: "/g",
+      workspaceSkillsPath: "/w",
+      globalToWorkspace: [],
+      workspaceToGlobal: [],
+    };
     await opencodeCopySkills(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("opencode_copy_skills", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith("opencode_copy_skills", {
+      payload,
+    });
   });
 
   it("getOpencodeProfile calls correct command", async () => {
     await getOpencodeProfile("/wt");
-    expect(mockInvoke).toHaveBeenCalledWith("get_opencode_profile", { worktreePath: "/wt" });
+    expect(mockInvoke).toHaveBeenCalledWith("get_opencode_profile", {
+      worktreePath: "/wt",
+    });
   });
 
   it("setOpencodeProfile calls correct command", async () => {
     const payload = { patch: { enabled: true } };
     await setOpencodeProfile("/wt", payload);
-    expect(mockInvoke).toHaveBeenCalledWith("set_opencode_profile", { worktreePath: "/wt", payload });
+    expect(mockInvoke).toHaveBeenCalledWith("set_opencode_profile", {
+      worktreePath: "/wt",
+      payload,
+    });
   });
 
   it("syncOpencodeConfig calls correct command", async () => {
     await syncOpencodeConfig("/wt");
-    expect(mockInvoke).toHaveBeenCalledWith("sync_opencode_config", { worktreePath: "/wt" });
+    expect(mockInvoke).toHaveBeenCalledWith("sync_opencode_config", {
+      worktreePath: "/wt",
+    });
   });
 
   it("repairOpencodeIntegration calls correct command", async () => {
     await repairOpencodeIntegration("/wt");
-    expect(mockInvoke).toHaveBeenCalledWith("repair_opencode_integration", { worktreePath: "/wt" });
+    expect(mockInvoke).toHaveBeenCalledWith("repair_opencode_integration", {
+      worktreePath: "/wt",
+    });
   });
 
   it("runOpencodeFlow calls correct command", async () => {
     const payload = { phase: "init" as const };
     await runOpencodeFlow("/wt", payload);
-    expect(mockInvoke).toHaveBeenCalledWith("run_opencode_flow", { worktreePath: "/wt", payload });
+    expect(mockInvoke).toHaveBeenCalledWith("run_opencode_flow", {
+      worktreePath: "/wt",
+      payload,
+    });
   });
 
   it("cancelOpencodeFlow calls correct command", async () => {
     await cancelOpencodeFlow("run-1");
-    expect(mockInvoke).toHaveBeenCalledWith("cancel_opencode_flow", { runId: "run-1" });
+    expect(mockInvoke).toHaveBeenCalledWith("cancel_opencode_flow", {
+      runId: "run-1",
+    });
   });
 
   it("workspaceOpenTerminal calls correct command", async () => {
     const payload = { rootName: "r", knownWorktrees: [] as string[] };
     await workspaceOpenTerminal(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_open_terminal", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith("workspace_open_terminal", {
+      payload,
+    });
   });
 
   it("workspaceOpenWorkspaceTerminal calls correct command", async () => {
     const payload = { rootName: "r", knownWorktrees: [] as string[] };
     await workspaceOpenWorkspaceTerminal(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("workspace_open_workspace_terminal", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "workspace_open_workspace_terminal",
+      { payload },
+    );
   });
 
   it("grooveTerminalOpen calls correct command", async () => {
-    const payload = { rootName: "r", knownWorktrees: [] as string[], worktree: "w" };
+    const payload = {
+      rootName: "r",
+      knownWorktrees: [] as string[],
+      worktree: "w",
+    };
     await grooveTerminalOpen(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_open", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_open", {
+      payload,
+    });
   });
 
   it("grooveTerminalWrite calls correct command", async () => {
-    const payload = { rootName: "r", knownWorktrees: [] as string[], worktree: "w", input: "x" };
+    const payload = {
+      rootName: "r",
+      knownWorktrees: [] as string[],
+      worktree: "w",
+      input: "x",
+    };
     await grooveTerminalWrite(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_write", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_write", {
+      payload,
+    });
   });
 
   it("grooveTerminalResize calls correct command", async () => {
-    const payload = { rootName: "r", knownWorktrees: [] as string[], worktree: "w", cols: 80, rows: 24 };
+    const payload = {
+      rootName: "r",
+      knownWorktrees: [] as string[],
+      worktree: "w",
+      cols: 80,
+      rows: 24,
+    };
     await grooveTerminalResize(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_resize", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_resize", {
+      payload,
+    });
   });
 
   it("grooveTerminalClose calls correct command", async () => {
-    const payload = { rootName: "r", knownWorktrees: [] as string[], worktree: "w" };
+    const payload = {
+      rootName: "r",
+      knownWorktrees: [] as string[],
+      worktree: "w",
+    };
     await grooveTerminalClose(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_close", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_close", {
+      payload,
+    });
   });
 
   it("grooveTerminalGetSession calls correct command", async () => {
-    const payload = { rootName: "r", knownWorktrees: [] as string[], worktree: "w" };
+    const payload = {
+      rootName: "r",
+      knownWorktrees: [] as string[],
+      worktree: "w",
+    };
     await grooveTerminalGetSession(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_get_session", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_get_session", {
+      payload,
+    });
   });
 
   it("grooveTerminalListSessions calls correct command", async () => {
-    const payload = { rootName: "r", knownWorktrees: [] as string[], worktree: "w" };
+    const payload = {
+      rootName: "r",
+      knownWorktrees: [] as string[],
+      worktree: "w",
+    };
     await grooveTerminalListSessions(payload);
-    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_list_sessions", { payload });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_terminal_list_sessions", {
+      payload,
+    });
   });
 });
 
@@ -999,7 +1176,10 @@ describe("listen functions", () => {
     mockListen.mockResolvedValueOnce(unlisten);
     const callback = vi.fn();
     const result = await listenWorkspaceChange(callback);
-    expect(mockListen).toHaveBeenCalledWith("workspace-change", expect.any(Function));
+    expect(mockListen).toHaveBeenCalledWith(
+      "workspace-change",
+      expect.any(Function),
+    );
     expect(result).toBe(unlisten);
 
     // Simulate event
@@ -1013,7 +1193,10 @@ describe("listen functions", () => {
     mockListen.mockResolvedValueOnce(unlisten);
     const callback = vi.fn();
     await listenWorkspaceReady(callback);
-    expect(mockListen).toHaveBeenCalledWith("workspace-ready", expect.any(Function));
+    expect(mockListen).toHaveBeenCalledWith(
+      "workspace-ready",
+      expect.any(Function),
+    );
 
     const eventHandler = mockListen.mock.calls[0][1];
     eventHandler({ payload: { ready: true } });
@@ -1025,10 +1208,18 @@ describe("listen functions", () => {
     mockListen.mockResolvedValueOnce(unlisten);
     const callback = vi.fn();
     await listenGrooveTerminalOutput(callback);
-    expect(mockListen).toHaveBeenCalledWith("groove-terminal-output", expect.any(Function));
+    expect(mockListen).toHaveBeenCalledWith(
+      "groove-terminal-output",
+      expect.any(Function),
+    );
 
     const eventHandler = mockListen.mock.calls[0][1];
-    const payload = { sessionId: "s1", workspaceRoot: "/r", worktree: "w", chunk: "data" };
+    const payload = {
+      sessionId: "s1",
+      workspaceRoot: "/r",
+      worktree: "w",
+      chunk: "data",
+    };
     eventHandler({ payload });
     expect(callback).toHaveBeenCalledWith(payload);
   });
@@ -1038,10 +1229,18 @@ describe("listen functions", () => {
     mockListen.mockResolvedValueOnce(unlisten);
     const callback = vi.fn();
     await listenGrooveTerminalLifecycle(callback);
-    expect(mockListen).toHaveBeenCalledWith("groove-terminal-lifecycle", expect.any(Function));
+    expect(mockListen).toHaveBeenCalledWith(
+      "groove-terminal-lifecycle",
+      expect.any(Function),
+    );
 
     const eventHandler = mockListen.mock.calls[0][1];
-    const payload = { sessionId: "s1", workspaceRoot: "/r", worktree: "w", kind: "started" };
+    const payload = {
+      sessionId: "s1",
+      workspaceRoot: "/r",
+      worktree: "w",
+      kind: "started",
+    };
     eventHandler({ payload });
     expect(callback).toHaveBeenCalledWith(payload);
   });
@@ -1051,10 +1250,23 @@ describe("listen functions", () => {
     mockListen.mockResolvedValueOnce(unlisten);
     const callback = vi.fn();
     await listenGrooveNotification(callback);
-    expect(mockListen).toHaveBeenCalledWith("groove-notification", expect.any(Function));
+    expect(mockListen).toHaveBeenCalledWith(
+      "groove-notification",
+      expect.any(Function),
+    );
 
     const eventHandler = mockListen.mock.calls[0][1];
-    const payload = { workspaceRoot: "/r", notification: { id: "n1", worktree: "w", message: "hi", type: "info", timestamp: "t", source: "s" } };
+    const payload = {
+      workspaceRoot: "/r",
+      notification: {
+        id: "n1",
+        worktree: "w",
+        message: "hi",
+        type: "info",
+        timestamp: "t",
+        source: "s",
+      },
+    };
     eventHandler({ payload });
     expect(callback).toHaveBeenCalledWith(payload);
   });
@@ -1078,7 +1290,9 @@ describe("workspaceGetActive caching", () => {
   it("invalidateWorkspaceGetActiveCache forces fresh call", async () => {
     const response1 = { ok: true, rows: [], id: 1 };
     const response2 = { ok: true, rows: [], id: 2 };
-    mockInvoke.mockResolvedValueOnce(response1).mockResolvedValueOnce(response2);
+    mockInvoke
+      .mockResolvedValueOnce(response1)
+      .mockResolvedValueOnce(response2);
 
     await workspaceGetActive();
     invalidateWorkspaceGetActiveCache();
@@ -1096,8 +1310,8 @@ describe("deduplication error handling", () => {
   it("deduped calls propagate errors to all waiters", async () => {
     mockInvoke.mockRejectedValueOnce(new Error("boom"));
 
-    const p1 = grooveList({ knownWorktrees: [] });
-    const p2 = grooveList({ knownWorktrees: [] });
+    const p1 = grooveTerminalActiveWorktrees({ knownWorktrees: [] });
+    const p2 = grooveTerminalActiveWorktrees({ knownWorktrees: [] });
 
     await expect(p1).rejects.toThrow("boom");
     await expect(p2).rejects.toThrow("boom");
@@ -1115,7 +1329,10 @@ describe("background intent", () => {
 
     let resolveInvoke!: (value: unknown) => void;
     mockInvoke.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveInvoke = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveInvoke = resolve;
+        }),
     );
 
     const promise = diagnosticsGetSystemOverview(); // has intent: "background"
@@ -1136,11 +1353,11 @@ describe("background intent", () => {
 // UNTRACKED_COMMANDS: commands in the set skip trackCommandExecution
 // ---------------------------------------------------------------------------
 describe("UNTRACKED_COMMANDS", () => {
-  it("grooveList (untracked) does not call trackCommandExecution", async () => {
+  it("grooveTerminalActiveWorktrees (untracked) does not call trackCommandExecution", async () => {
     const { trackCommandExecution } = await import("@/src/lib/command-history");
     (trackCommandExecution as ReturnType<typeof vi.fn>).mockClear();
 
-    await grooveList({ knownWorktrees: [] });
+    await grooveTerminalActiveWorktrees({ knownWorktrees: [] });
     expect(trackCommandExecution).not.toHaveBeenCalled();
   });
 
@@ -1149,7 +1366,10 @@ describe("UNTRACKED_COMMANDS", () => {
     (trackCommandExecution as ReturnType<typeof vi.fn>).mockClear();
 
     await grooveNew({ rootName: "r", knownWorktrees: [], branch: "b" });
-    expect(trackCommandExecution).toHaveBeenCalledWith("groove_new", expect.any(Function));
+    expect(trackCommandExecution).toHaveBeenCalledWith(
+      "groove_new",
+      expect.any(Function),
+    );
   });
 });
 
@@ -1159,35 +1379,60 @@ describe("UNTRACKED_COMMANDS", () => {
 describe("summarizeInvokeArgs edge cases", () => {
   it("redacts keys matching blocked pattern", async () => {
     const calls: unknown[][] = [];
-    const infoSpy = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => { calls.push(args); });
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
     await validateOpencodeSettingsDirectory("/dir", null);
     infoSpy.mockRestore();
     const call = calls.find(
-      (c) => c[0] === "[ui-telemetry] ipc.invoke" && (c[1] as Record<string, unknown>)?.command === "validate_opencode_settings_directory",
+      (c) =>
+        c[0] === "[ui-telemetry] ipc.invoke" &&
+        (c[1] as Record<string, unknown>)?.command ===
+          "validate_opencode_settings_directory",
     );
     expect(call).toBeDefined();
   });
 
   it("handles payload object with nested keys", async () => {
     const calls: unknown[][] = [];
-    const infoSpy = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => { calls.push(args); });
-    await grooveNew({ rootName: "r", knownWorktrees: ["w1", "w2"], branch: "summary-1" });
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
+    await grooveNew({
+      rootName: "r",
+      knownWorktrees: ["w1", "w2"],
+      branch: "summary-1",
+    });
     infoSpy.mockRestore();
     const call = calls.find(
-      (c) => c[0] === "[ui-telemetry] ipc.invoke" && (c[1] as Record<string, unknown>)?.command === "groove_new",
+      (c) =>
+        c[0] === "[ui-telemetry] ipc.invoke" &&
+        (c[1] as Record<string, unknown>)?.command === "groove_new",
     );
     expect(call).toBeDefined();
-    const summary = (call![1] as Record<string, unknown>).args_summary as string;
+    const summary = (call![1] as Record<string, unknown>)
+      .args_summary as string;
     expect(summary).toContain("payload{");
   });
 
   it("handles undefined/null args (no args_summary in log)", async () => {
     const calls: unknown[][] = [];
-    const infoSpy = vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => { calls.push(args); });
-    await diagnosticsListOpencodeInstances();
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: unknown[]) => {
+        calls.push(args);
+      });
+    await diagnosticsKillAllNodeInstances();
     infoSpy.mockRestore();
     const call = calls.find(
-      (c) => c[0] === "[ui-telemetry] ipc.invoke" && (c[1] as Record<string, unknown>)?.command === "diagnostics_list_opencode_instances",
+      (c) =>
+        c[0] === "[ui-telemetry] ipc.invoke" &&
+        (c[1] as Record<string, unknown>)?.command ===
+          "diagnostics_kill_all_node_instances",
     );
     expect(call).toBeDefined();
     expect((call![1] as Record<string, unknown>).args_summary).toBeUndefined();
@@ -1205,8 +1450,8 @@ describe("serializeInvokeArg edge cases", () => {
       return Promise.resolve({ ok: true });
     });
 
-    await gitStatus({ path: "/a" });
-    await gitStatus({ path: "/b" });
+    await gitCurrentBranch({ path: "/a" });
+    await gitCurrentBranch({ path: "/b" });
     expect(callCount).toBe(2);
   });
 
@@ -1220,8 +1465,18 @@ describe("serializeInvokeArg edge cases", () => {
     });
 
     // Two calls with different worktree values produce different dedupe keys
-    await grooveRestore({ rootName: "r", knownWorktrees: [], worktree: "a", target: undefined });
-    await grooveRestore({ rootName: "r", knownWorktrees: [], worktree: "b", target: undefined });
+    await grooveRestore({
+      rootName: "r",
+      knownWorktrees: [],
+      worktree: "a",
+      target: undefined,
+    });
+    await grooveRestore({
+      rootName: "r",
+      knownWorktrees: [],
+      worktree: "b",
+      target: undefined,
+    });
     expect(callCount).toBe(2);
   });
 });
@@ -1234,13 +1489,15 @@ describe("telemetry reservoir sampling", () => {
     // Make many calls to get multiple samples
     for (let i = 0; i < 5; i++) {
       mockInvoke.mockResolvedValueOnce({ ok: true });
-      await diagnosticsListOpencodeInstances();
+      await diagnosticsKillAllNodeInstances();
       // Clear dedup between calls
       await new Promise((r) => setTimeout(r, 0));
     }
 
     const summary = getIpcTelemetrySummary();
-    const row = summary.find((r) => r.command === "diagnostics_list_opencode_instances");
+    const row = summary.find(
+      (r) => r.command === "diagnostics_kill_all_node_instances",
+    );
     expect(row).toBeDefined();
     expect(row!.count).toBeGreaterThanOrEqual(5);
     expect(row!.p50_ms).toBeGreaterThanOrEqual(0);
@@ -1259,12 +1516,204 @@ describe("global settings keyboard binding changes", () => {
     mockInvoke.mockResolvedValueOnce({
       ok: true,
       globalSettings: {
-        keyboardLeaderBindings: { openActionLauncher: "x", openWorktreeDetailsLauncher: "p" },
+        keyboardLeaderBindings: {
+          openActionLauncher: "x",
+          openWorktreeDetailsLauncher: "p",
+        },
       },
     });
     await globalSettingsGet();
     expect(listener).toHaveBeenCalled();
 
     unsubscribe();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sound library and Claude Code sound settings
+// ---------------------------------------------------------------------------
+describe("sound library getters", () => {
+  it("getSoundLibrary returns empty array by default", () => {
+    expect(getSoundLibrary()).toEqual([]);
+  });
+
+  it("getClaudeCodeSoundSettings returns disabled defaults", () => {
+    const settings = getClaudeCodeSoundSettings();
+    expect(settings.notification.enabled).toBe(false);
+    expect(settings.notification.soundId).toBeNull();
+    expect(settings.stop.enabled).toBe(false);
+    expect(settings.stop.soundId).toBeNull();
+  });
+});
+
+describe("sound library sync", () => {
+  it("syncs sound library from global_settings_get", async () => {
+    const library = [{ id: "s1", name: "Chime", fileName: "s1.mp3" }];
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: { soundLibrary: library },
+    });
+    await globalSettingsGet();
+    expect(getSoundLibrary()).toEqual(library);
+
+    // Reset
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: { soundLibrary: [] },
+    });
+    await globalSettingsGet();
+  });
+
+  it("syncs claude code sound settings from global_settings_update", async () => {
+    const settings = {
+      notification: { enabled: true, soundId: "s1" },
+      stop: { enabled: false, soundId: null },
+    };
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: { claudeCodeSoundSettings: settings },
+    });
+    await globalSettingsUpdate({ claudeCodeSoundSettings: settings });
+    expect(getClaudeCodeSoundSettings()).toEqual(settings);
+
+    // Reset
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: {
+        claudeCodeSoundSettings: {
+          notification: { enabled: false, soundId: null },
+          stop: { enabled: false, soundId: null },
+        },
+      },
+    });
+    await globalSettingsUpdate({});
+  });
+
+  it("syncs settings from sound_library_import command", async () => {
+    const library = [{ id: "s1", name: "Bell", fileName: "s1.wav" }];
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: { soundLibrary: library },
+    });
+    await soundLibraryImport();
+    expect(getSoundLibrary()).toEqual(library);
+
+    // Reset
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: { soundLibrary: [] },
+    });
+    await soundLibraryImport();
+  });
+
+  it("syncs settings from sound_library_remove command", async () => {
+    // Set up with a sound first
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: {
+        soundLibrary: [{ id: "s1", name: "Bell", fileName: "s1.wav" }],
+      },
+    });
+    await soundLibraryImport();
+
+    // Now remove it
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: { soundLibrary: [] },
+    });
+    await soundLibraryRemove("s1");
+    expect(getSoundLibrary()).toEqual([]);
+  });
+
+  it("detects sound library changes and notifies listeners", async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeToGlobalSettings(listener);
+
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: {
+        soundLibrary: [{ id: "s1", name: "Ding", fileName: "s1.mp3" }],
+      },
+    });
+    await globalSettingsGet();
+    expect(listener).toHaveBeenCalled();
+
+    unsubscribe();
+
+    // Reset
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: { soundLibrary: [] },
+    });
+    await globalSettingsGet();
+  });
+
+  it("detects claude code sound settings changes and notifies listeners", async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeToGlobalSettings(listener);
+
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: {
+        claudeCodeSoundSettings: {
+          notification: { enabled: true, soundId: "s1" },
+          stop: { enabled: false, soundId: null },
+        },
+      },
+    });
+    await globalSettingsGet();
+    expect(listener).toHaveBeenCalled();
+
+    unsubscribe();
+
+    // Reset
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: {
+        claudeCodeSoundSettings: {
+          notification: { enabled: false, soundId: null },
+          stop: { enabled: false, soundId: null },
+        },
+      },
+    });
+    await globalSettingsGet();
+  });
+
+  it("normalizes invalid sound library entries", async () => {
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: {
+        soundLibrary: [
+          { id: "s1", name: "Valid", fileName: "s1.mp3" },
+          { id: 123, name: "BadId", fileName: "bad.mp3" },
+          null,
+        ],
+      },
+    });
+    await globalSettingsGet();
+    expect(getSoundLibrary()).toEqual([
+      { id: "s1", name: "Valid", fileName: "s1.mp3" },
+    ]);
+
+    // Reset
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      globalSettings: { soundLibrary: [] },
+    });
+    await globalSettingsGet();
+  });
+});
+
+describe("sound library IPC wrappers", () => {
+  it("soundLibraryImport calls sound_library_import", async () => {
+    await soundLibraryImport();
+    expect(mockInvoke).toHaveBeenCalledWith("sound_library_import", undefined);
+  });
+
+  it("soundLibraryRemove calls sound_library_remove with payload", async () => {
+    await soundLibraryRemove("test-id");
+    expect(mockInvoke).toHaveBeenCalledWith("sound_library_remove", {
+      payload: { soundId: "test-id" },
+    });
   });
 });

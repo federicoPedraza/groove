@@ -13,7 +13,13 @@ import {
   AlertDialogPortal,
   AlertDialogTitle,
 } from "@/src/components/ui/alert-dialog";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/src/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/src/components/ui/card";
 import { Checkbox } from "@/src/components/ui/checkbox";
 import { ConfirmModal } from "@/src/components/ui/confirm-modal";
 import { Dropdown } from "@/src/components/ui/dropdown";
@@ -54,7 +60,9 @@ describe("Card components", () => {
 
   it("renders CardHeader", () => {
     render(<CardHeader data-testid="hdr">header</CardHeader>);
-    expect(screen.getByTestId("hdr").getAttribute("data-slot")).toBe("card-header");
+    expect(screen.getByTestId("hdr").getAttribute("data-slot")).toBe(
+      "card-header",
+    );
   });
 
   it("renders CardTitle", () => {
@@ -69,7 +77,9 @@ describe("Card components", () => {
 
   it("renders CardContent", () => {
     render(<CardContent data-testid="cc">body</CardContent>);
-    expect(screen.getByTestId("cc").getAttribute("data-slot")).toBe("card-content");
+    expect(screen.getByTestId("cc").getAttribute("data-slot")).toBe(
+      "card-content",
+    );
   });
 });
 
@@ -113,7 +123,9 @@ describe("AlertDialog components", () => {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Alert Title</AlertDialogTitle>
-            <AlertDialogDescription>Alert description text</AlertDialogDescription>
+            <AlertDialogDescription>
+              Alert description text
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -162,7 +174,9 @@ describe("AlertDialog components", () => {
         </AlertDialogContent>
       </AlertDialog>,
     );
-    const content = screen.getByText("Styled").closest("[data-slot='alert-dialog-content']");
+    const content = screen
+      .getByText("Styled")
+      .closest("[data-slot='alert-dialog-content']");
     expect(content?.className).toContain("custom-dialog");
   });
 });
@@ -215,9 +229,7 @@ describe("ConfirmModal", () => {
   });
 
   it("disables buttons when loading", () => {
-    render(
-      <ConfirmModal {...defaultProps} loading />,
-    );
+    render(<ConfirmModal {...defaultProps} loading />);
     const confirmBtn = screen.getByText("Confirm").closest("button")!;
     const cancelBtn = screen.getByText("Cancel").closest("button")!;
     expect(confirmBtn.disabled).toBe(true);
@@ -258,12 +270,7 @@ describe("ConfirmModal", () => {
   });
 
   it("does not render secondary action without label", () => {
-    render(
-      <ConfirmModal
-        {...defaultProps}
-        onSecondaryAction={vi.fn()}
-      />,
-    );
+    render(<ConfirmModal {...defaultProps} onSecondaryAction={vi.fn()} />);
     const buttons = screen.getAllByRole("button");
     expect(buttons).toHaveLength(2);
   });
@@ -322,7 +329,9 @@ describe("DropdownMenu components", () => {
         </DropdownMenuContent>
       </DropdownMenu>,
     );
-    expect(screen.getByTestId("ddcontent").className).toContain("custom-content");
+    expect(screen.getByTestId("ddcontent").className).toContain(
+      "custom-content",
+    );
   });
 
   it("applies custom className to DropdownMenuItem", () => {
@@ -350,7 +359,9 @@ describe("Dropdown", () => {
     { value: "c", label: "Gamma", icon: <span data-testid="icon-c">IC</span> },
   ];
 
-  function renderDropdown(props: Partial<React.ComponentProps<typeof Dropdown>> = {}) {
+  function renderDropdown(
+    props: Partial<React.ComponentProps<typeof Dropdown>> = {},
+  ) {
     return render(
       <TooltipProvider>
         <Dropdown
@@ -396,7 +407,9 @@ describe("Dropdown", () => {
   it("shows check icon for selected option", () => {
     renderDropdown({ value: "a", open: true });
     const menuItems = screen.getAllByRole("menuitem");
-    const selectedItem = menuItems.find((item) => item.textContent?.includes("Alpha"));
+    const selectedItem = menuItems.find((item) =>
+      item.textContent?.includes("Alpha"),
+    );
     expect(selectedItem).toBeTruthy();
   });
 
@@ -431,13 +444,20 @@ describe("Dropdown", () => {
   });
 
   it("renders with menuHeader", () => {
-    renderDropdown({ menuHeader: <div data-testid="menu-hdr">Header</div>, open: true });
+    renderDropdown({
+      menuHeader: <div data-testid="menu-hdr">Header</div>,
+      open: true,
+    });
     expect(screen.getByTestId("menu-hdr")).toBeTruthy();
   });
 
   it("disables trigger when disabled", () => {
     renderDropdown({ disabled: true });
-    expect(screen.getByRole("button", { name: "Test dropdown" }).hasAttribute("disabled")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Test dropdown" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 
   it("renders with disabled option", () => {
@@ -485,7 +505,10 @@ describe("SearchDropdown", () => {
   it("opens and shows search input and options", async () => {
     renderSearchDropdown();
     // SearchDropdown manages its own open state, so we need to trigger it
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Search dropdown" }), { button: 0, pointerType: "mouse" });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Search dropdown" }),
+      { button: 0, pointerType: "mouse" },
+    );
     await waitFor(() => {
       expect(screen.getByLabelText("Search options")).toBeTruthy();
     });
@@ -495,11 +518,16 @@ describe("SearchDropdown", () => {
 
   it("filters options based on search query", async () => {
     renderSearchDropdown();
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Search dropdown" }), { button: 0, pointerType: "mouse" });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Search dropdown" }),
+      { button: 0, pointerType: "mouse" },
+    );
     await waitFor(() => {
       expect(screen.getByLabelText("Search options")).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText("Search options"), { target: { value: "fo" } });
+    fireEvent.change(screen.getByLabelText("Search options"), {
+      target: { value: "fo" },
+    });
     await waitFor(() => {
       expect(screen.queryByText("Bar")).toBeNull();
     });
@@ -508,11 +536,16 @@ describe("SearchDropdown", () => {
 
   it("shows no results label when search has no matches", async () => {
     renderSearchDropdown({ noResultsLabel: "Nothing found." });
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Search dropdown" }), { button: 0, pointerType: "mouse" });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Search dropdown" }),
+      { button: 0, pointerType: "mouse" },
+    );
     await waitFor(() => {
       expect(screen.getByLabelText("Search options")).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText("Search options"), { target: { value: "zzz" } });
+    fireEvent.change(screen.getByLabelText("Search options"), {
+      target: { value: "zzz" },
+    });
     await waitFor(() => {
       expect(screen.getByText("Nothing found.")).toBeTruthy();
     });
@@ -520,7 +553,10 @@ describe("SearchDropdown", () => {
 
   it("shows empty label when options array is empty", async () => {
     renderSearchDropdown({ options: [], emptyLabel: "No options." });
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Search dropdown" }), { button: 0, pointerType: "mouse" });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Search dropdown" }),
+      { button: 0, pointerType: "mouse" },
+    );
     await waitFor(() => {
       expect(screen.getByText("No options.")).toBeTruthy();
     });
@@ -529,7 +565,10 @@ describe("SearchDropdown", () => {
   it("calls onValueChange and closes on selection", async () => {
     const onValueChange = vi.fn();
     renderSearchDropdown({ onValueChange });
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Search dropdown" }), { button: 0, pointerType: "mouse" });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Search dropdown" }),
+      { button: 0, pointerType: "mouse" },
+    );
     await waitFor(() => {
       expect(screen.getByText("Bar")).toBeTruthy();
     });
@@ -539,7 +578,10 @@ describe("SearchDropdown", () => {
 
   it("limits results when maxResults is set", async () => {
     renderSearchDropdown({ maxResults: 1 });
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Search dropdown" }), { button: 0, pointerType: "mouse" });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Search dropdown" }),
+      { button: 0, pointerType: "mouse" },
+    );
     await waitFor(() => {
       expect(screen.getAllByRole("menuitem")).toHaveLength(1);
     });
@@ -547,11 +589,16 @@ describe("SearchDropdown", () => {
 
   it("keeps selected option visible even when filtered out", async () => {
     renderSearchDropdown({ value: "baz" });
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Search dropdown" }), { button: 0, pointerType: "mouse" });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Search dropdown" }),
+      { button: 0, pointerType: "mouse" },
+    );
     await waitFor(() => {
       expect(screen.getByLabelText("Search options")).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText("Search options"), { target: { value: "foo" } });
+    fireEvent.change(screen.getByLabelText("Search options"), {
+      target: { value: "foo" },
+    });
     await waitFor(() => {
       expect(screen.getByText("Foo")).toBeTruthy();
     });
@@ -565,11 +612,16 @@ describe("SearchDropdown", () => {
       { value: "y", label: "Y Label" },
     ];
     renderSearchDropdown({ options: optionsWithValueLabel });
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Search dropdown" }), { button: 0, pointerType: "mouse" });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Search dropdown" }),
+      { button: 0, pointerType: "mouse" },
+    );
     await waitFor(() => {
       expect(screen.getByLabelText("Search options")).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText("Search options"), { target: { value: "secret" } });
+    fireEvent.change(screen.getByLabelText("Search options"), {
+      target: { value: "secret" },
+    });
     await waitFor(() => {
       expect(screen.queryByText("Y Label")).toBeNull();
     });
@@ -578,7 +630,10 @@ describe("SearchDropdown", () => {
 
   it("does not propagate non-Escape keydown from search input", async () => {
     renderSearchDropdown();
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Search dropdown" }), { button: 0, pointerType: "mouse" });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Search dropdown" }),
+      { button: 0, pointerType: "mouse" },
+    );
     await waitFor(() => {
       expect(screen.getByLabelText("Search options")).toBeTruthy();
     });
@@ -590,7 +645,11 @@ describe("SearchDropdown", () => {
 
   it("renders disabled trigger", () => {
     renderSearchDropdown({ disabled: true });
-    expect(screen.getByRole("button", { name: "Search dropdown" }).hasAttribute("disabled")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Search dropdown" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 });
 
@@ -621,12 +680,22 @@ describe("Sidebar components", () => {
   });
 
   it("renders Sidebar collapsed", () => {
-    render(<Sidebar data-testid="sidebar" collapsed>content</Sidebar>);
-    expect(screen.getByTestId("sidebar").getAttribute("data-collapsed")).toBe("true");
+    render(
+      <Sidebar data-testid="sidebar" collapsed>
+        content
+      </Sidebar>,
+    );
+    expect(screen.getByTestId("sidebar").getAttribute("data-collapsed")).toBe(
+      "true",
+    );
   });
 
   it("renders Sidebar with custom className", () => {
-    render(<Sidebar data-testid="sidebar" className="extra">content</Sidebar>);
+    render(
+      <Sidebar data-testid="sidebar" className="extra">
+        content
+      </Sidebar>,
+    );
     expect(screen.getByTestId("sidebar").className).toContain("extra");
   });
 
@@ -662,7 +731,11 @@ describe("Sidebar components", () => {
   });
 
   it("returns correct className from sidebarMenuButtonClassName", () => {
-    const cls = sidebarMenuButtonClassName({ isActive: true, collapsed: true, className: "extra" });
+    const cls = sidebarMenuButtonClassName({
+      isActive: true,
+      collapsed: true,
+      className: "extra",
+    });
     expect(cls).toContain("justify-center");
     expect(cls).toContain("extra");
   });
@@ -712,8 +785,14 @@ describe("SidebarCollapseButton", () => {
 
   it("applies custom className", () => {
     render(
-      <SidebarCollapseButton collapsed={false} onToggle={vi.fn()} className="my-class" />,
+      <SidebarCollapseButton
+        collapsed={false}
+        onToggle={vi.fn()}
+        className="my-class"
+      />,
     );
-    expect(screen.getByLabelText("Collapse sidebar").className).toContain("my-class");
+    expect(screen.getByLabelText("Collapse sidebar").className).toContain(
+      "my-class",
+    );
   });
 });

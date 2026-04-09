@@ -1,6 +1,9 @@
 import type { DefaultTerminal } from "@/src/lib/ipc";
 
-export const SUPPORTED_TERMINAL_OPTIONS: Array<{ value: DefaultTerminal; label: string }> = [
+export const SUPPORTED_TERMINAL_OPTIONS: Array<{
+  value: DefaultTerminal;
+  label: string;
+}> = [
   { value: "auto", label: "Auto (recommended)" },
   { value: "ghostty", label: "Ghostty" },
   { value: "warp", label: "Warp" },

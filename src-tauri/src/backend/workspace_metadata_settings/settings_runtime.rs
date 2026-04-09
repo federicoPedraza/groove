@@ -271,10 +271,23 @@ fn spawn_terminal_process(
     command
         .args(args)
         .current_dir(cwd)
+        .env("PWD", cwd.display().to_string())
         .env("GROOVE_WORKTREE", worktree_path.display().to_string());
     if let Some(path) = augmented_child_path() {
         command.env("PATH", path);
     }
+
+    // Clean AppImage-injected environment variables so the child terminal uses
+    // system libraries and paths instead of the FUSE-mounted AppImage ones.
+    // Skip PATH — already handled by augmented_child_path() using PATH_ORIG.
+    for (key, value) in crate::backend::common::platform_env::appimage_cleaned_env() {
+        if key == "PATH" { continue; }
+        match value {
+            Some(restored) => { command.env(&key, restored); }
+            None => { command.env_remove(&key); }
+        }
+    }
+
     command.spawn().map(|_| ())
 }
 
@@ -606,6 +619,9 @@ fn default_global_settings() -> GlobalSettings {
         keyboard_shortcut_leader: default_keyboard_shortcut_leader(),
         keyboard_leader_bindings: default_keyboard_leader_bindings(),
         opencode_settings: default_opencode_settings(),
+        sound_library: Vec::new(),
+        claude_code_sound_settings: ClaudeCodeSoundSettings::default(),
+        groove_sound_settings: GrooveSoundSettings::default(),
     }
 }
 
@@ -859,6 +875,8 @@ fn ensure_global_settings(app: &AppHandle) -> Result<GlobalSettings, String> {
                 || !obj.contains_key("keyboardShortcutLeader")
                 || !obj.contains_key("keyboardLeaderBindings")
                 || !obj.contains_key("opencodeSettings")
+                || !obj.contains_key("soundLibrary")
+                || !obj.contains_key("claudeCodeSoundSettings")
         })
         .unwrap_or(true);
 

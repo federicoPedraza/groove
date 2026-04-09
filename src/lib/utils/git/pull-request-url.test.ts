@@ -24,13 +24,23 @@ describe("buildCreatePrUrl", () => {
   });
 
   it("builds GitHub compare URL for SSH remote with branch", () => {
-    const url = buildCreatePrUrl("git@github.com:owner/repo.git", "feature/new-thing");
-    expect(url).toBe("https://github.com/owner/repo/compare/feature%2Fnew-thing?expand=1");
+    const url = buildCreatePrUrl(
+      "git@github.com:owner/repo.git",
+      "feature/new-thing",
+    );
+    expect(url).toBe(
+      "https://github.com/owner/repo/compare/feature%2Fnew-thing?expand=1",
+    );
   });
 
   it("builds GitHub compare URL for HTTPS remote with branch", () => {
-    const url = buildCreatePrUrl("https://github.com/owner/repo.git", "my-branch");
-    expect(url).toBe("https://github.com/owner/repo/compare/my-branch?expand=1");
+    const url = buildCreatePrUrl(
+      "https://github.com/owner/repo.git",
+      "my-branch",
+    );
+    expect(url).toBe(
+      "https://github.com/owner/repo/compare/my-branch?expand=1",
+    );
   });
 
   it("returns repository URL when branchName is null on GitHub", () => {
@@ -49,7 +59,10 @@ describe("buildCreatePrUrl", () => {
   });
 
   it("returns repository URL for non-GitHub hosts", () => {
-    const url = buildCreatePrUrl("git@gitlab.com:owner/repo.git", "feature-branch");
+    const url = buildCreatePrUrl(
+      "git@gitlab.com:owner/repo.git",
+      "feature-branch",
+    );
     expect(url).toBe("https://gitlab.com/owner/repo");
   });
 

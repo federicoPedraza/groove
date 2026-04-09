@@ -1,20 +1,23 @@
 import type React from "react";
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import type { WorktreeRow } from "../components/pages/dashboard/types";
 import type { SummaryRecord } from "@/src/lib/ipc";
 import { buildDashboardWorktreeDetailShortcutActionables } from "./page";
 
-const {
-  useDashboardStateMock,
-  grooveSummaryMock,
-  useAppLayoutMock,
-} = vi.hoisted(() => ({
-  useDashboardStateMock: vi.fn(),
-  grooveSummaryMock: vi.fn(),
-  useAppLayoutMock: vi.fn(),
-}));
+const { useDashboardStateMock, grooveSummaryMock, useAppLayoutMock } =
+  vi.hoisted(() => ({
+    useDashboardStateMock: vi.fn(),
+    grooveSummaryMock: vi.fn(),
+    useAppLayoutMock: vi.fn(),
+  }));
 
 vi.mock("@/src/components/pages/dashboard/hooks/use-dashboard-state", () => ({
   useDashboardState: useDashboardStateMock,
@@ -41,7 +44,13 @@ vi.mock("@/src/components/shortcuts/use-shortcut-registration", () => ({
 }));
 
 vi.mock("@/src/components/pages/dashboard/dashboard-header", () => ({
-  DashboardHeader: ({ onRefresh, onCreate }: { onRefresh: () => void; onCreate: () => void }) => (
+  DashboardHeader: ({
+    onRefresh,
+    onCreate,
+  }: {
+    onRefresh: () => void;
+    onCreate: () => void;
+  }) => (
     <div data-testid="dashboard-header">
       <button onClick={onRefresh}>Refresh</button>
       <button onClick={onCreate}>Create</button>
@@ -53,28 +62,58 @@ vi.mock("@/src/components/pages/dashboard/dashboard-modals", () => ({
   DashboardModals: (props: {
     onRunCutGrooveAction: (row: WorktreeRow, force: boolean) => void;
     onCloseCurrentWorkspace: () => void;
-    onRunCreateWorktreeAction: (options: { branch: string; base: string }) => void;
+    onRunCreateWorktreeAction: (options: {
+      branch: string;
+      base: string;
+    }) => void;
   }) => (
     <div data-testid="dashboard-modals">
-      <button onClick={() => props.onRunCutGrooveAction({ worktree: "alpha" } as WorktreeRow, false)}>Modal Cut</button>
-      <button onClick={() => props.onCloseCurrentWorkspace()}>Modal Close Workspace</button>
-      <button onClick={() => props.onRunCreateWorktreeAction({ branch: "feat/x", base: "main" })}>Modal Create</button>
+      <button
+        onClick={() =>
+          props.onRunCutGrooveAction(
+            { worktree: "alpha" } as WorktreeRow,
+            false,
+          )
+        }
+      >
+        Modal Cut
+      </button>
+      <button onClick={() => props.onCloseCurrentWorkspace()}>
+        Modal Close Workspace
+      </button>
+      <button
+        onClick={() =>
+          props.onRunCreateWorktreeAction({ branch: "feat/x", base: "main" })
+        }
+      >
+        Modal Create
+      </button>
     </div>
   ),
 }));
 
 vi.mock("@/src/components/pages/dashboard/summary-viewer-modal", () => ({
-  SummaryViewerModal: ({ open, onClose, onCreateNewSummary, isCreatePending }: {
+  SummaryViewerModal: ({
+    open,
+    onClose,
+    onCreateNewSummary,
+    isCreatePending,
+  }: {
     open: boolean;
     onClose: () => void;
     onCreateNewSummary?: () => void;
     isCreatePending: boolean;
-  }) => open ? (
-    <div data-testid="summary-modal">
-      <button onClick={onClose}>Close Summary</button>
-      {onCreateNewSummary && <button onClick={onCreateNewSummary} disabled={isCreatePending}>Create New</button>}
-    </div>
-  ) : null,
+  }) =>
+    open ? (
+      <div data-testid="summary-modal">
+        <button onClick={onClose}>Close Summary</button>
+        {onCreateNewSummary && (
+          <button onClick={onCreateNewSummary} disabled={isCreatePending}>
+            Create New
+          </button>
+        )}
+      </div>
+    ) : null,
 }));
 
 vi.mock("@/src/components/pages/dashboard/worktrees-table", () => ({
@@ -92,17 +131,71 @@ vi.mock("@/src/components/pages/dashboard/worktrees-table", () => ({
     onOpenTerminalAction: (worktree: string) => void;
   }) => (
     <div data-testid="worktrees-table">
-      <button onClick={() => props.onSummarizeWorktree("wt-1")}>Summarize WT</button>
-      <button onClick={() => props.onSummarizeSection("section-1", ["wt-1", "wt-2"])}>Summarize Section</button>
-      <button onClick={() => props.onViewWorktreeSummary({ worktreeIds: ["wt-1"], createdAt: "2026-01-01", summary: "Test summary" })}>View WT Summary</button>
-      <button onClick={() => props.onViewSectionSummary({ worktreeIds: ["wt-1", "wt-2"], createdAt: "2026-01-01", summary: "Section summary" })}>View Section Summary</button>
-      <button onClick={props.onForgetAllDeletedWorktrees}>Forget Deleted</button>
-      <button onClick={() => props.onCopyBranchName({ worktree: "alpha" } as WorktreeRow)}>Copy Branch</button>
-      <button onClick={() => props.onRestoreAction({ worktree: "alpha" } as WorktreeRow)}>Restore</button>
-      <button onClick={() => props.onCutConfirm({ worktree: "alpha" } as WorktreeRow)}>Cut Confirm</button>
-      <button onClick={() => props.onStopAction({ worktree: "alpha" } as WorktreeRow)}>Stop</button>
-      <button onClick={() => props.onPlayAction({ worktree: "alpha" } as WorktreeRow)}>Play</button>
-      <button onClick={() => props.onOpenTerminalAction("alpha")}>Open Terminal</button>
+      <button onClick={() => props.onSummarizeWorktree("wt-1")}>
+        Summarize WT
+      </button>
+      <button
+        onClick={() => props.onSummarizeSection("section-1", ["wt-1", "wt-2"])}
+      >
+        Summarize Section
+      </button>
+      <button
+        onClick={() =>
+          props.onViewWorktreeSummary({
+            worktreeIds: ["wt-1"],
+            createdAt: "2026-01-01",
+            summary: "Test summary",
+          })
+        }
+      >
+        View WT Summary
+      </button>
+      <button
+        onClick={() =>
+          props.onViewSectionSummary({
+            worktreeIds: ["wt-1", "wt-2"],
+            createdAt: "2026-01-01",
+            summary: "Section summary",
+          })
+        }
+      >
+        View Section Summary
+      </button>
+      <button onClick={props.onForgetAllDeletedWorktrees}>
+        Forget Deleted
+      </button>
+      <button
+        onClick={() =>
+          props.onCopyBranchName({ worktree: "alpha" } as WorktreeRow)
+        }
+      >
+        Copy Branch
+      </button>
+      <button
+        onClick={() =>
+          props.onRestoreAction({ worktree: "alpha" } as WorktreeRow)
+        }
+      >
+        Restore
+      </button>
+      <button
+        onClick={() => props.onCutConfirm({ worktree: "alpha" } as WorktreeRow)}
+      >
+        Cut Confirm
+      </button>
+      <button
+        onClick={() => props.onStopAction({ worktree: "alpha" } as WorktreeRow)}
+      >
+        Stop
+      </button>
+      <button
+        onClick={() => props.onPlayAction({ worktree: "alpha" } as WorktreeRow)}
+      >
+        Play
+      </button>
+      <button onClick={() => props.onOpenTerminalAction("alpha")}>
+        Open Terminal
+      </button>
     </div>
   ),
 }));
@@ -118,7 +211,10 @@ function makeWorktreeRow(worktree: string, branchGuess: string): WorktreeRow {
 describe("buildDashboardWorktreeDetailShortcutActionables", () => {
   it("returns per-worktree dropdowns directly at root", () => {
     const items = buildDashboardWorktreeDetailShortcutActionables(
-      [makeWorktreeRow("alpha", "feature/alpha"), makeWorktreeRow("beta", "feature/beta")],
+      [
+        makeWorktreeRow("alpha", "feature/alpha"),
+        makeWorktreeRow("beta", "feature/beta"),
+      ],
       vi.fn(),
       vi.fn(async () => {}),
     );
@@ -128,14 +224,20 @@ describe("buildDashboardWorktreeDetailShortcutActionables", () => {
       "dashboard.worktree-details.alpha",
       "dashboard.worktree-details.beta",
     ]);
-    expect(items.some((item) => item.id === "dashboard.worktree-details")).toBe(false);
+    expect(items.some((item) => item.id === "dashboard.worktree-details")).toBe(
+      false,
+    );
   });
 
   it("wires open details and play actions for each worktree", () => {
     const navigate = vi.fn();
     const runPlayGrooveAction = vi.fn(async () => {});
     const row = makeWorktreeRow("alpha", "feature/alpha");
-    const [item] = buildDashboardWorktreeDetailShortcutActionables([row], navigate, runPlayGrooveAction);
+    const [item] = buildDashboardWorktreeDetailShortcutActionables(
+      [row],
+      navigate,
+      runPlayGrooveAction,
+    );
 
     if (item.type !== "dropdown") {
       throw new Error("Expected dropdown item");
@@ -165,7 +267,11 @@ describe("buildDashboardWorktreeDetailShortcutActionables", () => {
   it("encodes worktree names with special characters in navigation path", () => {
     const navigate = vi.fn();
     const row = makeWorktreeRow("feat/my branch", "feature/my-branch");
-    const [item] = buildDashboardWorktreeDetailShortcutActionables([row], navigate, vi.fn(async () => {}));
+    const [item] = buildDashboardWorktreeDetailShortcutActionables(
+      [row],
+      navigate,
+      vi.fn(async () => {}),
+    );
 
     if (item.type !== "dropdown") {
       throw new Error("Expected dropdown item");
@@ -226,7 +332,7 @@ function makeDashboardState(overrides: Record<string, unknown> = {}) {
     isCloseWorkspaceConfirmOpen: false,
     cutConfirmRow: null,
     forceCutConfirmRow: null,
-    runtimeStateByWorktree: {},
+    activeTerminalWorktrees: new Set(),
     isCreateModalOpen: false,
     createBranch: "",
     createBase: "",
@@ -280,18 +386,43 @@ describe("Home component", () => {
   });
 
   it("renders dashboard content when workspace is active", async () => {
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      worktreeRows: [{ worktree: "alpha", branchGuess: "main", path: "/repo/.worktrees/alpha", status: "ready" }],
-      groupedWorktreeItems: [{ type: "row", row: { worktree: "alpha", branchGuess: "main", path: "/repo/.worktrees/alpha", status: "ready" }, key: "row:alpha" }],
-      workspaceRoot: "/repo",
-    }));
+        worktreeRows: [
+          {
+            worktree: "alpha",
+            branchGuess: "main",
+            path: "/repo/.worktrees/alpha",
+            status: "ready",
+          },
+        ],
+        groupedWorktreeItems: [
+          {
+            type: "row",
+            row: {
+              worktree: "alpha",
+              branchGuess: "main",
+              path: "/repo/.worktrees/alpha",
+              status: "ready",
+            },
+            key: "row:alpha",
+          },
+        ],
+        workspaceRoot: "/repo",
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     expect(screen.getByTestId("dashboard-header")).toBeTruthy();
@@ -299,16 +430,23 @@ describe("Home component", () => {
   });
 
   it("shows no .worktrees directory message", async () => {
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: false,
+        },
         hasWorktreesDirectory: false,
-      },
-      hasWorktreesDirectory: false,
-      worktreeRows: [],
-    }));
+        worktreeRows: [],
+      }),
+    );
     const { default: Home } = await import("./page");
     const { container } = render(<Home />);
     expect(container.textContent).toContain(".worktrees");
@@ -316,16 +454,23 @@ describe("Home component", () => {
   });
 
   it("shows empty worktrees message when directory exists but no rows", async () => {
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      worktreeRows: [],
-    }));
+        worktreeRows: [],
+      }),
+    );
     const { default: Home } = await import("./page");
     const { container } = render(<Home />);
     expect(container.textContent).toContain(".worktrees");
@@ -333,18 +478,25 @@ describe("Home component", () => {
   });
 
   it("shows status and error messages", async () => {
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      worktreeRows: [],
-      statusMessage: "All good",
-      errorMessage: "Something broke",
-    }));
+        worktreeRows: [],
+        statusMessage: "All good",
+        errorMessage: "Something broke",
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     expect(screen.getByText("All good")).toBeTruthy();
@@ -353,18 +505,27 @@ describe("Home component", () => {
 
   it("calls refreshWorktrees when header refresh is clicked", async () => {
     const refreshMock = vi.fn();
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-      refreshWorktrees: refreshMock,
-    }));
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+        refreshWorktrees: refreshMock,
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     fireEvent.click(screen.getByText("Refresh"));
@@ -372,44 +533,71 @@ describe("Home component", () => {
   });
 
   it("handles summarize worktree action", async () => {
-    grooveSummaryMock.mockResolvedValue({ ok: true, summaries: [{ ok: true, summary: "test" }] });
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    grooveSummaryMock.mockResolvedValue({
+      ok: true,
+      summaries: [{ ok: true, summary: "test" }],
+    });
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      workspaceRoot: "/repo",
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-    }));
+        workspaceRoot: "/repo",
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     await act(async () => {
       fireEvent.click(screen.getByText("Summarize WT"));
     });
     await waitFor(() => {
-      expect(grooveSummaryMock).toHaveBeenCalledWith(expect.objectContaining({ sessionIds: ["wt-1"] }));
+      expect(grooveSummaryMock).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionIds: ["wt-1"] }),
+      );
     });
   });
 
   it("handles summarize worktree failure", async () => {
     const { toast } = await import("@/src/lib/toast");
-    grooveSummaryMock.mockResolvedValue({ ok: false, error: "Failed", summaries: [] });
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    grooveSummaryMock.mockResolvedValue({
+      ok: false,
+      error: "Failed",
+      summaries: [],
+    });
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      workspaceRoot: "/repo",
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-    }));
+        workspaceRoot: "/repo",
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     await act(async () => {
@@ -422,93 +610,144 @@ describe("Home component", () => {
 
   it("handles summarize worktree with no successful summaries", async () => {
     const { toast } = await import("@/src/lib/toast");
-    grooveSummaryMock.mockResolvedValue({ ok: true, summaries: [{ ok: false, error: "unavailable" }] });
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    grooveSummaryMock.mockResolvedValue({
+      ok: true,
+      summaries: [{ ok: false, error: "unavailable" }],
+    });
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      workspaceRoot: "/repo",
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-    }));
+        workspaceRoot: "/repo",
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     await act(async () => {
       fireEvent.click(screen.getByText("Summarize WT"));
     });
     await waitFor(() => {
-      expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining("unavailable"));
+      expect(toast.warning).toHaveBeenCalledWith(
+        expect.stringContaining("unavailable"),
+      );
     });
   });
 
   it("handles summarize section", async () => {
-    grooveSummaryMock.mockResolvedValue({ ok: true, summaries: [{ ok: true }] });
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    grooveSummaryMock.mockResolvedValue({
+      ok: true,
+      summaries: [{ ok: true }],
+    });
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      workspaceRoot: "/repo",
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-    }));
+        workspaceRoot: "/repo",
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     await act(async () => {
       fireEvent.click(screen.getByText("Summarize Section"));
     });
     await waitFor(() => {
-      expect(grooveSummaryMock).toHaveBeenCalledWith(expect.objectContaining({ sessionIds: ["wt-1", "wt-2"] }));
+      expect(grooveSummaryMock).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionIds: ["wt-1", "wt-2"] }),
+      );
     });
   });
 
   it("handles summarize section with no successful summaries", async () => {
     const { toast } = await import("@/src/lib/toast");
-    grooveSummaryMock.mockResolvedValue({ ok: true, summaries: [{ ok: false }] });
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    grooveSummaryMock.mockResolvedValue({
+      ok: true,
+      summaries: [{ ok: false }],
+    });
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      workspaceRoot: "/repo",
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-    }));
+        workspaceRoot: "/repo",
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     await act(async () => {
       fireEvent.click(screen.getByText("Summarize Section"));
     });
     await waitFor(() => {
-      expect(toast.warning).toHaveBeenCalledWith("No sessions had available summaries.");
+      expect(toast.warning).toHaveBeenCalledWith(
+        "No sessions had available summaries.",
+      );
     });
   });
 
   it("handles summarize exception", async () => {
     const { toast } = await import("@/src/lib/toast");
     grooveSummaryMock.mockRejectedValue(new Error("network"));
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      workspaceRoot: "/repo",
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-    }));
+        workspaceRoot: "/repo",
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     await act(async () => {
@@ -520,21 +759,40 @@ describe("Home component", () => {
   });
 
   it("opens and closes summary viewer modal", async () => {
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: {
-          version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01",
-          worktreeRecords: { "wt-1": { id: "wt-1", createdAt: "2026-01-01", summaries: [{ worktreeIds: ["wt-1"], createdAt: "2026-01-01", summary: "Hello" }] } },
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+            worktreeRecords: {
+              "wt-1": {
+                id: "wt-1",
+                createdAt: "2026-01-01",
+                summaries: [
+                  {
+                    worktreeIds: ["wt-1"],
+                    createdAt: "2026-01-01",
+                    summary: "Hello",
+                  },
+                ],
+              },
+            },
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
         },
-        rows: [],
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      workspaceRoot: "/repo",
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-    }));
+        workspaceRoot: "/repo",
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     expect(screen.queryByTestId("summary-modal")).toBeNull();
@@ -545,21 +803,34 @@ describe("Home component", () => {
   });
 
   it("opens section summary viewer", async () => {
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: {
-          version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01",
-          summaries: [{ worktreeIds: ["wt-1", "wt-2"], createdAt: "2026-01-01", summary: "Section" }],
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+            summaries: [
+              {
+                worktreeIds: ["wt-1", "wt-2"],
+                createdAt: "2026-01-01",
+                summary: "Section",
+              },
+            ],
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
         },
-        rows: [],
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      workspaceRoot: "/repo",
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-    }));
+        workspaceRoot: "/repo",
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     fireEvent.click(screen.getByText("View Section Summary"));
@@ -569,18 +840,27 @@ describe("Home component", () => {
   it("calls window.confirm for forget all deleted worktrees", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const forgetMock = vi.fn();
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-      runForgetAllDeletedWorktreesAction: forgetMock,
-    }));
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+        runForgetAllDeletedWorktreesAction: forgetMock,
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     fireEvent.click(screen.getByText("Forget Deleted"));
@@ -592,18 +872,27 @@ describe("Home component", () => {
   it("does not forget deleted worktrees when confirm is cancelled", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const forgetMock = vi.fn();
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-      runForgetAllDeletedWorktreesAction: forgetMock,
-    }));
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+        runForgetAllDeletedWorktreesAction: forgetMock,
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     fireEvent.click(screen.getByText("Forget Deleted"));
@@ -615,20 +904,29 @@ describe("Home component", () => {
     const setIsCreateModalOpenMock = vi.fn();
     const setCreateBranchMock = vi.fn();
     const setCreateBaseMock = vi.fn();
-    useDashboardStateMock.mockReturnValue(makeDashboardState({
-      activeWorkspace: {
-        workspaceRoot: "/repo",
-        workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-        rows: [],
+    useDashboardStateMock.mockReturnValue(
+      makeDashboardState({
+        activeWorkspace: {
+          workspaceRoot: "/repo",
+          workspaceMeta: {
+            version: 1,
+            rootName: "groove",
+            createdAt: "2026-01-01",
+            updatedAt: "2026-01-01",
+          },
+          rows: [],
+          hasWorktreesDirectory: true,
+        },
         hasWorktreesDirectory: true,
-      },
-      hasWorktreesDirectory: true,
-      worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-      groupedWorktreeItems: [],
-      setIsCreateModalOpen: setIsCreateModalOpenMock,
-      setCreateBranch: setCreateBranchMock,
-      setCreateBase: setCreateBaseMock,
-    }));
+        worktreeRows: [
+          { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+        ],
+        groupedWorktreeItems: [],
+        setIsCreateModalOpen: setIsCreateModalOpenMock,
+        setCreateBranch: setCreateBranchMock,
+        setCreateBase: setCreateBaseMock,
+      }),
+    );
     const { default: Home } = await import("./page");
     render(<Home />);
     fireEvent.click(screen.getByText("Create"));
@@ -639,35 +937,54 @@ describe("Home component", () => {
 
   describe("sidebar rendering via useAppLayout", () => {
     function renderWithSidebar(overrides: Record<string, unknown> = {}) {
-      let capturedOptions: { pageSidebar?: (opts: { collapsed: boolean }) => React.ReactNode } = {};
-      useAppLayoutMock.mockImplementation((options: { pageSidebar?: (opts: { collapsed: boolean }) => React.ReactNode }) => {
-        capturedOptions = options;
-      });
-      useDashboardStateMock.mockReturnValue(makeDashboardState({
-        activeWorkspace: {
-          workspaceRoot: "/repo",
-          workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-          repositoryRemoteUrl: null,
-          rows: [],
-          hasWorktreesDirectory: true,
+      let capturedOptions: {
+        pageSidebar?: (opts: { collapsed: boolean }) => React.ReactNode;
+      } = {};
+      useAppLayoutMock.mockImplementation(
+        (options: {
+          pageSidebar?: (opts: { collapsed: boolean }) => React.ReactNode;
+        }) => {
+          capturedOptions = options;
         },
-        hasWorktreesDirectory: true,
-        worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-        groupedWorktreeItems: [],
-        recentDirectories: ["/old/project"],
-        ...overrides,
-      }));
+      );
+      useDashboardStateMock.mockReturnValue(
+        makeDashboardState({
+          activeWorkspace: {
+            workspaceRoot: "/repo",
+            workspaceMeta: {
+              version: 1,
+              rootName: "groove",
+              createdAt: "2026-01-01",
+              updatedAt: "2026-01-01",
+            },
+            repositoryRemoteUrl: null,
+            rows: [],
+            hasWorktreesDirectory: true,
+          },
+          hasWorktreesDirectory: true,
+          worktreeRows: [
+            { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+          ],
+          groupedWorktreeItems: [],
+          recentDirectories: ["/old/project"],
+          ...overrides,
+        }),
+      );
       return { getCapturedOptions: () => capturedOptions };
     }
 
     it("renders sidebar with change directory button that calls pickDirectory", async () => {
       const pickDirectoryMock = vi.fn();
-      const { getCapturedOptions } = renderWithSidebar({ pickDirectory: pickDirectoryMock });
+      const { getCapturedOptions } = renderWithSidebar({
+        pickDirectory: pickDirectoryMock,
+      });
       const { default: Home } = await import("./page");
       render(<Home />);
       const sidebar = getCapturedOptions().pageSidebar?.({ collapsed: false });
       const { container } = render(<>{sidebar}</>);
-      const changeBtn = container.querySelector('[aria-label="Change directory"]') as HTMLElement;
+      const changeBtn = container.querySelector(
+        '[aria-label="Change directory"]',
+      ) as HTMLElement;
       expect(changeBtn).toBeTruthy();
       fireEvent.click(changeBtn);
       expect(pickDirectoryMock).toHaveBeenCalled();
@@ -675,12 +992,16 @@ describe("Home component", () => {
 
     it("renders sidebar with close directory button that opens confirm", async () => {
       const setIsCloseWorkspaceConfirmOpenMock = vi.fn();
-      const { getCapturedOptions } = renderWithSidebar({ setIsCloseWorkspaceConfirmOpen: setIsCloseWorkspaceConfirmOpenMock });
+      const { getCapturedOptions } = renderWithSidebar({
+        setIsCloseWorkspaceConfirmOpen: setIsCloseWorkspaceConfirmOpenMock,
+      });
       const { default: Home } = await import("./page");
       render(<Home />);
       const sidebar = getCapturedOptions().pageSidebar?.({ collapsed: false });
       const { container } = render(<>{sidebar}</>);
-      const closeBtn = container.querySelector('[aria-label="Close directory"]') as HTMLElement;
+      const closeBtn = container.querySelector(
+        '[aria-label="Close directory"]',
+      ) as HTMLElement;
       expect(closeBtn).toBeTruthy();
       fireEvent.click(closeBtn);
       expect(setIsCloseWorkspaceConfirmOpenMock).toHaveBeenCalledWith(true);
@@ -688,12 +1009,16 @@ describe("Home component", () => {
 
     it("renders sidebar with open terminal button that calls runOpenWorkspaceTerminalAction", async () => {
       const runOpenWorkspaceTerminalActionMock = vi.fn();
-      const { getCapturedOptions } = renderWithSidebar({ runOpenWorkspaceTerminalAction: runOpenWorkspaceTerminalActionMock });
+      const { getCapturedOptions } = renderWithSidebar({
+        runOpenWorkspaceTerminalAction: runOpenWorkspaceTerminalActionMock,
+      });
       const { default: Home } = await import("./page");
       render(<Home />);
       const sidebar = getCapturedOptions().pageSidebar?.({ collapsed: false });
       const { container } = render(<>{sidebar}</>);
-      const termBtn = container.querySelector('[aria-label="Open terminal at active directory"]') as HTMLElement;
+      const termBtn = container.querySelector(
+        '[aria-label="Open terminal at active directory"]',
+      ) as HTMLElement;
       expect(termBtn).toBeTruthy();
       fireEvent.click(termBtn);
       expect(runOpenWorkspaceTerminalActionMock).toHaveBeenCalled();
@@ -705,26 +1030,50 @@ describe("Home component", () => {
       render(<Home />);
       const sidebar = getCapturedOptions().pageSidebar?.({ collapsed: true });
       const { container } = render(<>{sidebar}</>);
-      expect(container.querySelector('[aria-label="Change directory"]')).toBeTruthy();
-      expect(container.querySelector('[aria-label="Close directory"]')).toBeTruthy();
+      expect(
+        container.querySelector('[aria-label="Change directory"]'),
+      ).toBeTruthy();
+      expect(
+        container.querySelector('[aria-label="Close directory"]'),
+      ).toBeTruthy();
     });
   });
 
   describe("WorktreesTable callback wrappers", () => {
     function renderDashboardWithTable(overrides: Record<string, unknown> = {}) {
-      useDashboardStateMock.mockReturnValue(makeDashboardState({
-        activeWorkspace: {
-          workspaceRoot: "/repo",
-          workspaceMeta: { version: 1, rootName: "groove", createdAt: "2026-01-01", updatedAt: "2026-01-01" },
-          rows: [],
+      useDashboardStateMock.mockReturnValue(
+        makeDashboardState({
+          activeWorkspace: {
+            workspaceRoot: "/repo",
+            workspaceMeta: {
+              version: 1,
+              rootName: "groove",
+              createdAt: "2026-01-01",
+              updatedAt: "2026-01-01",
+            },
+            rows: [],
+            hasWorktreesDirectory: true,
+          },
           hasWorktreesDirectory: true,
-        },
-        hasWorktreesDirectory: true,
-        worktreeRows: [{ worktree: "a", branchGuess: "main", path: "/p", status: "ready" }],
-        groupedWorktreeItems: [{ type: "row", row: { worktree: "a", branchGuess: "main", path: "/p", status: "ready" }, key: "row:a" }],
-        workspaceRoot: "/repo",
-        ...overrides,
-      }));
+          worktreeRows: [
+            { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
+          ],
+          groupedWorktreeItems: [
+            {
+              type: "row",
+              row: {
+                worktree: "a",
+                branchGuess: "main",
+                path: "/p",
+                status: "ready",
+              },
+              key: "row:a",
+            },
+          ],
+          workspaceRoot: "/repo",
+          ...overrides,
+        }),
+      );
     }
 
     it("calls copyBranchName when onCopyBranchName is triggered", async () => {
@@ -733,7 +1082,9 @@ describe("Home component", () => {
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Copy Branch"));
-      expect(copyBranchNameMock).toHaveBeenCalledWith(expect.objectContaining({ worktree: "alpha" }));
+      expect(copyBranchNameMock).toHaveBeenCalledWith(
+        expect.objectContaining({ worktree: "alpha" }),
+      );
     });
 
     it("calls runRestoreAction when onRestoreAction is triggered", async () => {
@@ -742,7 +1093,9 @@ describe("Home component", () => {
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Restore"));
-      expect(runRestoreActionMock).toHaveBeenCalledWith(expect.objectContaining({ worktree: "alpha" }));
+      expect(runRestoreActionMock).toHaveBeenCalledWith(
+        expect.objectContaining({ worktree: "alpha" }),
+      );
     });
 
     it("calls setCutConfirmRow when onCutConfirm is triggered", async () => {
@@ -751,7 +1104,9 @@ describe("Home component", () => {
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Cut Confirm"));
-      expect(setCutConfirmRowMock).toHaveBeenCalledWith(expect.objectContaining({ worktree: "alpha" }));
+      expect(setCutConfirmRowMock).toHaveBeenCalledWith(
+        expect.objectContaining({ worktree: "alpha" }),
+      );
     });
 
     it("calls runStopAction when onStopAction is triggered", async () => {
@@ -760,21 +1115,29 @@ describe("Home component", () => {
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Stop"));
-      expect(runStopActionMock).toHaveBeenCalledWith(expect.objectContaining({ worktree: "alpha" }));
+      expect(runStopActionMock).toHaveBeenCalledWith(
+        expect.objectContaining({ worktree: "alpha" }),
+      );
     });
 
     it("calls runPlayGrooveAction when onPlayAction is triggered", async () => {
       const runPlayGrooveActionMock = vi.fn();
-      renderDashboardWithTable({ runPlayGrooveAction: runPlayGrooveActionMock });
+      renderDashboardWithTable({
+        runPlayGrooveAction: runPlayGrooveActionMock,
+      });
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Play"));
-      expect(runPlayGrooveActionMock).toHaveBeenCalledWith(expect.objectContaining({ worktree: "alpha" }));
+      expect(runPlayGrooveActionMock).toHaveBeenCalledWith(
+        expect.objectContaining({ worktree: "alpha" }),
+      );
     });
 
     it("calls runOpenWorktreeTerminalAction when onOpenTerminalAction is triggered", async () => {
       const runOpenWorktreeTerminalActionMock = vi.fn();
-      renderDashboardWithTable({ runOpenWorktreeTerminalAction: runOpenWorktreeTerminalActionMock });
+      renderDashboardWithTable({
+        runOpenWorktreeTerminalAction: runOpenWorktreeTerminalActionMock,
+      });
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Open Terminal"));
@@ -783,11 +1146,15 @@ describe("Home component", () => {
   });
 
   describe("DashboardModals callback wrappers", () => {
-    function renderDashboardWithModals(overrides: Record<string, unknown> = {}) {
-      useDashboardStateMock.mockReturnValue(makeDashboardState({
-        activeWorkspace: null,
-        ...overrides,
-      }));
+    function renderDashboardWithModals(
+      overrides: Record<string, unknown> = {},
+    ) {
+      useDashboardStateMock.mockReturnValue(
+        makeDashboardState({
+          activeWorkspace: null,
+          ...overrides,
+        }),
+      );
     }
 
     it("calls runCutGrooveAction when onRunCutGrooveAction is triggered", async () => {
@@ -796,12 +1163,17 @@ describe("Home component", () => {
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Modal Cut"));
-      expect(runCutGrooveActionMock).toHaveBeenCalledWith(expect.objectContaining({ worktree: "alpha" }), false);
+      expect(runCutGrooveActionMock).toHaveBeenCalledWith(
+        expect.objectContaining({ worktree: "alpha" }),
+        false,
+      );
     });
 
     it("calls closeCurrentWorkspace when onCloseCurrentWorkspace is triggered", async () => {
       const closeCurrentWorkspaceMock = vi.fn();
-      renderDashboardWithModals({ closeCurrentWorkspace: closeCurrentWorkspaceMock });
+      renderDashboardWithModals({
+        closeCurrentWorkspace: closeCurrentWorkspaceMock,
+      });
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Modal Close Workspace"));
@@ -810,11 +1182,16 @@ describe("Home component", () => {
 
     it("calls runCreateWorktreeAction when onRunCreateWorktreeAction is triggered", async () => {
       const runCreateWorktreeActionMock = vi.fn();
-      renderDashboardWithModals({ runCreateWorktreeAction: runCreateWorktreeActionMock });
+      renderDashboardWithModals({
+        runCreateWorktreeAction: runCreateWorktreeActionMock,
+      });
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Modal Create"));
-      expect(runCreateWorktreeActionMock).toHaveBeenCalledWith({ branch: "feat/x", base: "main" });
+      expect(runCreateWorktreeActionMock).toHaveBeenCalledWith({
+        branch: "feat/x",
+        base: "main",
+      });
     });
   });
 });

@@ -125,7 +125,9 @@ describe("completeCommandExecution", () => {
     const id = beginCommandExecution("cmd");
     completeCommandExecution(id, "success");
 
-    const firstCompletedAt = getCommandHistorySnapshot().find((e) => e.id === id)?.completedAt;
+    const firstCompletedAt = getCommandHistorySnapshot().find(
+      (e) => e.id === id,
+    )?.completedAt;
     completeCommandExecution(id, "error");
 
     const entry = getCommandHistorySnapshot().find((e) => e.id === id);
@@ -313,7 +315,9 @@ describe("trackCommandExecution", () => {
 });
 
 describe("formatCommandRelativeTime", () => {
-  function makeEntry(overrides: Partial<CommandExecutionEntry> = {}): CommandExecutionEntry {
+  function makeEntry(
+    overrides: Partial<CommandExecutionEntry> = {},
+  ): CommandExecutionEntry {
     return {
       id: "test-id",
       command: "test_cmd",
@@ -325,32 +329,51 @@ describe("formatCommandRelativeTime", () => {
   }
 
   it("returns 'running' when completedAt is null", () => {
-    expect(formatCommandRelativeTime(makeEntry({ completedAt: null, state: "running" }), 5000)).toBe("running");
+    expect(
+      formatCommandRelativeTime(
+        makeEntry({ completedAt: null, state: "running" }),
+        5000,
+      ),
+    ).toBe("running");
   });
 
   it("returns 'now' when elapsed is less than 1000ms", () => {
-    expect(formatCommandRelativeTime(makeEntry({ completedAt: 5000 }), 5500)).toBe("now");
+    expect(
+      formatCommandRelativeTime(makeEntry({ completedAt: 5000 }), 5500),
+    ).toBe("now");
   });
 
   it("returns 'now' when elapsed is exactly 0", () => {
-    expect(formatCommandRelativeTime(makeEntry({ completedAt: 5000 }), 5000)).toBe("now");
+    expect(
+      formatCommandRelativeTime(makeEntry({ completedAt: 5000 }), 5000),
+    ).toBe("now");
   });
 
   it("returns 'N seconds ago' for elapsed between 1s and 10s", () => {
-    const result = formatCommandRelativeTime(makeEntry({ completedAt: 5000 }), 5000 + 3000);
+    const result = formatCommandRelativeTime(
+      makeEntry({ completedAt: 5000 }),
+      5000 + 3000,
+    );
     expect(result).toBe("3 seconds ago");
   });
 
   it("returns at least '2 seconds ago' at the boundary", () => {
-    const result = formatCommandRelativeTime(makeEntry({ completedAt: 5000 }), 5000 + 1001);
+    const result = formatCommandRelativeTime(
+      makeEntry({ completedAt: 5000 }),
+      5000 + 1001,
+    );
     expect(result).toBe("2 seconds ago");
   });
 
   it("returns 'a moment ago' for elapsed greater than 10s", () => {
-    expect(formatCommandRelativeTime(makeEntry({ completedAt: 5000 }), 5000 + 15000)).toBe("a moment ago");
+    expect(
+      formatCommandRelativeTime(makeEntry({ completedAt: 5000 }), 5000 + 15000),
+    ).toBe("a moment ago");
   });
 
   it("handles negative elapsed by clamping to 0", () => {
-    expect(formatCommandRelativeTime(makeEntry({ completedAt: 5000 }), 4000)).toBe("now");
+    expect(
+      formatCommandRelativeTime(makeEntry({ completedAt: 5000 }), 4000),
+    ).toBe("now");
   });
 });

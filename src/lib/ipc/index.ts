@@ -3,7 +3,11 @@ export * from "./types-opencode";
 export * from "./types-commands";
 export * from "./types-terminal";
 export * from "./types-git";
-export { getIpcTelemetrySummary, printIpcTelemetrySummary, clearIpcTelemetrySummary } from "./telemetry";
+export {
+  getIpcTelemetrySummary,
+  printIpcTelemetrySummary,
+  clearIpcTelemetrySummary,
+} from "./telemetry";
 export {
   isTelemetryEnabled,
   isGrooveLoadingSectionDisabled,
@@ -12,6 +16,8 @@ export {
   isPeriodicRerenderEnabled,
   getThemeMode,
   getGlobalSettingsSnapshot,
+  getSoundLibrary,
+  getClaudeCodeSoundSettings,
   subscribeToGlobalSettings,
   subscribeToWorkspaceSettings,
   hasBlockingInvokeInFlight,

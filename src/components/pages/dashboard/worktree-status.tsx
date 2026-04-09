@@ -1,7 +1,6 @@
-import { AlertTriangle, Octagon, OctagonPause, OctagonX, Trash2 } from "lucide-react";
+import { AlertTriangle, Octagon, OctagonPause, Trash2 } from "lucide-react";
 
 import {
-  CLOSING_STATUS_CLASSES,
   CORRUPTED_STATUS_CLASSES,
   DELETED_STATUS_CLASSES,
   PAUSED_STATUS_CLASSES,
@@ -12,9 +11,6 @@ import type { WorktreeStatus } from "@/src/components/pages/dashboard/types";
 export function getWorktreeStatusBadgeClasses(status: WorktreeStatus): string {
   if (status === "ready") {
     return READY_STATUS_CLASSES;
-  }
-  if (status === "closing") {
-    return CLOSING_STATUS_CLASSES;
   }
   if (status === "paused") {
     return PAUSED_STATUS_CLASSES;
@@ -27,13 +23,10 @@ export function getWorktreeStatusBadgeClasses(status: WorktreeStatus): string {
 
 export function getWorktreeStatusTitle(status: WorktreeStatus): string {
   if (status === "ready") {
-    return "Workspace is valid and opencode is running.";
-  }
-  if (status === "closing") {
-    return "Workspace is currently closing.";
+    return "Worktree has active terminal sessions.";
   }
   if (status === "paused") {
-    return "Workspace is valid, but opencode is not running.";
+    return "Worktree has no active terminal sessions.";
   }
   if (status === "deleted") {
     return "Worktree was deleted and can be restored.";
@@ -44,9 +37,6 @@ export function getWorktreeStatusTitle(status: WorktreeStatus): string {
 export function getWorktreeStatusIcon(status: WorktreeStatus) {
   if (status === "ready") {
     return <Octagon aria-hidden="true" />;
-  }
-  if (status === "closing") {
-    return <OctagonX aria-hidden="true" />;
   }
   if (status === "paused") {
     return <OctagonPause aria-hidden="true" />;

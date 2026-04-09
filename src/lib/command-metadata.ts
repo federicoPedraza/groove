@@ -1,15 +1,19 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  Activity,
-  FolderOpen,
-  FolderSearch,
-  GitBranchPlus,
-  Play,
-  Settings,
-  Square,
-  Terminal,
-  Trash2,
-  Wrench,
+  Apple,
+  Banana,
+  Bean,
+  Beef,
+  Candy,
+  Carrot,
+  Coffee,
+  Cookie,
+  Croissant,
+  Grape,
+  Hamburger,
+  IceCreamCone,
+  Pizza,
+  Sandwich,
 } from "lucide-react";
 
 type CommandMetadata = {
@@ -22,77 +26,67 @@ const COMMAND_METADATA: Record<string, CommandMetadata> = {
   groove_restore: {
     title: "Restore Groove",
     description: "Reopens a worktree session and restores its context.",
-    icon: Play,
+    icon: Pizza,
   },
   groove_new: {
     title: "Create Worktree",
     description: "Creates a new worktree from a branch and optional base.",
-    icon: GitBranchPlus,
+    icon: Croissant,
   },
   groove_rm: {
     title: "Cut Groove",
     description: "Removes a worktree and cleans related session state.",
-    icon: Trash2,
+    icon: Beef,
   },
   groove_stop: {
-    title: "Stop Opencode",
-    description: "Stops the running Opencode process for a worktree.",
-    icon: Square,
-  },
-  diagnostics_list_opencode_instances: {
-    title: "Diagnostics: Opencode Instances",
-    description: "Lists running Opencode processes detected by diagnostics.",
-    icon: Activity,
+    title: "Stop Groove",
+    description: "Stops the running process for a worktree.",
+    icon: IceCreamCone,
   },
   diagnostics_stop_process: {
     title: "Diagnostics: Stop Process",
     description: "Stops one process selected from diagnostics output.",
-    icon: Square,
-  },
-  diagnostics_stop_all_opencode_instances: {
-    title: "Diagnostics: Stop All",
-    description: "Stops all running Opencode instances for cleanup.",
-    icon: Square,
+    icon: Candy,
   },
   diagnostics_list_worktree_node_apps: {
     title: "Diagnostics: Node Apps",
     description: "Lists Node.js apps found under workspace worktrees.",
-    icon: Activity,
+    icon: Grape,
   },
   diagnostics_clean_all_dev_servers: {
     title: "Diagnostics: Clean Dev Servers",
     description: "Stops detected local dev servers across worktrees.",
-    icon: Wrench,
+    icon: Carrot,
   },
   diagnostics_get_msot_consuming_programs: {
     title: "Diagnostics: Heavy Processes",
     description: "Collects the most resource-consuming local processes.",
-    icon: Activity,
+    icon: Hamburger,
   },
   diagnostics_get_system_overview: {
     title: "Diagnostics: System Overview",
     description: "Collects CPU, RAM, disk, and host usage diagnostics.",
-    icon: Activity,
+    icon: Bean,
   },
   workspace_pick_and_open: {
     title: "Open Workspace",
     description: "Opens a workspace selected from the local file picker.",
-    icon: FolderSearch,
+    icon: Apple,
   },
   workspace_open: {
     title: "Rescan Workspace",
     description: "Refreshes workspace context and current worktree rows.",
-    icon: FolderOpen,
+    icon: Banana,
   },
   workspace_clear_active: {
     title: "Close Workspace",
     description: "Clears the active workspace from the current session.",
-    icon: FolderOpen,
+    icon: Cookie,
   },
   workspace_update_terminal_settings: {
     title: "Update Terminal Settings",
     description: "Saves default terminal and custom command preferences.",
-    icon: Settings,
+    icon: Coffee,
   },
 };
 
@@ -113,6 +107,6 @@ export function getCommandMetadata(command: string): CommandMetadata {
   return {
     title: humanizeCommandId(command),
     description: "Runs an application command through the IPC bridge.",
-    icon: Terminal,
+    icon: Sandwich,
   };
 }

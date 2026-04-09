@@ -1,3 +1,41 @@
+fn has_child_processes(pid: u32) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(content) =
+            std::fs::read_to_string(format!("/proc/{}/task/{}/children", pid, pid))
+        {
+            return !content.trim().is_empty();
+        }
+
+        Command::new("pgrep")
+            .arg("-P")
+            .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("pgrep")
+            .arg("-P")
+            .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = pid;
+        false
+    }
+}
+
 fn request_id() -> String {
     Uuid::new_v4().to_string()
 }
@@ -61,6 +99,23 @@ fn latest_session_id_for_worktree(
         .get(worktree_key)
         .and_then(|session_ids| session_ids.last())
         .cloned()
+}
+
+fn active_worktrees_for_workspace(
+    sessions_state: &GrooveTerminalSessionsState,
+    workspace_root: &Path,
+) -> Vec<String> {
+    let workspace_key_prefix = format!("{}::", workspace_root_storage_key(workspace_root));
+    sessions_state
+        .session_ids_by_worktree
+        .iter()
+        .filter(|(_, session_ids)| !session_ids.is_empty())
+        .filter_map(|(worktree_key, _)| {
+            worktree_key
+                .strip_prefix(&workspace_key_prefix)
+                .map(|worktree| worktree.to_string())
+        })
+        .collect()
 }
 
 fn sessions_for_worktree(

@@ -3,12 +3,19 @@
 import { useContext, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 
-import { KeyboardShortcutsContext, type ShortcutRegistration } from "@/src/components/shortcuts/shortcut-registry-context";
+import {
+  KeyboardShortcutsContext,
+  type ShortcutRegistration,
+} from "@/src/components/shortcuts/shortcut-registry-context";
 
-export function useShortcutRegistration(registration: ShortcutRegistration): void {
+export function useShortcutRegistration(
+  registration: ShortcutRegistration,
+): void {
   const location = useLocation();
   const context = useContext(KeyboardShortcutsContext);
-  const registrationIdRef = useRef(`shortcut-registration-${Math.random().toString(36).slice(2)}`);
+  const registrationIdRef = useRef(
+    `shortcut-registration-${Math.random().toString(36).slice(2)}`,
+  );
 
   useEffect(() => {
     if (!context) {

@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useLocation } from "react-router-dom";
 
 import { AppNavigation } from "@/src/components/app-navigation";
@@ -35,11 +42,15 @@ function getDirectoryNameFromPath(path: string): string | null {
     return null;
   }
 
-  const pathSegments = normalizedPath.split(/[\\/]+/).filter((segment) => segment.length > 0);
+  const pathSegments = normalizedPath
+    .split(/[\\/]+/)
+    .filter((segment) => segment.length > 0);
   return pathSegments[pathSegments.length - 1] ?? null;
 }
 
-function getActiveWorkspaceDirectoryName(result: Awaited<ReturnType<typeof workspaceGetActive>>): string | null {
+function getActiveWorkspaceDirectoryName(
+  result: Awaited<ReturnType<typeof workspaceGetActive>>,
+): string | null {
   if (!result.ok) {
     return null;
   }
@@ -57,7 +68,9 @@ function getActiveWorkspaceDirectoryName(result: Awaited<ReturnType<typeof works
 }
 
 function buildAppTitle(activeWorkspaceDirectoryName: string | null): string {
-  return activeWorkspaceDirectoryName ? `${APP_TITLE_BASE} - ${activeWorkspaceDirectoryName}` : APP_TITLE_BASE;
+  return activeWorkspaceDirectoryName
+    ? `${APP_TITLE_BASE} - ${activeWorkspaceDirectoryName}`
+    : APP_TITLE_BASE;
 }
 
 function isTauriRuntimeAvailable(): boolean {
@@ -80,9 +93,14 @@ export type PageShellProps = {
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 const NAVIGATION_START_MARKER_KEY = "__grooveNavigationTelemetryStart";
 
-let shellWorkspaceGetActivePromise: Promise<Awaited<ReturnType<typeof workspaceGetActive>>> | null = null;
-let shellGrooveBinStatusPromise: Promise<Awaited<ReturnType<typeof grooveBinStatus>>> | null = null;
-let shellDiagnosticsOverviewPromise: Promise<DiagnosticsSystemOverviewResponse> | null = null;
+let shellWorkspaceGetActivePromise: Promise<
+  Awaited<ReturnType<typeof workspaceGetActive>>
+> | null = null;
+let shellGrooveBinStatusPromise: Promise<
+  Awaited<ReturnType<typeof grooveBinStatus>>
+> | null = null;
+let shellDiagnosticsOverviewPromise: Promise<DiagnosticsSystemOverviewResponse> | null =
+  null;
 let hasLoggedShellWorkspaceGetActiveTelemetry = false;
 
 type NavigationStartMarker = {
@@ -93,14 +111,16 @@ type NavigationStartMarker = {
 };
 
 function getNavigationStartMarker(): NavigationStartMarker | null {
-  const marker = (window as Window & { [NAVIGATION_START_MARKER_KEY]?: NavigationStartMarker })[
-    NAVIGATION_START_MARKER_KEY
-  ];
+  const marker = (
+    window as Window & { [NAVIGATION_START_MARKER_KEY]?: NavigationStartMarker }
+  )[NAVIGATION_START_MARKER_KEY];
   return marker ?? null;
 }
 
 function clearNavigationStartMarker(): void {
-  delete (window as Window & { [NAVIGATION_START_MARKER_KEY]?: NavigationStartMarker })[NAVIGATION_START_MARKER_KEY];
+  delete (
+    window as Window & { [NAVIGATION_START_MARKER_KEY]?: NavigationStartMarker }
+  )[NAVIGATION_START_MARKER_KEY];
 }
 
 function readStoredRecentDirectories(): string[] {
@@ -124,7 +144,9 @@ function readStoredRecentDirectories(): string[] {
       .map((candidate) => candidate.trim())
       .filter((candidate) => candidate.length > 0);
 
-    const deduplicated = normalized.filter((candidate, index) => normalized.indexOf(candidate) === index);
+    const deduplicated = normalized.filter(
+      (candidate, index) => normalized.indexOf(candidate) === index,
+    );
     return deduplicated.slice(0, MAX_RECENT_DIRECTORIES);
   } catch {
     return [];
@@ -139,7 +161,9 @@ function getIsAlwaysShowDiagnosticsSidebarEnabledSnapshot(): boolean {
   return isAlwaysShowDiagnosticsSidebarEnabled();
 }
 
-async function loadShellWorkspaceGetActive(): Promise<Awaited<ReturnType<typeof workspaceGetActive>>> {
+async function loadShellWorkspaceGetActive(): Promise<
+  Awaited<ReturnType<typeof workspaceGetActive>>
+> {
   if (!shellWorkspaceGetActivePromise) {
     shellWorkspaceGetActivePromise = workspaceGetActive().finally(() => {
       shellWorkspaceGetActivePromise = null;
@@ -148,7 +172,9 @@ async function loadShellWorkspaceGetActive(): Promise<Awaited<ReturnType<typeof 
   return shellWorkspaceGetActivePromise;
 }
 
-async function loadShellGrooveBinStatus(): Promise<Awaited<ReturnType<typeof grooveBinStatus>>> {
+async function loadShellGrooveBinStatus(): Promise<
+  Awaited<ReturnType<typeof grooveBinStatus>>
+> {
   if (!shellGrooveBinStatusPromise) {
     shellGrooveBinStatusPromise = grooveBinStatus().finally(() => {
       shellGrooveBinStatusPromise = null;
@@ -159,25 +185,38 @@ async function loadShellGrooveBinStatus(): Promise<Awaited<ReturnType<typeof gro
 
 async function loadShellDiagnosticsOverview(): Promise<DiagnosticsSystemOverviewResponse> {
   if (!shellDiagnosticsOverviewPromise) {
-    shellDiagnosticsOverviewPromise = diagnosticsGetSystemOverview().finally(() => {
-      shellDiagnosticsOverviewPromise = null;
-    });
+    shellDiagnosticsOverviewPromise = diagnosticsGetSystemOverview().finally(
+      () => {
+        shellDiagnosticsOverviewPromise = null;
+      },
+    );
   }
   return shellDiagnosticsOverviewPromise;
 }
 
-export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageShellProps) {
+export function PageShell({
+  children,
+  pageSidebar,
+  noDirectoryOpenState,
+}: PageShellProps) {
   const { pathname } = useLocation();
-  const [grooveBinStatusState, setGrooveBinStatusState] = useState<GrooveBinCheckStatus | null>(null);
+  const [grooveBinStatusState, setGrooveBinStatusState] =
+    useState<GrooveBinCheckStatus | null>(null);
   const [isRepairingGrooveBin, setIsRepairingGrooveBin] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [recentDirectories, setRecentDirectories] = useState<string[]>([]);
   const [currentFps, setCurrentFps] = useState<number | null>(null);
-  const [diagnosticsOverview, setDiagnosticsOverview] = useState<DiagnosticsSystemOverview | null>(null);
-  const [diagnosticsOverviewError, setDiagnosticsOverviewError] = useState<string | null>(null);
-  const [isDiagnosticsOverviewLoading, setIsDiagnosticsOverviewLoading] = useState(false);
-  const [hasDiagnosticsSanityWarning, setHasDiagnosticsSanityWarning] = useState(false);
-  const [activeWorkspaceDirectoryName, setActiveWorkspaceDirectoryName] = useState<string | null>(null);
+  const [diagnosticsOverview, setDiagnosticsOverview] =
+    useState<DiagnosticsSystemOverview | null>(null);
+  const [diagnosticsOverviewError, setDiagnosticsOverviewError] = useState<
+    string | null
+  >(null);
+  const [isDiagnosticsOverviewLoading, setIsDiagnosticsOverviewLoading] =
+    useState(false);
+  const [hasDiagnosticsSanityWarning, setHasDiagnosticsSanityWarning] =
+    useState(false);
+  const [activeWorkspaceDirectoryName, setActiveWorkspaceDirectoryName] =
+    useState<string | null>(null);
   const shouldShowFps = useSyncExternalStore(
     subscribeToGlobalSettings,
     getIsShowFpsEnabledSnapshot,
@@ -280,11 +319,15 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined" || typeof PerformanceObserver === "undefined") {
+    if (
+      typeof window === "undefined" ||
+      typeof PerformanceObserver === "undefined"
+    ) {
       return;
     }
 
-    const supportsLongTask = PerformanceObserver.supportedEntryTypes?.includes("longtask");
+    const supportsLongTask =
+      PerformanceObserver.supportedEntryTypes?.includes("longtask");
     if (!supportsLongTask) {
       return;
     }
@@ -353,8 +396,10 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
 
   const showGrooveBinWarning = grooveBinStatusState?.hasIssue === true;
   const hasOpenWorkspace = noDirectoryOpenState?.isVisible !== true;
-  const shouldAppendDiagnosticsSidebar = hasOpenWorkspace && pathname !== "/diagnostics" && shouldAlwaysShowDiagnosticsSidebar;
-  const shouldShowDevelopmentModeLabel = import.meta.env.DEV && isTauriRuntimeAvailable();
+  const shouldAppendDiagnosticsSidebar =
+    hasOpenWorkspace &&
+    pathname !== "/diagnostics" &&
+    shouldAlwaysShowDiagnosticsSidebar;
 
   const refreshDiagnosticsOverview = useCallback(async (): Promise<void> => {
     setIsDiagnosticsOverviewLoading(true);
@@ -364,7 +409,9 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
       const result = await loadShellDiagnosticsOverview();
       if (!result.ok || !result.overview) {
         setDiagnosticsOverview(null);
-        setDiagnosticsOverviewError(result.error ?? "Failed to load system usage.");
+        setDiagnosticsOverviewError(
+          result.error ?? "Failed to load system usage.",
+        );
         return;
       }
 
@@ -377,47 +424,56 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
     }
   }, []);
 
-  const refreshDiagnosticsSanityWarning = useCallback(async (): Promise<void> => {
-    if (!hasOpenWorkspace) {
-      setHasDiagnosticsSanityWarning(false);
-      return;
-    }
-
-    try {
-      const workspaceResult = await workspaceGetActive();
-      if (!workspaceResult.ok || !workspaceResult.workspaceRoot) {
+  const refreshDiagnosticsSanityWarning =
+    useCallback(async (): Promise<void> => {
+      if (!hasOpenWorkspace) {
         setHasDiagnosticsSanityWarning(false);
         return;
       }
 
-      const sanityResult = await workspaceGitignoreSanityCheck();
-      if (!sanityResult.ok) {
+      try {
+        const workspaceResult = await workspaceGetActive();
+        if (!workspaceResult.ok || !workspaceResult.workspaceRoot) {
+          setHasDiagnosticsSanityWarning(false);
+          return;
+        }
+
+        const sanityResult = await workspaceGitignoreSanityCheck();
+        if (!sanityResult.ok) {
+          setHasDiagnosticsSanityWarning(false);
+          return;
+        }
+
+        setHasDiagnosticsSanityWarning(
+          sanityResult.isApplicable && sanityResult.missingEntries.length > 0,
+        );
+      } catch {
         setHasDiagnosticsSanityWarning(false);
+      }
+    }, [hasOpenWorkspace]);
+
+  const refreshActiveWorkspaceDirectoryName =
+    useCallback(async (): Promise<void> => {
+      if (!hasOpenWorkspace) {
+        setActiveWorkspaceDirectoryName(null);
         return;
       }
 
-      setHasDiagnosticsSanityWarning(sanityResult.isApplicable && sanityResult.missingEntries.length > 0);
-    } catch {
-      setHasDiagnosticsSanityWarning(false);
-    }
-  }, [hasOpenWorkspace]);
+      try {
+        const workspaceResult = await workspaceGetActive();
+        setActiveWorkspaceDirectoryName(
+          getActiveWorkspaceDirectoryName(workspaceResult),
+        );
+      } catch {
+        setActiveWorkspaceDirectoryName(null);
+      }
+    }, [hasOpenWorkspace]);
 
-  const refreshActiveWorkspaceDirectoryName = useCallback(async (): Promise<void> => {
-    if (!hasOpenWorkspace) {
-      setActiveWorkspaceDirectoryName(null);
-      return;
-    }
-
-    try {
-      const workspaceResult = await workspaceGetActive();
-      setActiveWorkspaceDirectoryName(getActiveWorkspaceDirectoryName(workspaceResult));
-    } catch {
-      setActiveWorkspaceDirectoryName(null);
-    }
-  }, [hasOpenWorkspace]);
-
-  const refreshActiveWorkspaceDirectoryNameRef = useRef(refreshActiveWorkspaceDirectoryName);
-  refreshActiveWorkspaceDirectoryNameRef.current = refreshActiveWorkspaceDirectoryName;
+  const refreshActiveWorkspaceDirectoryNameRef = useRef(
+    refreshActiveWorkspaceDirectoryName,
+  );
+  refreshActiveWorkspaceDirectoryNameRef.current =
+    refreshActiveWorkspaceDirectoryName;
 
   useEffect(() => {
     let isClosed = false;
@@ -493,7 +549,9 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
     };
   }, [activeWorkspaceDirectoryName]);
 
-  const refreshDiagnosticsSanityWarningRef = useRef(refreshDiagnosticsSanityWarning);
+  const refreshDiagnosticsSanityWarningRef = useRef(
+    refreshDiagnosticsSanityWarning,
+  );
   refreshDiagnosticsSanityWarningRef.current = refreshDiagnosticsSanityWarning;
 
   useEffect(() => {
@@ -560,7 +618,9 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
   const resolvedNavigationSidebar: PageShellProps["pageSidebar"] = useCallback(
     ({ collapsed }: { collapsed: boolean }) => (
       <>
-        {typeof pageSidebar === "function" ? pageSidebar({ collapsed }) : pageSidebar}
+        {typeof pageSidebar === "function"
+          ? pageSidebar({ collapsed })
+          : pageSidebar}
         {shouldAppendDiagnosticsSidebar && (
           <DiagnosticsSystemSidebar
             collapsed={collapsed}
@@ -574,7 +634,14 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
         )}
       </>
     ),
-    [diagnosticsOverview, diagnosticsOverviewError, isDiagnosticsOverviewLoading, pageSidebar, refreshDiagnosticsOverview, shouldAppendDiagnosticsSidebar],
+    [
+      diagnosticsOverview,
+      diagnosticsOverviewError,
+      isDiagnosticsOverviewLoading,
+      pageSidebar,
+      refreshDiagnosticsOverview,
+      shouldAppendDiagnosticsSidebar,
+    ],
   );
 
   const repairGrooveBin = useCallback(async (): Promise<void> => {
@@ -623,18 +690,32 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
               <p className="text-sm text-amber-900">
                 {grooveBinStatusState?.issue ?? "GROOVE_BIN is invalid."}
               </p>
-              <Button type="button" variant="secondary" size="sm" onClick={() => void repairGrooveBin()} disabled={isRepairingGrooveBin}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => void repairGrooveBin()}
+                disabled={isRepairingGrooveBin}
+              >
                 {isRepairingGrooveBin ? "Repairing..." : "Repair GROOVE_BIN"}
               </Button>
             </div>
           )}
           {noDirectoryOpenState?.isVisible && (
-            <section aria-live="polite" className="flex min-h-[calc(100vh-8rem)] items-center justify-center">
+            <section
+              aria-live="polite"
+              className="flex min-h-[calc(100vh-8rem)] items-center justify-center"
+            >
               <div className="flex w-full max-w-2xl flex-col items-center gap-6 px-4 text-center">
-                <h1 className="text-5xl font-semibold tracking-[0.18em] sm:text-7xl">GROOVE</h1>
+                <h1 className="text-5xl font-semibold tracking-[0.18em] sm:text-7xl">
+                  GROOVE
+                </h1>
 
                 {recentDirectories.length > 0 ? (
-                  <div className="flex w-full max-w-md flex-col gap-2" aria-label="Recent directories">
+                  <div
+                    className="flex w-full max-w-md flex-col gap-2"
+                    aria-label="Recent directories"
+                  >
                     {recentDirectories.map((directoryPath) => (
                       <Button
                         key={directoryPath}
@@ -644,7 +725,9 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
                         disabled={noDirectoryOpenState.isBusy}
                         title={directoryPath}
                         onClick={() => {
-                          void noDirectoryOpenState.onOpenRecentDirectory(directoryPath);
+                          void noDirectoryOpenState.onOpenRecentDirectory(
+                            directoryPath,
+                          );
                         }}
                         className="w-full justify-start truncate"
                       >
@@ -653,7 +736,9 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">No recent directories</p>
+                  <p className="text-sm text-muted-foreground">
+                    No recent directories
+                  </p>
                 )}
 
                 <div className="flex w-full max-w-md items-center gap-3 text-xs uppercase tracking-[0.2em] text-muted-foreground">
@@ -671,7 +756,9 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
                   }}
                   className="w-full max-w-md"
                 >
-                  {noDirectoryOpenState.isBusy ? "Opening picker..." : "Select new directory"}
+                  {noDirectoryOpenState.isBusy
+                    ? "Opening picker..."
+                    : "Select new directory"}
                 </Button>
 
                 {noDirectoryOpenState.statusMessage && (
@@ -687,7 +774,9 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
               </div>
             </section>
           )}
-          <div className={noDirectoryOpenState?.isVisible ? "hidden" : undefined}>
+          <div
+            className={noDirectoryOpenState?.isVisible ? "hidden" : undefined}
+          >
             {children}
           </div>
         </div>
@@ -695,13 +784,6 @@ export function PageShell({ children, pageSidebar, noDirectoryOpenState }: PageS
       {shouldShowFps && (
         <div className="pointer-events-none fixed right-4 top-4 z-50 rounded border border-border/80 bg-background/90 px-2 py-1 font-mono text-xs text-foreground shadow-sm">
           FPS {currentFps ?? "--"}
-        </div>
-      )}
-      {shouldShowDevelopmentModeLabel && (
-        <div className="pointer-events-none fixed bottom-3 right-20 z-40">
-          <div className="rounded border border-border/80 bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm">
-            Development mode
-          </div>
         </div>
       )}
       <HelpModal open={isHelpModalOpen} onOpenChange={setIsHelpModalOpen} />

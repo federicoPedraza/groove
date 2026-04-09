@@ -7,7 +7,6 @@ import {
   getWorktreeStatusTitle,
 } from "@/src/components/pages/dashboard/worktree-status";
 import {
-  CLOSING_STATUS_CLASSES,
   CORRUPTED_STATUS_CLASSES,
   DELETED_STATUS_CLASSES,
   PAUSED_STATUS_CLASSES,
@@ -15,12 +14,16 @@ import {
 } from "@/src/components/pages/dashboard/constants";
 import type { WorktreeStatus } from "@/src/components/pages/dashboard/types";
 
-const ALL_STATUSES: WorktreeStatus[] = ["ready", "closing", "paused", "deleted", "corrupted"];
+const ALL_STATUSES: WorktreeStatus[] = [
+  "ready",
+  "paused",
+  "deleted",
+  "corrupted",
+];
 
 describe("getWorktreeStatusBadgeClasses", () => {
   it.each([
     ["ready", READY_STATUS_CLASSES],
-    ["closing", CLOSING_STATUS_CLASSES],
     ["paused", PAUSED_STATUS_CLASSES],
     ["deleted", DELETED_STATUS_CLASSES],
     ["corrupted", CORRUPTED_STATUS_CLASSES],
@@ -31,9 +34,8 @@ describe("getWorktreeStatusBadgeClasses", () => {
 
 describe("getWorktreeStatusTitle", () => {
   it.each([
-    ["ready", "Workspace is valid and opencode is running."],
-    ["closing", "Workspace is currently closing."],
-    ["paused", "Workspace is valid, but opencode is not running."],
+    ["ready", "Worktree has active terminal sessions."],
+    ["paused", "Worktree has no active terminal sessions."],
     ["deleted", "Worktree was deleted and can be restored."],
     ["corrupted", "Workspace is invalid or missing groove metadata."],
   ] as const)("returns correct title for %s", (status, expected) => {

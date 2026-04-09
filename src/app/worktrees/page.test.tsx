@@ -15,17 +15,43 @@ vi.mock("@/src/lib/utils/worktree/status", () => ({
     if (runtime) return "running";
     return status === "active" ? "ready" : status;
   }),
-  getActiveWorktreeRows: vi.fn((rows: Array<{ status: string }>, runtimeState: Record<string, unknown>) => {
-    return rows.filter(
-      (row) => row.status === "active" || runtimeState[row.status],
-    );
-  }),
+  getActiveWorktreeRows: vi.fn(
+    (
+      rows: Array<{ status: string }>,
+      runtimeState: Record<string, unknown>,
+    ) => {
+      return rows.filter(
+        (row) => row.status === "active" || runtimeState[row.status],
+      );
+    },
+  ),
 }));
 
-vi.mock("@/src/components/pages/dashboard/worktree-status", () => ({
-  getWorktreeStatusBadgeClasses: vi.fn(() => ""),
-  getWorktreeStatusIcon: vi.fn(() => null),
-  getWorktreeStatusTitle: vi.fn(() => ""),
+vi.mock("@/src/lib/utils/mascots", () => ({
+  getWorktreeMascotAssignment: vi.fn(() => ({
+    mascot: {},
+    color: {
+      id: "emerald",
+      hex: "#10b981",
+      borderClassName: {
+        light: "border-emerald-700/45",
+        dark: "dark:border-emerald-300/55",
+      },
+      textClassName: {
+        light: "text-emerald-700",
+        dark: "dark:text-emerald-300",
+      },
+    },
+  })),
+  getMascotBorderClassNames: vi.fn(
+    () => "border-emerald-700/45 dark:border-emerald-300/55",
+  ),
+}));
+
+vi.mock("@/src/components/pages/worktrees/groove-worktree-terminal", () => ({
+  GrooveWorktreeTerminal: vi.fn(() => (
+    <div data-testid="groove-worktree-terminal" />
+  )),
 }));
 
 import { useDashboardState } from "@/src/components/pages/dashboard/hooks/use-dashboard-state";
@@ -52,7 +78,7 @@ function createDefaultDashboardState(overrides: Record<string, unknown> = {}) {
     isCloseWorkspaceConfirmOpen: false,
     cutConfirmRow: null,
     forceCutConfirmRow: null,
-    runtimeStateByWorktree: {},
+    activeTerminalWorktrees: new Set(),
     isCreateModalOpen: false,
     createBranch: "",
     createBase: "",
@@ -97,9 +123,13 @@ describe("WorktreesPage", () => {
   });
 
   async function renderPage(overrides: Record<string, unknown> = {}) {
-    mockUseDashboardState.mockReturnValue(createDefaultDashboardState(overrides));
+    mockUseDashboardState.mockReturnValue(
+      createDefaultDashboardState(overrides),
+    );
     mockGetActiveWorktreeRows.mockReturnValue(
-      (overrides.runnableRows ?? []) as ReturnType<typeof getActiveWorktreeRows>,
+      (overrides.runnableRows ?? []) as ReturnType<
+        typeof getActiveWorktreeRows
+      >,
     );
 
     const mod = await import("@/src/app/worktrees/page");
@@ -113,26 +143,19 @@ describe("WorktreesPage", () => {
 
   it("renders nothing when no active workspace", async () => {
     const { container } = await renderPage();
-    // The page renders an empty fragment
     expect(container.innerHTML).toBe("");
-  });
-
-  it("renders worktrees header when workspace is active", async () => {
-    await renderPage({
-      activeWorkspace: { workspaceRoot: "/test" },
-    });
-    expect(screen.getByText("Worktrees")).toBeInTheDocument();
-    expect(screen.getByText(/Ready or running worktrees/)).toBeInTheDocument();
   });
 
   it("shows empty state when no runnable rows", async () => {
     await renderPage({
       activeWorkspace: { workspaceRoot: "/test" },
     });
-    expect(screen.getByText("There are no worktrees running at the moment.")).toBeInTheDocument();
+    expect(
+      screen.getByText("There are no worktrees running at the moment."),
+    ).toBeInTheDocument();
   });
 
-  it("renders worktree cards for runnable rows", async () => {
+  it("renders worktree names and branch info for runnable rows", async () => {
     const rows = [
       {
         worktree: "feature-1",
@@ -152,13 +175,11 @@ describe("WorktreesPage", () => {
       worktreeRows: rows,
       runnableRows: rows,
     });
-    expect(screen.getByText("feature-1")).toBeInTheDocument();
-    expect(screen.getByText("feature-2")).toBeInTheDocument();
-    expect(screen.getByText("Branch: feature/branch-1")).toBeInTheDocument();
-    expect(screen.getByText("Branch: feature/branch-2")).toBeInTheDocument();
+    expect(screen.getByText("feature/branch-1")).toBeInTheDocument();
+    expect(screen.getByText("feature/branch-2")).toBeInTheDocument();
   });
 
-  it("renders Open details links for worktree cards", async () => {
+  it("renders detail links for each worktree", async () => {
     const rows = [
       {
         worktree: "feature-1",
@@ -172,7 +193,31 @@ describe("WorktreesPage", () => {
       worktreeRows: rows,
       runnableRows: rows,
     });
-    const link = screen.getByText("Open details");
+    const link = screen.getByLabelText("Open details for feature-1");
     expect(link.closest("a")).toHaveAttribute("href", "/worktrees/feature-1");
+  });
+
+  it("renders terminal component when workspace context is available", async () => {
+    const rows = [
+      {
+        worktree: "feature-1",
+        path: "/test/.worktrees/feature-1",
+        branchGuess: "feature/branch-1",
+        status: "active",
+      },
+    ];
+    await renderPage({
+      activeWorkspace: { workspaceRoot: "/test" },
+      worktreeRows: rows,
+      runnableRows: rows,
+      workspaceRoot: "/test",
+      workspaceMeta: {
+        rootName: "test",
+        version: 1,
+        createdAt: "",
+        updatedAt: "",
+      },
+    });
+    expect(screen.getByTestId("groove-worktree-terminal")).toBeInTheDocument();
   });
 });

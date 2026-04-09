@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/src/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/src/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/src/components/ui/dialog";
 import { Input } from "@/src/components/ui/input";
 import {
   DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
@@ -33,10 +40,13 @@ type SkillListItem = OpencodeSkillScope["skills"][number] & {
   virtualIncoming: boolean;
 };
 
-
-function defaultGlobalSkillsPathFromSettingsDirectory(settingsDirectory: string): string {
+function defaultGlobalSkillsPathFromSettingsDirectory(
+  settingsDirectory: string,
+): string {
   const normalized = settingsDirectory.trim();
-  return normalized.length > 0 ? `${normalized}/skills` : `${DEFAULT_OPENCODE_SETTINGS_DIRECTORY}/skills`;
+  return normalized.length > 0
+    ? `${normalized}/skills`
+    : `${DEFAULT_OPENCODE_SETTINGS_DIRECTORY}/skills`;
 }
 
 function defaultWorkspaceSkillsPath(workspaceRoot: string | null): string {
@@ -47,7 +57,9 @@ function defaultWorkspaceSkillsPath(workspaceRoot: string | null): string {
 }
 
 function workspaceSkillsStorageKey(workspaceRoot: string | null): string {
-  return workspaceRoot ? `groove:opencode:workspace-skills-path:${workspaceRoot}` : "groove:opencode:workspace-skills-path:default";
+  return workspaceRoot
+    ? `groove:opencode:workspace-skills-path:${workspaceRoot}`
+    : "groove:opencode:workspace-skills-path:default";
 }
 
 function globalSkillsStorageKey(): string {
@@ -67,17 +79,28 @@ export function OpencodeSettingsModal({
 }: OpencodeSettingsModalProps) {
   const [savePending, setSavePending] = useState(false);
   const [validationPending, setValidationPending] = useState(false);
-  const [settingsDirectory, setSettingsDirectory] = useState(DEFAULT_OPENCODE_SETTINGS_DIRECTORY);
-  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  const [settingsDirectory, setSettingsDirectory] = useState(
+    DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
+  );
+  const [validationMessage, setValidationMessage] = useState<string | null>(
+    null,
+  );
   const [validationError, setValidationError] = useState<string | null>(null);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
-  const [globalSkillsPath, setGlobalSkillsPath] = useState(`${DEFAULT_OPENCODE_SETTINGS_DIRECTORY}/skills`);
-  const [workspaceSkillsPath, setWorkspaceSkillsPath] = useState("./.opencode/skill");
-  const [globalSkillsScope, setGlobalSkillsScope] = useState<OpencodeSkillScope | null>(null);
-  const [workspaceSkillsScope, setWorkspaceSkillsScope] = useState<OpencodeSkillScope | null>(null);
+  const [globalSkillsPath, setGlobalSkillsPath] = useState(
+    `${DEFAULT_OPENCODE_SETTINGS_DIRECTORY}/skills`,
+  );
+  const [workspaceSkillsPath, setWorkspaceSkillsPath] =
+    useState("./.opencode/skill");
+  const [globalSkillsScope, setGlobalSkillsScope] =
+    useState<OpencodeSkillScope | null>(null);
+  const [workspaceSkillsScope, setWorkspaceSkillsScope] =
+    useState<OpencodeSkillScope | null>(null);
   const [globalMarkedSkills, setGlobalMarkedSkills] = useState<string[]>([]);
-  const [workspaceMarkedSkills, setWorkspaceMarkedSkills] = useState<string[]>([]);
+  const [workspaceMarkedSkills, setWorkspaceMarkedSkills] = useState<string[]>(
+    [],
+  );
 
   const selectedSettings = useMemo<OpencodeSettings>(() => {
     if (effectiveScope === "workspace") {
@@ -89,13 +112,14 @@ export function OpencodeSettingsModal({
     return globalSettings;
   }, [effectiveScope, globalSettings, workspaceSettings]);
 
-
   useEffect(() => {
     if (!open) {
       return;
     }
 
-    setSettingsDirectory(selectedSettings.settingsDirectory || DEFAULT_OPENCODE_SETTINGS_DIRECTORY);
+    setSettingsDirectory(
+      selectedSettings.settingsDirectory || DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
+    );
     setValidationMessage(null);
     setValidationError(null);
     setGlobalMarkedSkills([]);
@@ -108,7 +132,11 @@ export function OpencodeSettingsModal({
 
     void (async () => {
       try {
-        const response = await opencodeListSkills(workspaceRoot, globalPath, workspacePath);
+        const response = await opencodeListSkills(
+          workspaceRoot,
+          globalPath,
+          workspacePath,
+        );
         if (!response.ok) {
           setGlobalSkillsScope(null);
           setWorkspaceSkillsScope(null);
@@ -143,17 +171,24 @@ export function OpencodeSettingsModal({
 
     if (typeof window !== "undefined") {
       storedGlobalPath = window.localStorage.getItem(globalSkillsStorageKey());
-      storedWorkspacePath = window.localStorage.getItem(workspaceSkillsStorageKey(workspaceRoot));
+      storedWorkspacePath = window.localStorage.getItem(
+        workspaceSkillsStorageKey(workspaceRoot),
+      );
     }
 
-    const normalizedGlobalPath = (storedGlobalPath && storedGlobalPath.trim()) || globalSkillsPath.trim() || globalDefaultPath;
+    const normalizedGlobalPath =
+      (storedGlobalPath && storedGlobalPath.trim()) ||
+      globalSkillsPath.trim() ||
+      globalDefaultPath;
     const normalizedWorkspacePath =
-      (storedWorkspacePath && storedWorkspacePath.trim()) || workspaceSkillsPath.trim() || workspaceDefaultPath;
+      (storedWorkspacePath && storedWorkspacePath.trim()) ||
+      workspaceSkillsPath.trim() ||
+      workspaceDefaultPath;
 
     setGlobalSkillsPath(normalizedGlobalPath);
     setWorkspaceSkillsPath(normalizedWorkspacePath);
     loadSkillsScopes(normalizedGlobalPath, normalizedWorkspacePath);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally excludes paths and loader to avoid infinite re-renders
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally excludes paths and loader to avoid infinite re-renders
   }, [open, workspaceRoot, selectedSettings.settingsDirectory]);
 
   const settingsBusy = savePending || validationPending;
@@ -164,18 +199,25 @@ export function OpencodeSettingsModal({
         <DialogHeader>
           <DialogTitle>Opencode integration</DialogTitle>
           <DialogDescription>
-            Configure Opencode settings saved in Groove metadata. Groove does not write into <code>.opencode</code> or <code>$HOME/.config/opencode</code>.
+            Configure Opencode settings saved in Groove metadata. Groove does
+            not write into <code>.opencode</code> or{" "}
+            <code>$HOME/.config/opencode</code>.
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           <section className="space-y-3 rounded-md border px-3 py-3">
             <div>
-              <p className="text-sm font-medium text-foreground">Opencode settings directory</p>
+              <p className="text-sm font-medium text-foreground">
+                Opencode settings directory
+              </p>
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="opencode-settings-directory" className="text-xs font-medium text-foreground">
+              <label
+                htmlFor="opencode-settings-directory"
+                className="text-xs font-medium text-foreground"
+              >
                 Directory path
               </label>
               <Input
@@ -208,11 +250,17 @@ export function OpencodeSettingsModal({
 
                   void (async () => {
                     try {
-                      const response = await validateOpencodeSettingsDirectory(settingsDirectory, workspaceRoot);
+                      const response = await validateOpencodeSettingsDirectory(
+                        settingsDirectory,
+                        workspaceRoot,
+                      );
                       if (!response.ok) {
-                        const resolvedText = response.resolvedPath ? ` Resolved path: ${response.resolvedPath}` : "";
+                        const resolvedText = response.resolvedPath
+                          ? ` Resolved path: ${response.resolvedPath}`
+                          : "";
                         const existenceText =
-                          response.directoryExists && !response.opencodeConfigExists
+                          response.directoryExists &&
+                          !response.opencodeConfigExists
                             ? " Directory exists but opencode.json is missing."
                             : "";
                         setValidationError(
@@ -227,7 +275,9 @@ export function OpencodeSettingsModal({
                           : "Validated Opencode settings directory.",
                       );
                     } catch {
-                      setValidationError("Failed to validate Opencode settings directory.");
+                      setValidationError(
+                        "Failed to validate Opencode settings directory.",
+                      );
                     } finally {
                       setValidationPending(false);
                     }
@@ -243,9 +293,14 @@ export function OpencodeSettingsModal({
                 size="sm"
                 disabled={settingsBusy}
                 onClick={() => {
-                  const normalizedDirectory = settingsDirectory.trim() || DEFAULT_OPENCODE_SETTINGS_DIRECTORY;
-                  const shouldUseWorkspaceScope = effectiveScope === "workspace" && workspaceRoot != null;
-                  const settingsSource = shouldUseWorkspaceScope ? workspaceSettings : globalSettings;
+                  const normalizedDirectory =
+                    settingsDirectory.trim() ||
+                    DEFAULT_OPENCODE_SETTINGS_DIRECTORY;
+                  const shouldUseWorkspaceScope =
+                    effectiveScope === "workspace" && workspaceRoot != null;
+                  const settingsSource = shouldUseWorkspaceScope
+                    ? workspaceSettings
+                    : globalSettings;
 
                   setSavePending(true);
                   setValidationMessage(null);
@@ -261,7 +316,10 @@ export function OpencodeSettingsModal({
                         });
 
                         if (!response.ok) {
-                          setValidationError(response.error ?? "Failed to save Opencode settings directory.");
+                          setValidationError(
+                            response.error ??
+                              "Failed to save Opencode settings directory.",
+                          );
                           return;
                         }
                       } else {
@@ -272,16 +330,23 @@ export function OpencodeSettingsModal({
                         });
 
                         if (!response.ok) {
-                          setValidationError(response.error ?? "Failed to save Opencode settings directory.");
+                          setValidationError(
+                            response.error ??
+                              "Failed to save Opencode settings directory.",
+                          );
                           return;
                         }
                       }
 
                       setSettingsDirectory(normalizedDirectory);
-                      setValidationMessage("Opencode settings directory saved.");
+                      setValidationMessage(
+                        "Opencode settings directory saved.",
+                      );
                       onSettingsSaved("Opencode settings updated.");
                     } catch {
-                      setValidationError("Failed to save Opencode settings directory.");
+                      setValidationError(
+                        "Failed to save Opencode settings directory.",
+                      );
                     } finally {
                       setSavePending(false);
                     }
@@ -292,18 +357,27 @@ export function OpencodeSettingsModal({
               </Button>
             </div>
 
-            {validationMessage ? <p className="text-xs text-green-800">{validationMessage}</p> : null}
-            {validationError ? <p className="text-xs text-destructive">{validationError}</p> : null}
+            {validationMessage ? (
+              <p className="text-xs text-green-800">{validationMessage}</p>
+            ) : null}
+            {validationError ? (
+              <p className="text-xs text-destructive">{validationError}</p>
+            ) : null}
           </section>
 
           <section className="space-y-3 rounded-md border px-3 py-3">
             <div>
-              <p className="text-sm font-medium text-foreground">Skills visualizer</p>
+              <p className="text-sm font-medium text-foreground">
+                Skills visualizer
+              </p>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
-                <label htmlFor="global-skills-path" className="text-xs font-medium text-foreground">
+                <label
+                  htmlFor="global-skills-path"
+                  className="text-xs font-medium text-foreground"
+                >
                   Global skills path
                 </label>
                 <Input
@@ -315,13 +389,18 @@ export function OpencodeSettingsModal({
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="workspace-skills-path" className="text-xs font-medium text-foreground">
+                <label
+                  htmlFor="workspace-skills-path"
+                  className="text-xs font-medium text-foreground"
+                >
                   Workspace skills path
                 </label>
                 <Input
                   id="workspace-skills-path"
                   value={workspaceSkillsPath}
-                  onChange={(event) => setWorkspaceSkillsPath(event.target.value)}
+                  onChange={(event) =>
+                    setWorkspaceSkillsPath(event.target.value)
+                  }
                   disabled={skillsLoading}
                   autoComplete="off"
                 />
@@ -335,17 +414,30 @@ export function OpencodeSettingsModal({
                 size="sm"
                 disabled={skillsLoading}
                 onClick={() => {
-                  const normalizedGlobalPath = globalSkillsPath.trim() || `${DEFAULT_OPENCODE_SETTINGS_DIRECTORY}/skills`;
-                  const normalizedWorkspacePath = workspaceSkillsPath.trim() || defaultWorkspaceSkillsPath(workspaceRoot);
+                  const normalizedGlobalPath =
+                    globalSkillsPath.trim() ||
+                    `${DEFAULT_OPENCODE_SETTINGS_DIRECTORY}/skills`;
+                  const normalizedWorkspacePath =
+                    workspaceSkillsPath.trim() ||
+                    defaultWorkspaceSkillsPath(workspaceRoot);
                   setGlobalSkillsPath(normalizedGlobalPath);
                   setWorkspaceSkillsPath(normalizedWorkspacePath);
                   if (typeof window !== "undefined") {
-                    window.localStorage.setItem(globalSkillsStorageKey(), normalizedGlobalPath);
-                    window.localStorage.setItem(workspaceSkillsStorageKey(workspaceRoot), normalizedWorkspacePath);
+                    window.localStorage.setItem(
+                      globalSkillsStorageKey(),
+                      normalizedGlobalPath,
+                    );
+                    window.localStorage.setItem(
+                      workspaceSkillsStorageKey(workspaceRoot),
+                      normalizedWorkspacePath,
+                    );
                   }
 
                   void (async () => {
-                    if (globalMarkedSkills.length > 0 || workspaceMarkedSkills.length > 0) {
+                    if (
+                      globalMarkedSkills.length > 0 ||
+                      workspaceMarkedSkills.length > 0
+                    ) {
                       try {
                         setSkillsLoading(true);
                         setSkillsError(null);
@@ -357,7 +449,10 @@ export function OpencodeSettingsModal({
                         });
 
                         if (!copyResponse.ok) {
-                          setSkillsError(copyResponse.error ?? "Failed to copy selected skills.");
+                          setSkillsError(
+                            copyResponse.error ??
+                              "Failed to copy selected skills.",
+                          );
                           setSkillsLoading(false);
                           return;
                         }
@@ -374,7 +469,10 @@ export function OpencodeSettingsModal({
                       }
                     }
 
-                    loadSkillsScopes(normalizedGlobalPath, normalizedWorkspacePath);
+                    loadSkillsScopes(
+                      normalizedGlobalPath,
+                      normalizedWorkspacePath,
+                    );
                   })();
                 }}
               >
@@ -382,43 +480,64 @@ export function OpencodeSettingsModal({
               </Button>
             </div>
 
-            {skillsLoading ? <p className="text-xs text-muted-foreground">Loading skills...</p> : null}
-            {skillsError ? <p className="text-xs text-destructive">{skillsError}</p> : null}
+            {skillsLoading ? (
+              <p className="text-xs text-muted-foreground">Loading skills...</p>
+            ) : null}
+            {skillsError ? (
+              <p className="text-xs text-destructive">{skillsError}</p>
+            ) : null}
 
             <div className="grid gap-3 md:grid-cols-2">
               {globalSkillsScope ? (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-foreground">Global scope</p>
+                  <p className="text-xs font-medium text-foreground">
+                    Global scope
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    Skills directory: <code>{globalSkillsScope.skillsPath}</code>
+                    Skills directory:{" "}
+                    <code>{globalSkillsScope.skillsPath}</code>
                   </p>
                   {!globalSkillsScope.skillsDirectoryExists ? (
-                    <p className="text-xs text-muted-foreground">No skills directory found.</p>
+                    <p className="text-xs text-muted-foreground">
+                      No skills directory found.
+                    </p>
                   ) : null}
-                  {globalSkillsScope.skillsDirectoryExists && globalSkillsScope.skills.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No skills found in this scope.</p>
+                  {globalSkillsScope.skillsDirectoryExists &&
+                  globalSkillsScope.skills.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No skills found in this scope.
+                    </p>
                   ) : null}
                   {globalSkillsScope.skills.length > 0 ? (
                     <div className="min-h-56 max-h-56 overflow-y-auto rounded-md border border-border/60 p-2">
                       <ul className="space-y-1">
-                        {Array.from(new Map<string, SkillListItem>([
-                          ...globalSkillsScope.skills.map((skill): [string, SkillListItem] => [
+                        {Array.from(
+                          new Map<string, SkillListItem>([
+                            ...globalSkillsScope.skills.map(
+                              (skill): [string, SkillListItem] => [
+                                skill.name,
+                                { ...skill, virtualIncoming: false },
+                              ],
+                            ),
+                            ...workspaceMarkedSkills.map(
+                              (name): [string, SkillListItem] => [
+                                name,
+                                {
+                                  name,
+                                  path: `incoming:${name}`,
+                                  isDirectory: true,
+                                  hasSkillMarkdown: false,
+                                  virtualIncoming: true,
+                                },
+                              ],
+                            ),
+                          ]).values(),
+                        ).map((skill) => {
+                          const isMarked = globalMarkedSkills.includes(
                             skill.name,
-                            { ...skill, virtualIncoming: false },
-                          ]),
-                          ...workspaceMarkedSkills.map((name): [string, SkillListItem] => [
-                            name,
-                            {
-                              name,
-                              path: `incoming:${name}`,
-                              isDirectory: true,
-                              hasSkillMarkdown: false,
-                              virtualIncoming: true,
-                            },
-                          ]),
-                        ]).values()).map((skill) => {
-                          const isMarked = globalMarkedSkills.includes(skill.name);
-                          const movedFromWorkspace = workspaceMarkedSkills.includes(skill.name);
+                          );
+                          const movedFromWorkspace =
+                            workspaceMarkedSkills.includes(skill.name);
                           const textColorClass = movedFromWorkspace
                             ? "text-blue-600"
                             : isMarked
@@ -439,12 +558,17 @@ export function OpencodeSettingsModal({
                                 }
                                 setGlobalMarkedSkills((current) =>
                                   current.includes(skill.name)
-                                    ? current.filter((name) => name !== skill.name)
+                                    ? current.filter(
+                                        (name) => name !== skill.name,
+                                      )
                                     : [...current, skill.name],
                                 );
                               }}
                             >
-                              {skill.name} <span className="text-muted-foreground">({skill.isDirectory ? "dir" : "file"})</span>
+                              {skill.name}{" "}
+                              <span className="text-muted-foreground">
+                                ({skill.isDirectory ? "dir" : "file"})
+                              </span>
                             </li>
                           );
                         })}
@@ -456,37 +580,55 @@ export function OpencodeSettingsModal({
 
               {workspaceSkillsScope ? (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-foreground">Workspace scope</p>
+                  <p className="text-xs font-medium text-foreground">
+                    Workspace scope
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    Skills directory: <code>{workspaceSkillsScope.skillsPath}</code>
+                    Skills directory:{" "}
+                    <code>{workspaceSkillsScope.skillsPath}</code>
                   </p>
                   {!workspaceSkillsScope.skillsDirectoryExists ? (
-                    <p className="text-xs text-muted-foreground">No skills directory found.</p>
+                    <p className="text-xs text-muted-foreground">
+                      No skills directory found.
+                    </p>
                   ) : null}
-                  {workspaceSkillsScope.skillsDirectoryExists && workspaceSkillsScope.skills.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No skills found in this scope.</p>
+                  {workspaceSkillsScope.skillsDirectoryExists &&
+                  workspaceSkillsScope.skills.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No skills found in this scope.
+                    </p>
                   ) : null}
                   {workspaceSkillsScope.skills.length > 0 ? (
                     <div className="min-h-56 max-h-56 overflow-y-auto rounded-md border border-border/60 p-2">
                       <ul className="space-y-1">
-                        {Array.from(new Map<string, SkillListItem>([
-                          ...workspaceSkillsScope.skills.map((skill): [string, SkillListItem] => [
+                        {Array.from(
+                          new Map<string, SkillListItem>([
+                            ...workspaceSkillsScope.skills.map(
+                              (skill): [string, SkillListItem] => [
+                                skill.name,
+                                { ...skill, virtualIncoming: false },
+                              ],
+                            ),
+                            ...globalMarkedSkills.map(
+                              (name): [string, SkillListItem] => [
+                                name,
+                                {
+                                  name,
+                                  path: `incoming:${name}`,
+                                  isDirectory: true,
+                                  hasSkillMarkdown: false,
+                                  virtualIncoming: true,
+                                },
+                              ],
+                            ),
+                          ]).values(),
+                        ).map((skill) => {
+                          const isMarked = workspaceMarkedSkills.includes(
                             skill.name,
-                            { ...skill, virtualIncoming: false },
-                          ]),
-                          ...globalMarkedSkills.map((name): [string, SkillListItem] => [
-                            name,
-                            {
-                              name,
-                              path: `incoming:${name}`,
-                              isDirectory: true,
-                              hasSkillMarkdown: false,
-                              virtualIncoming: true,
-                            },
-                          ]),
-                        ]).values()).map((skill) => {
-                          const isMarked = workspaceMarkedSkills.includes(skill.name);
-                          const movedFromGlobal = globalMarkedSkills.includes(skill.name);
+                          );
+                          const movedFromGlobal = globalMarkedSkills.includes(
+                            skill.name,
+                          );
                           const textColorClass = movedFromGlobal
                             ? "text-blue-600"
                             : isMarked
@@ -507,12 +649,17 @@ export function OpencodeSettingsModal({
                                 }
                                 setWorkspaceMarkedSkills((current) =>
                                   current.includes(skill.name)
-                                    ? current.filter((name) => name !== skill.name)
+                                    ? current.filter(
+                                        (name) => name !== skill.name,
+                                      )
                                     : [...current, skill.name],
                                 );
                               }}
                             >
-                              {skill.name} <span className="text-muted-foreground">({skill.isDirectory ? "dir" : "file"})</span>
+                              {skill.name}{" "}
+                              <span className="text-muted-foreground">
+                                ({skill.isDirectory ? "dir" : "file"})
+                              </span>
                             </li>
                           );
                         })}
@@ -522,18 +669,29 @@ export function OpencodeSettingsModal({
                 </div>
               ) : (
                 <div className="">
-                  <p className="text-xs text-muted-foreground">Workspace scope appears only when this workspace has a <code>.opencode</code> folder.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Workspace scope appears only when this workspace has a{" "}
+                    <code>.opencode</code> folder.
+                  </p>
                 </div>
               )}
             </div>
           </section>
 
-          {statusMessage ? <p className="text-xs text-green-800">{statusMessage}</p> : null}
-          {errorMessage ? <p className="text-xs text-destructive">{errorMessage}</p> : null}
+          {statusMessage ? (
+            <p className="text-xs text-green-800">{statusMessage}</p>
+          ) : null}
+          {errorMessage ? (
+            <p className="text-xs text-destructive">{errorMessage}</p>
+          ) : null}
         </div>
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+          >
             Close
           </Button>
         </DialogFooter>

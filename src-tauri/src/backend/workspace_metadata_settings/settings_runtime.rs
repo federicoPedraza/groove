@@ -606,6 +606,9 @@ fn default_global_settings() -> GlobalSettings {
         keyboard_shortcut_leader: default_keyboard_shortcut_leader(),
         keyboard_leader_bindings: default_keyboard_leader_bindings(),
         opencode_settings: default_opencode_settings(),
+        sound_library: Vec::new(),
+        claude_code_sound_settings: ClaudeCodeSoundSettings::default(),
+        groove_sound_settings: GrooveSoundSettings::default(),
     }
 }
 
@@ -859,6 +862,8 @@ fn ensure_global_settings(app: &AppHandle) -> Result<GlobalSettings, String> {
                 || !obj.contains_key("keyboardShortcutLeader")
                 || !obj.contains_key("keyboardLeaderBindings")
                 || !obj.contains_key("opencodeSettings")
+                || !obj.contains_key("soundLibrary")
+                || !obj.contains_key("claudeCodeSoundSettings")
         })
         .unwrap_or(true);
 

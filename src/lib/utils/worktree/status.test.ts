@@ -18,15 +18,14 @@ function buildRow(overrides: Partial<WorkspaceRow>): WorkspaceRow {
 }
 
 describe("deriveWorktreeStatus", () => {
-  it("keeps terminal statuses over runtime state", () => {
-    expect(deriveWorktreeStatus("deleted", { opencodeState: "running" })).toBe("deleted");
-    expect(deriveWorktreeStatus("corrupted", { opencodeState: "running" })).toBe("corrupted");
-    expect(deriveWorktreeStatus("closing", { opencodeState: "running" })).toBe("closing");
+  it("keeps terminal statuses over active terminal state", () => {
+    expect(deriveWorktreeStatus("deleted", true)).toBe("deleted");
+    expect(deriveWorktreeStatus("corrupted", true)).toBe("corrupted");
   });
 
-  it("maps running runtime rows to ready", () => {
-    expect(deriveWorktreeStatus("paused", { opencodeState: "running" })).toBe("ready");
-    expect(deriveWorktreeStatus("paused", { opencodeState: "not-running" })).toBe("paused");
+  it("maps active terminal to ready", () => {
+    expect(deriveWorktreeStatus("paused", true)).toBe("ready");
+    expect(deriveWorktreeStatus("paused", false)).toBe("paused");
   });
 });
 
@@ -38,13 +37,8 @@ describe("getActiveWorktreeRows", () => {
       buildRow({ worktree: "bravo", status: "deleted" }),
     ];
 
-    const activeRows = getActiveWorktreeRows(
-      rows,
-      {
-        alpha: { opencodeState: "running" },
-        bravo: { opencodeState: "running" },
-      },
-    );
+    const activeWorktrees = new Set(["alpha", "bravo"]);
+    const activeRows = getActiveWorktreeRows(rows, activeWorktrees);
 
     expect(activeRows.map((row) => row.worktree)).toEqual(["alpha"]);
   });

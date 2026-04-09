@@ -5,7 +5,9 @@ import { SummaryViewerModal } from "@/src/components/pages/dashboard/summary-vie
 import type { SummaryRecord } from "@/src/lib/ipc";
 
 vi.mock("react-markdown", () => ({
-  default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
+  default: ({ children }: { children: string }) => (
+    <div data-testid="markdown">{children}</div>
+  ),
 }));
 
 function buildSummary(overrides: Partial<SummaryRecord> = {}): SummaryRecord {
@@ -18,7 +20,9 @@ function buildSummary(overrides: Partial<SummaryRecord> = {}): SummaryRecord {
   };
 }
 
-function renderModal(overrides: Partial<Parameters<typeof SummaryViewerModal>[0]> = {}) {
+function renderModal(
+  overrides: Partial<Parameters<typeof SummaryViewerModal>[0]> = {},
+) {
   const props = {
     summaries: [buildSummary()],
     initialIndex: 0,
@@ -80,8 +84,12 @@ describe("SummaryViewerModal", () => {
       summaries: [buildSummary(), buildSummary({ oneLiner: "Second" })],
       initialIndex: 0,
     });
-    expect((screen.getByLabelText("Previous summary") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByLabelText("Next summary") as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (screen.getByLabelText("Previous summary") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Next summary") as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 
   it("disables next button on last summary", () => {
@@ -89,8 +97,12 @@ describe("SummaryViewerModal", () => {
       summaries: [buildSummary(), buildSummary({ oneLiner: "Second" })],
       initialIndex: 1,
     });
-    expect((screen.getByLabelText("Next summary") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByLabelText("Previous summary") as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (screen.getByLabelText("Next summary") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Previous summary") as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 
   it("navigates to next summary", () => {
@@ -125,7 +137,9 @@ describe("SummaryViewerModal", () => {
     expect(screen.queryByTestId("markdown")).toBeNull();
     fireEvent.click(screen.getByText("Content"));
     expect(screen.getByTestId("markdown")).toBeTruthy();
-    expect(screen.getByTestId("markdown").textContent).toBe("Detailed summary content here.");
+    expect(screen.getByTestId("markdown").textContent).toBe(
+      "Detailed summary content here.",
+    );
   });
 
   it("collapses content section when clicked again", () => {
@@ -155,7 +169,9 @@ describe("SummaryViewerModal", () => {
     renderModal();
     const copyButtons = screen.getAllByLabelText("Copy to clipboard");
     fireEvent.click(copyButtons[0]);
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Quick one-liner.");
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      "Quick one-liner.",
+    );
     // Wait for the clipboard promise to resolve and state update
     await vi.advanceTimersByTimeAsync(0);
     // The copied state should now be true, showing the Check icon
@@ -170,7 +186,9 @@ describe("SummaryViewerModal", () => {
     fireEvent.click(screen.getByText("Content"));
     const copyButtons = screen.getAllByLabelText("Copy to clipboard");
     fireEvent.click(copyButtons[1]);
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Detailed summary content here.");
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      "Detailed summary content here.",
+    );
   });
 
   it("does not render create new summary button when callback is not provided", () => {

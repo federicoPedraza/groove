@@ -14,22 +14,30 @@ const {
   diagnosticsCleanAllDevServersMock,
   diagnosticsGetSystemOverviewMock,
   diagnosticsGetMsotConsumingProgramsMock,
-  diagnosticsKillAllNodeAndOpencodeInstancesMock,
+  diagnosticsKillAllNodeInstancesMock,
   workspaceGetActiveMock,
   workspaceGitignoreSanityApplyMock,
   workspaceGitignoreSanityCheckMock,
   workspaceTermSanityCheckMock,
   workspaceTermSanityApplyMock,
 } = vi.hoisted(() => ({
-  diagnosticsCleanAllDevServersMock: vi.fn<() => Promise<DiagnosticsStopAllResponse>>(),
-  diagnosticsGetSystemOverviewMock: vi.fn<() => Promise<DiagnosticsSystemOverviewResponse>>(),
-  diagnosticsGetMsotConsumingProgramsMock: vi.fn<() => Promise<DiagnosticsMostConsumingProgramsResponse>>(),
-  diagnosticsKillAllNodeAndOpencodeInstancesMock: vi.fn<() => Promise<DiagnosticsStopAllResponse>>(),
+  diagnosticsCleanAllDevServersMock:
+    vi.fn<() => Promise<DiagnosticsStopAllResponse>>(),
+  diagnosticsGetSystemOverviewMock:
+    vi.fn<() => Promise<DiagnosticsSystemOverviewResponse>>(),
+  diagnosticsGetMsotConsumingProgramsMock:
+    vi.fn<() => Promise<DiagnosticsMostConsumingProgramsResponse>>(),
+  diagnosticsKillAllNodeInstancesMock:
+    vi.fn<() => Promise<DiagnosticsStopAllResponse>>(),
   workspaceGetActiveMock: vi.fn<() => Promise<WorkspaceContextResponse>>(),
-  workspaceGitignoreSanityApplyMock: vi.fn<() => Promise<WorkspaceGitignoreSanityResponse>>(),
-  workspaceGitignoreSanityCheckMock: vi.fn<() => Promise<WorkspaceGitignoreSanityResponse>>(),
-  workspaceTermSanityCheckMock: vi.fn<() => Promise<WorkspaceTermSanityResponse>>(),
-  workspaceTermSanityApplyMock: vi.fn<() => Promise<WorkspaceTermSanityResponse>>(),
+  workspaceGitignoreSanityApplyMock:
+    vi.fn<() => Promise<WorkspaceGitignoreSanityResponse>>(),
+  workspaceGitignoreSanityCheckMock:
+    vi.fn<() => Promise<WorkspaceGitignoreSanityResponse>>(),
+  workspaceTermSanityCheckMock:
+    vi.fn<() => Promise<WorkspaceTermSanityResponse>>(),
+  workspaceTermSanityApplyMock:
+    vi.fn<() => Promise<WorkspaceTermSanityResponse>>(),
 }));
 
 vi.mock("@/src/lib/ipc", () => ({
@@ -37,7 +45,7 @@ vi.mock("@/src/lib/ipc", () => ({
   diagnosticsCleanAllDevServers: diagnosticsCleanAllDevServersMock,
   diagnosticsGetSystemOverview: diagnosticsGetSystemOverviewMock,
   diagnosticsGetMsotConsumingPrograms: diagnosticsGetMsotConsumingProgramsMock,
-  diagnosticsKillAllNodeAndOpencodeInstances: diagnosticsKillAllNodeAndOpencodeInstancesMock,
+  diagnosticsKillAllNodeInstances: diagnosticsKillAllNodeInstancesMock,
   workspaceGetActive: workspaceGetActiveMock,
   workspaceGitignoreSanityApply: workspaceGitignoreSanityApplyMock,
   workspaceGitignoreSanityCheck: workspaceGitignoreSanityCheckMock,
@@ -58,30 +66,47 @@ vi.mock("@/src/components/pages/diagnostics/diagnostics-header", () => ({
     onCleanAll: () => void;
   }) => (
     <div data-testid="diagnostics-header">
-      <button type="button" data-testid="btn-load-top" disabled={isLoadingMostConsumingPrograms} onClick={onLoadMostConsumingPrograms}>Load Top</button>
-      <button type="button" data-testid="btn-clean-all" disabled={isCleaningAllDevServers} onClick={onCleanAll}>Clean All</button>
+      <button
+        type="button"
+        data-testid="btn-load-top"
+        disabled={isLoadingMostConsumingPrograms}
+        onClick={onLoadMostConsumingPrograms}
+      >
+        Load Top
+      </button>
+      <button
+        type="button"
+        data-testid="btn-clean-all"
+        disabled={isCleaningAllDevServers}
+        onClick={onCleanAll}
+      >
+        Clean All
+      </button>
     </div>
   ),
 }));
 
-vi.mock("@/src/components/pages/diagnostics/diagnostics-system-sidebar", () => ({
-  DiagnosticsSystemSidebar: () => <div data-testid="system-sidebar" />,
-}));
+vi.mock(
+  "@/src/components/pages/diagnostics/diagnostics-system-sidebar",
+  () => ({
+    DiagnosticsSystemSidebar: () => <div data-testid="system-sidebar" />,
+  }),
+);
 
 vi.mock("@/src/components/pages/diagnostics/emergency-card", () => ({
   EmergencyCard: ({
     isKillingAllNodeAndOpencodeInstances,
-    onKillAllNodeAndOpencodeInstances,
+    onKillAllNodeInstances,
   }: {
     isKillingAllNodeAndOpencodeInstances: boolean;
-    onKillAllNodeAndOpencodeInstances: () => void;
+    onKillAllNodeInstances: () => void;
   }) => (
     <div data-testid="emergency-card">
       <button
         type="button"
         data-testid="btn-emergency-kill"
         disabled={isKillingAllNodeAndOpencodeInstances}
-        onClick={onKillAllNodeAndOpencodeInstances}
+        onClick={onKillAllNodeInstances}
       >
         Emergency Kill
       </button>
@@ -124,7 +149,12 @@ function defaultMocks(): void {
     ok: true,
     workspaceRoot: "/test/workspace",
     rows: [],
-    workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+    workspaceMeta: {
+      version: 1,
+      rootName: "test",
+      createdAt: "",
+      updatedAt: "",
+    },
   });
   workspaceGitignoreSanityCheckMock.mockResolvedValue({
     ok: true,
@@ -146,7 +176,7 @@ function defaultMocks(): void {
     failed: 0,
     errors: [],
   });
-  diagnosticsKillAllNodeAndOpencodeInstancesMock.mockResolvedValue({
+  diagnosticsKillAllNodeInstancesMock.mockResolvedValue({
     ok: true,
     attempted: 1,
     stopped: 1,
@@ -205,7 +235,9 @@ describe("DiagnosticsPage", () => {
   it("renders sanity checks table when workspace is active and gitignore is healthy", async () => {
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText(".gitignore includes Groove entries")).toBeInTheDocument();
+      expect(
+        screen.getByText(".gitignore includes Groove entries"),
+      ).toBeInTheDocument();
     });
     const healthyElements = screen.getAllByText("Healthy");
     expect(healthyElements.length).toBeGreaterThanOrEqual(1);
@@ -221,7 +253,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Missing .groove and .worktrees in .gitignore.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Missing .groove and .worktrees in .gitignore."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -232,7 +266,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("No active workspace selected.")).toBeInTheDocument();
+      expect(
+        screen.getByText("No active workspace selected."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -246,7 +282,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("No .gitignore found in this directory.")).toBeInTheDocument();
+      expect(
+        screen.getByText("No .gitignore found in this directory."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -261,22 +299,30 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Unable to check .gitignore sanity.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Unable to check .gitignore sanity."),
+      ).toBeInTheDocument();
     });
   });
 
   it("shows unable to check gitignore sanity on exception", async () => {
-    workspaceGitignoreSanityCheckMock.mockRejectedValue(new Error("Network error"));
+    workspaceGitignoreSanityCheckMock.mockRejectedValue(
+      new Error("Network error"),
+    );
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Unable to check .gitignore sanity.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Unable to check .gitignore sanity."),
+      ).toBeInTheDocument();
     });
   });
 
   it("shows TERM is usable when term sanity is healthy", async () => {
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("TERM is usable (xterm-256color).")).toBeInTheDocument();
+      expect(
+        screen.getByText("TERM is usable (xterm-256color)."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -288,7 +334,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("TERM is missing or unusable (dumb).")).toBeInTheDocument();
+      expect(
+        screen.getByText("TERM is missing or unusable (dumb)."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -301,7 +349,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Unable to check TERM sanity.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Unable to check TERM sanity."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -309,7 +359,9 @@ describe("DiagnosticsPage", () => {
     workspaceTermSanityCheckMock.mockRejectedValue(new Error("TERM exception"));
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Unable to check TERM sanity.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Unable to check TERM sanity."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -326,7 +378,9 @@ describe("DiagnosticsPage", () => {
       expect(screen.getByText(/Missing .groove/)).toBeInTheDocument();
     });
 
-    const applyButton = screen.getByRole("button", { name: /Apply fix for .gitignore/ });
+    const applyButton = screen.getByRole("button", {
+      name: /Apply fix for .gitignore/,
+    });
     expect(applyButton).not.toBeDisabled();
 
     await act(async () => {
@@ -345,11 +399,15 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getAllByText(/TERM is missing or unusable/).length).toBeGreaterThanOrEqual(1);
+      expect(
+        screen.getAllByText(/TERM is missing or unusable/).length,
+      ).toBeGreaterThanOrEqual(1);
     });
 
     await waitFor(() => {
-      const applyButton = screen.getByRole("button", { name: /Apply fix for TERM/ });
+      const applyButton = screen.getByRole("button", {
+        name: /Apply fix for TERM/,
+      });
       expect(applyButton).not.toBeDisabled();
     });
 
@@ -371,7 +429,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for .gitignore/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for .gitignore/ }),
+      ).not.toBeDisabled();
     });
 
     await act(async () => {
@@ -380,7 +440,9 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Applied Groove .gitignore sanity patch in feature-1/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Applied Groove .gitignore sanity patch in feature-1/),
+      ).toBeInTheDocument();
     });
   });
 
@@ -402,7 +464,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for .gitignore/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for .gitignore/ }),
+      ).not.toBeDisabled();
     });
 
     await act(async () => {
@@ -411,7 +475,9 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Groove .gitignore sanity patch is already applied.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Groove .gitignore sanity patch is already applied."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -433,7 +499,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for .gitignore/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for .gitignore/ }),
+      ).not.toBeDisabled();
     });
 
     await act(async () => {
@@ -457,7 +525,9 @@ describe("DiagnosticsPage", () => {
     workspaceGitignoreSanityApplyMock.mockRejectedValue(new Error("Network"));
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for .gitignore/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for .gitignore/ }),
+      ).not.toBeDisabled();
     });
 
     await act(async () => {
@@ -466,7 +536,9 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to apply .gitignore sanity patch.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to apply .gitignore sanity patch."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -480,7 +552,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for .gitignore/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for .gitignore/ }),
+      ).not.toBeDisabled();
     });
 
     // Now workspace becomes inactive on apply
@@ -492,7 +566,9 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("No active workspace selected.")).toBeInTheDocument();
+      expect(
+        screen.getByText("No active workspace selected."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -514,7 +590,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for .gitignore/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for .gitignore/ }),
+      ).not.toBeDisabled();
     });
 
     await act(async () => {
@@ -523,7 +601,9 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("No .gitignore found in the active workspace.")).toBeInTheDocument();
+      expect(
+        screen.getByText("No .gitignore found in the active workspace."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -545,7 +625,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for .gitignore/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for .gitignore/ }),
+      ).not.toBeDisabled();
     });
 
     await act(async () => {
@@ -554,7 +636,9 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Applied Groove .gitignore sanity patch.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Applied Groove .gitignore sanity patch."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -566,7 +650,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for TERM/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for TERM/ }),
+      ).not.toBeDisabled();
     });
 
     await act(async () => {
@@ -575,7 +661,9 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Applied TERM sanity patch (TERM=xterm-256color).")).toBeInTheDocument();
+      expect(
+        screen.getByText("Applied TERM sanity patch (TERM=xterm-256color)."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -593,7 +681,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for TERM/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for TERM/ }),
+      ).not.toBeDisabled();
     });
 
     await act(async () => {
@@ -602,7 +692,9 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("TERM sanity patch is already applied.")).toBeInTheDocument();
+      expect(
+        screen.getByText("TERM sanity patch is already applied."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -620,7 +712,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for TERM/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for TERM/ }),
+      ).not.toBeDisabled();
     });
 
     await act(async () => {
@@ -642,7 +736,9 @@ describe("DiagnosticsPage", () => {
     workspaceTermSanityApplyMock.mockRejectedValue(new Error("Network"));
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for TERM/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for TERM/ }),
+      ).not.toBeDisabled();
     });
 
     await act(async () => {
@@ -651,7 +747,9 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to apply TERM sanity patch.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to apply TERM sanity patch."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -692,7 +790,10 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Clean all failed.", expect.anything());
+      expect(toast.error).toHaveBeenCalledWith(
+        "Clean all failed.",
+        expect.anything(),
+      );
     });
   });
 
@@ -707,7 +808,9 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Clean-all request failed.");
+      expect(toast.error).toHaveBeenCalledWith("Clean-all request failed.", {
+        command: "diagnostics_clean_all_dev_servers",
+      });
     });
   });
 
@@ -720,7 +823,7 @@ describe("DiagnosticsPage", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
 
-    expect(diagnosticsKillAllNodeAndOpencodeInstancesMock).toHaveBeenCalled();
+    expect(diagnosticsKillAllNodeInstancesMock).toHaveBeenCalled();
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith(
         expect.stringContaining("Emergency kill completed"),
@@ -731,7 +834,7 @@ describe("DiagnosticsPage", () => {
 
   it("shows toast error when emergency kill fails", async () => {
     const { toast } = await import("@/src/lib/toast");
-    diagnosticsKillAllNodeAndOpencodeInstancesMock.mockResolvedValue({
+    diagnosticsKillAllNodeInstancesMock.mockResolvedValue({
       ok: false,
       error: "Kill failed",
       attempted: 0,
@@ -749,7 +852,7 @@ describe("DiagnosticsPage", () => {
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith(
-        expect.stringContaining("Failed to kill all Node and OpenCode"),
+        expect.stringContaining("Failed to kill all Node"),
         expect.anything(),
       );
     });
@@ -757,7 +860,7 @@ describe("DiagnosticsPage", () => {
 
   it("shows toast error when emergency kill throws", async () => {
     const { toast } = await import("@/src/lib/toast");
-    diagnosticsKillAllNodeAndOpencodeInstancesMock.mockRejectedValue(new Error("Net"));
+    diagnosticsKillAllNodeInstancesMock.mockRejectedValue(new Error("Net"));
     await renderPage();
 
     await act(async () => {
@@ -766,7 +869,10 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Emergency kill request failed.");
+      expect(toast.error).toHaveBeenCalledWith(
+        "Emergency kill request failed.",
+        { command: "diagnostics_kill_all_node_instances" },
+      );
     });
   });
 
@@ -799,7 +905,10 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Failed to load top processes.", expect.anything());
+      expect(toast.error).toHaveBeenCalledWith(
+        "Failed to load top processes.",
+        expect.anything(),
+      );
     });
   });
 
@@ -814,7 +923,10 @@ describe("DiagnosticsPage", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Failed to load top processes.");
+      expect(toast.error).toHaveBeenCalledWith(
+        "Failed to load top processes.",
+        { command: "diagnostics_get_msot_consuming_programs" },
+      );
     });
   });
 
@@ -830,7 +942,9 @@ describe("DiagnosticsPage", () => {
       expect(screen.getByText(/PID\s+MEM\s+CMD/)).toBeInTheDocument();
     });
 
-    const hideButton = screen.getByRole("button", { name: "Hide top processes" });
+    const hideButton = screen.getByRole("button", {
+      name: "Hide top processes",
+    });
     await act(async () => {
       hideButton.click();
     });
@@ -884,7 +998,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("TERM is missing or unusable.")).toBeInTheDocument();
+      expect(
+        screen.getByText("TERM is missing or unusable."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -898,7 +1014,9 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Unable to check .gitignore sanity.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Unable to check .gitignore sanity."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -915,14 +1033,18 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for TERM/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for TERM/ }),
+      ).not.toBeDisabled();
     });
     await act(async () => {
       screen.getByRole("button", { name: /Apply fix for TERM/ }).click();
       await vi.advanceTimersByTimeAsync(0);
     });
     await waitFor(() => {
-      expect(screen.getByText("Failed to apply TERM sanity patch.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to apply TERM sanity patch."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -943,14 +1065,18 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for .gitignore/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for .gitignore/ }),
+      ).not.toBeDisabled();
     });
     await act(async () => {
       screen.getByRole("button", { name: /Apply fix for .gitignore/ }).click();
       await vi.advanceTimersByTimeAsync(0);
     });
     await waitFor(() => {
-      expect(screen.getByText("Failed to apply .gitignore sanity patch.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to apply .gitignore sanity patch."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -984,14 +1110,18 @@ describe("DiagnosticsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Apply fix for TERM/ })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /Apply fix for TERM/ }),
+      ).not.toBeDisabled();
     });
     await act(async () => {
       screen.getByRole("button", { name: /Apply fix for TERM/ }).click();
       await vi.advanceTimersByTimeAsync(0);
     });
     await waitFor(() => {
-      expect(screen.getByText("Applied TERM sanity patch (TERM=xterm-256color).")).toBeInTheDocument();
+      expect(
+        screen.getByText("Applied TERM sanity patch (TERM=xterm-256color)."),
+      ).toBeInTheDocument();
     });
   });
 });

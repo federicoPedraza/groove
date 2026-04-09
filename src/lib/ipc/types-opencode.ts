@@ -245,6 +245,13 @@ export type OpenCodeSetProfilePayload = {
 };
 
 export type OpenCodeRunFlowPayload = {
-  phase: "init" | "new_change" | "continue" | "apply" | "verify" | "archive" | string;
+  phase:
+    | "init"
+    | "new_change"
+    | "continue"
+    | "apply"
+    | "verify"
+    | "archive"
+    | string;
   args?: string[];
 };

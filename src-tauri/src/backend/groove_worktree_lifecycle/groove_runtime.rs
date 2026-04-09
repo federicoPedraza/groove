@@ -17,27 +17,6 @@ fn run_command(binary: &Path, args: &[String], cwd: &Path) -> CommandResult {
     }
 }
 
-fn parse_opencode_segment(value: &str) -> (String, Option<String>) {
-    let normalized = value.trim().to_lowercase();
-    let instance_id = value
-        .split_whitespace()
-        .find_map(|segment| segment.strip_prefix("instance="))
-        .map(|v| v.to_string());
-
-    if normalized.starts_with("running") {
-        return ("running".to_string(), instance_id);
-    }
-
-    if normalized.contains("not-running")
-        || normalized.contains("not running")
-        || normalized.starts_with("stopped")
-    {
-        return ("not-running".to_string(), instance_id);
-    }
-
-    ("unknown".to_string(), instance_id)
-}
-
 fn parse_log_segment(value: &str) -> (String, Option<String>) {
     let normalized = value.trim();
     if let Some(target) = normalized.strip_prefix("latest->") {
@@ -64,60 +43,6 @@ fn parse_log_segment(value: &str) -> (String, Option<String>) {
     ("unknown".to_string(), None)
 }
 
-fn parse_activity_segment(value: &str) -> (String, Option<OpencodeActivityDetail>) {
-    let normalized = value.trim();
-    if normalized.is_empty() {
-        return ("unknown".to_string(), None);
-    }
-
-    let mut tokens = normalized.split_whitespace();
-    let raw_state = tokens.next().unwrap_or("unknown").to_lowercase();
-    let state = match raw_state.as_str() {
-        "thinking" | "idle" | "finished" | "error" | "unknown" => raw_state,
-        _ => "unknown".to_string(),
-    };
-
-    let mut reason = None;
-    let mut age_s = None;
-    let mut marker = None;
-    let mut log = None;
-
-    for token in tokens {
-        let Some((key, raw_value)) = token.split_once('=') else {
-            continue;
-        };
-
-        let value = raw_value.trim();
-        if value.is_empty() || value == "na" {
-            continue;
-        }
-
-        match key {
-            "reason" => reason = Some(value.to_string()),
-            "age_s" => {
-                if let Ok(parsed) = value.parse::<u64>() {
-                    age_s = Some(parsed);
-                }
-            }
-            "marker" => marker = Some(value.to_string()),
-            "log" => log = Some(value.to_string()),
-            _ => {}
-        }
-    }
-
-    let detail = if reason.is_some() || age_s.is_some() || marker.is_some() || log.is_some() {
-        Some(OpencodeActivityDetail {
-            reason,
-            age_s,
-            marker,
-            log,
-        })
-    } else {
-        None
-    };
-
-    (state, detail)
-}
 
 fn parse_worktree_header(
     value: &str,
@@ -184,12 +109,8 @@ fn parse_groove_list_output(
             continue;
         };
 
-        let mut opencode_state = "unknown".to_string();
-        let mut opencode_instance_id = None;
         let mut log_state = "unknown".to_string();
         let mut log_target = None;
-        let mut opencode_activity_state = "unknown".to_string();
-        let mut opencode_activity_detail = None;
 
         for segment in segments.into_iter().skip(1) {
             let Some((key, value)) = segment.split_once(':') else {
@@ -198,20 +119,10 @@ fn parse_groove_list_output(
 
             let key = key.trim().to_lowercase();
             let value = value.trim();
-            if key == "opencode" {
-                let (state, instance) = parse_opencode_segment(value);
-                opencode_state = state;
-                opencode_instance_id = instance;
-            }
             if key == "log" {
                 let (state, target) = parse_log_segment(value);
                 log_state = state;
                 log_target = target;
-            }
-            if key == "activity" {
-                let (state, detail) = parse_activity_segment(value);
-                opencode_activity_state = state;
-                opencode_activity_detail = detail;
             }
         }
 
@@ -220,12 +131,8 @@ fn parse_groove_list_output(
             RuntimeStateRow {
                 branch,
                 worktree,
-                opencode_state,
-                opencode_instance_id,
                 log_state,
                 log_target,
-                opencode_activity_state,
-                opencode_activity_detail,
             },
         );
     }
@@ -254,7 +161,6 @@ struct GrooveListTerminalIntegration {
 struct NativeLogSignals {
     log_state: String,
     log_target: Option<String>,
-    latest_log_path: Option<PathBuf>,
     latest_log_mtime_ms: u128,
 }
 
@@ -306,98 +212,6 @@ fn resolve_groove_list_worktrees(
 
     rows.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(rows)
-}
-
-fn is_path_prefix_boundary_char(value: Option<char>) -> bool {
-    match value {
-        None => true,
-        Some(character) => {
-            character.is_whitespace()
-                || matches!(character, '"' | '\'' | '`' | '=' | ':' | '(' | '[' | '{' | ',')
-        }
-    }
-}
-
-fn is_path_suffix_boundary_char(value: Option<char>) -> bool {
-    match value {
-        None => true,
-        Some(character) => {
-            character.is_whitespace()
-                || matches!(character, '/' | '\\' | '"' | '\'' | '`' | ',' | ';' | ')' | ']' | '}')
-        }
-    }
-}
-
-fn command_contains_path_with_boundaries(command: &str, candidate: &str) -> bool {
-    if candidate.is_empty() {
-        return false;
-    }
-
-    for (start, _) in command.match_indices(candidate) {
-        let before = command[..start].chars().next_back();
-        let after = command[start + candidate.len()..].chars().next();
-        if is_path_prefix_boundary_char(before) && is_path_suffix_boundary_char(after) {
-            return true;
-        }
-    }
-
-    false
-}
-
-fn command_contains_path_with_suffix_boundary(command: &str, candidate: &str) -> bool {
-    if candidate.is_empty() {
-        return false;
-    }
-
-    for (start, _) in command.match_indices(candidate) {
-        let after = command[start + candidate.len()..].chars().next();
-        if is_path_suffix_boundary_char(after) {
-            return true;
-        }
-    }
-
-    false
-}
-
-fn command_mentions_worktree_path(command: &str, worktree_path: &Path) -> bool {
-    let normalized_command = command.replace('\\', "/").to_lowercase();
-    let rendered = worktree_path.display().to_string().replace('\\', "/");
-    let normalized_path = rendered.to_lowercase();
-    let candidate = normalized_path.trim_end_matches('/');
-
-    command_contains_path_with_boundaries(&normalized_command, candidate)
-}
-
-fn command_mentions_worktree_name(command: &str, worktree_path: &Path) -> bool {
-    let Some(worktree_name) = worktree_path
-        .file_name()
-        .map(|value| value.to_string_lossy().to_string())
-    else {
-        return false;
-    };
-
-    let normalized_command = command.replace('\\', "/").to_lowercase();
-    let normalized_worktree_name = worktree_name.to_lowercase();
-
-    ["/.worktree/", "/.worktrees/"]
-        .into_iter()
-        .map(|prefix| format!("{prefix}{normalized_worktree_name}"))
-        .any(|candidate| command_contains_path_with_suffix_boundary(&normalized_command, &candidate))
-}
-
-fn resolve_opencode_pid_for_worktree(
-    snapshot_rows: &[ProcessSnapshotRow],
-    worktree_path: &Path,
-) -> Option<i32> {
-    snapshot_rows
-        .iter()
-        .filter(|row| {
-            is_opencode_process(row.process_name.as_deref(), &row.command)
-                && (command_mentions_worktree_path(&row.command, worktree_path)
-                    || command_mentions_worktree_name(&row.command, worktree_path))
-        })
-        .map(|row| row.pid)
-        .min()
 }
 
 fn resolve_latest_log_path_for_worktree(worktree_path: &Path) -> Option<PathBuf> {
@@ -480,7 +294,6 @@ fn collect_native_log_signals(worktree_path: &Path) -> NativeLogSignals {
                 return NativeLogSignals {
                     log_state: "latest".to_string(),
                     log_target: target,
-                    latest_log_path,
                     latest_log_mtime_ms,
                 };
             }
@@ -488,7 +301,6 @@ fn collect_native_log_signals(worktree_path: &Path) -> NativeLogSignals {
             return NativeLogSignals {
                 log_state: "broken-latest".to_string(),
                 log_target: None,
-                latest_log_path: None,
                 latest_log_mtime_ms: 0,
             };
         }
@@ -506,71 +318,12 @@ fn collect_native_log_signals(worktree_path: &Path) -> NativeLogSignals {
     NativeLogSignals {
         log_state: "none".to_string(),
         log_target: None,
-        latest_log_path,
         latest_log_mtime_ms,
     }
 }
 
-fn build_native_activity_state(
-    opencode_state: &str,
-    log_state: &str,
-    latest_log_path: Option<&Path>,
-) -> (String, Option<OpencodeActivityDetail>) {
-    if log_state == "broken-latest" {
-        return (
-            "error".to_string(),
-            Some(OpencodeActivityDetail {
-                reason: Some("broken-latest".to_string()),
-                age_s: None,
-                marker: Some("broken-symlink".to_string()),
-                log: Some("latest.log".to_string()),
-            }),
-        );
-    }
-
-    let age_s = latest_log_path
-        .and_then(|path| fs::metadata(path).ok())
-        .and_then(|metadata| metadata.modified().ok())
-        .and_then(|modified| modified.elapsed().ok())
-        .map(|elapsed| elapsed.as_secs());
-    let log_name = latest_log_path
-        .and_then(|path| path.file_name())
-        .map(|value| value.to_string_lossy().to_string());
-
-    let (state, reason) = if opencode_state == "running" {
-        if let Some(age_s) = age_s {
-            if age_s <= 120 {
-                ("thinking", "running-log-fresh")
-            } else {
-                ("idle", "running-log-stale")
-            }
-        } else {
-            ("idle", "running-no-log-age")
-        }
-    } else if opencode_state == "not-running" {
-        if latest_log_path.is_some() {
-            ("finished", "process-exited-log-present")
-        } else {
-            ("unknown", "process-exited-no-log")
-        }
-    } else {
-        ("unknown", "insufficient-signals")
-    };
-
-    (
-        state.to_string(),
-        Some(OpencodeActivityDetail {
-            reason: Some(reason.to_string()),
-            age_s,
-            marker: None,
-            log: log_name,
-        }),
-    )
-}
-
 fn build_native_worktree_signature(
     worktree_path: &Path,
-    opencode_pid: Option<i32>,
     log_signals: &NativeLogSignals,
 ) -> String {
     let worktree_snapshot = snapshot_entry(worktree_path);
@@ -580,7 +333,7 @@ fn build_native_worktree_signature(
     let git_head_snapshot = snapshot_entry(&worktree_path.join(".git"));
 
     format!(
-        "worktree={}:{}|groove={}:{}|logs={}:{}|latest={}:{}|head={}:{}|opencode_pid={}|log_state={}|log_target={}|latest_mtime={}",
+        "worktree={}:{}|groove={}:{}|logs={}:{}|latest={}:{}|head={}:{}|log_state={}|log_target={}|latest_mtime={}",
         worktree_snapshot.exists,
         worktree_snapshot.mtime_ms,
         groove_snapshot.exists,
@@ -591,7 +344,6 @@ fn build_native_worktree_signature(
         latest_snapshot.mtime_ms,
         git_head_snapshot.exists,
         git_head_snapshot.mtime_ms,
-        opencode_pid.map(|value| value.to_string()).unwrap_or_default(),
         log_signals.log_state,
         log_signals.log_target.clone().unwrap_or_default(),
         log_signals.latest_log_mtime_ms,
@@ -605,7 +357,6 @@ fn collect_groove_list_rows_native(
     previous_cache: Option<&GrooveListNativeCache>,
 ) -> Result<NativeGrooveListCollection, String> {
     let worktrees = resolve_groove_list_worktrees(workspace_root, known_worktrees, dir)?;
-    let (process_rows, warning) = list_process_snapshot_rows()?;
 
     let mut rows = HashMap::new();
     let mut cache_rows = HashMap::new();
@@ -613,9 +364,8 @@ fn collect_groove_list_rows_native(
     let mut recomputed_worktrees = 0usize;
 
     for (worktree, worktree_path) in worktrees {
-        let opencode_pid = resolve_opencode_pid_for_worktree(&process_rows, &worktree_path);
         let log_signals = collect_native_log_signals(&worktree_path);
-        let signature = build_native_worktree_signature(&worktree_path, opencode_pid, &log_signals);
+        let signature = build_native_worktree_signature(&worktree_path, &log_signals);
 
         if let Some(previous_row) = previous_cache
             .and_then(|cache| cache.rows_by_worktree.get(&worktree))
@@ -628,27 +378,13 @@ fn collect_groove_list_rows_native(
         }
 
         recomputed_worktrees += 1;
-        let (opencode_state, opencode_instance_id) = if let Some(pid) = opencode_pid {
-            ("running".to_string(), Some(pid.to_string()))
-        } else {
-            ("not-running".to_string(), None)
-        };
-        let (opencode_activity_state, opencode_activity_detail) = build_native_activity_state(
-            &opencode_state,
-            &log_signals.log_state,
-            log_signals.latest_log_path.as_deref(),
-        );
 
         let row = RuntimeStateRow {
             branch: resolve_branch_from_worktree(&worktree_path)
                 .unwrap_or_else(|| branch_guess_from_worktree_name(&worktree)),
             worktree: worktree.clone(),
-            opencode_state,
-            opencode_instance_id,
             log_state: log_signals.log_state,
             log_target: log_signals.log_target,
-            opencode_activity_state,
-            opencode_activity_detail,
         };
 
         rows.insert(worktree.clone(), row.clone());
@@ -662,7 +398,7 @@ fn collect_groove_list_rows_native(
         },
         reused_worktrees,
         recomputed_worktrees,
-        warning,
+        warning: None,
     })
 }
 
@@ -709,24 +445,17 @@ fn inject_groove_terminal_sessions_into_runtime_rows(
             continue;
         }
 
-        let row = rows
+        let _row = rows
             .entry(worktree.to_string())
-            .or_insert_with(|| RuntimeStateRow {
-                branch: branch_guess_from_worktree_name(worktree),
-                worktree: worktree.to_string(),
-                opencode_state: "running".to_string(),
-                opencode_instance_id: None,
-                log_state: "unknown".to_string(),
-                log_target: None,
-                opencode_activity_state: "unknown".to_string(),
-                opencode_activity_detail: None,
+            .or_insert_with(|| {
+                injected_worktrees.insert(worktree.to_string());
+                RuntimeStateRow {
+                    branch: branch_guess_from_worktree_name(worktree),
+                    worktree: worktree.to_string(),
+                    log_state: "unknown".to_string(),
+                    log_target: None,
+                }
             });
-
-        if row.opencode_state != "running" {
-            row.opencode_state = "running".to_string();
-            row.opencode_instance_id = None;
-            injected_worktrees.insert(worktree.to_string());
-        }
     }
 
     let mut injected = injected_worktrees.into_iter().collect::<Vec<_>>();
@@ -1006,16 +735,6 @@ fn is_next_telemetry_detached_flush_command(command: &str) -> bool {
         .replace('\\', "/")
         .to_lowercase()
         .contains("next/dist/telemetry/detached-flush.js")
-}
-
-fn is_opencode_process(process_name: Option<&str>, command: &str) -> bool {
-    let lowered_process_name = process_name.unwrap_or_default().to_lowercase();
-    let lowered_command = command.to_lowercase();
-    lowered_process_name.contains("opencode") || lowered_command.contains("opencode")
-}
-
-fn is_worktree_opencode_process(process_name: Option<&str>, command: &str) -> bool {
-    command_mentions_worktrees(command) && is_opencode_process(process_name, command)
 }
 
 fn is_worktree_node_process(process_name: Option<&str>, command: &str) -> bool {

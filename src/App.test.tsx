@@ -75,15 +75,6 @@ describe("App", () => {
     expect(screen.getByTestId("command-history-panel")).toBeTruthy();
   });
 
-  it("renders Toaster", () => {
-    render(
-      <MemoryRouter initialEntries={["/"]}>
-        <App />
-      </MemoryRouter>,
-    );
-    expect(screen.getByTestId("toaster")).toBeTruthy();
-  });
-
   it("renders app layout", () => {
     render(
       <MemoryRouter initialEntries={["/"]}>
@@ -161,7 +152,9 @@ describe("App", () => {
   });
 
   it("handles periodic rerender setting being enabled", async () => {
-    const { isPeriodicRerenderEnabled } = vi.mocked(await import("@/src/lib/ipc"));
+    const { isPeriodicRerenderEnabled } = vi.mocked(
+      await import("@/src/lib/ipc"),
+    );
     isPeriodicRerenderEnabled.mockReturnValue(true);
 
     render(

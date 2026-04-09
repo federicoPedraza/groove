@@ -1,38 +1,5 @@
 import type { WorkspaceMeta } from "./types-core";
 
-export type RuntimeStateRow = {
-  branch: string;
-  worktree: string;
-  opencodeState: "running" | "not-running" | "unknown";
-  opencodeInstanceId?: string;
-  logState: "latest" | "broken-latest" | "none" | "unknown";
-  logTarget?: string;
-  opencodeActivityState: "thinking" | "idle" | "finished" | "error" | "unknown";
-  opencodeActivityDetail?: {
-    reason?: string;
-    ageS?: number;
-    marker?: string;
-    log?: string;
-  };
-};
-
-export type GrooveListPayload = {
-  rootName?: string;
-  knownWorktrees: string[];
-  workspaceMeta?: WorkspaceMeta;
-  dir?: string;
-};
-
-export type GrooveListResponse = {
-  requestId?: string;
-  ok: boolean;
-  workspaceRoot?: string;
-  rows: Record<string, RuntimeStateRow>;
-  stdout: string;
-  stderr: string;
-  error?: string;
-};
-
 export type GrooveRestorePayload = {
   rootName: string;
   knownWorktrees: string[];
@@ -142,19 +109,6 @@ export type WorkspaceOpenWorkspaceTerminalPayload = {
   rootName: string;
   knownWorktrees: string[];
   workspaceMeta?: WorkspaceMeta;
-};
-
-export type DiagnosticsProcessRow = {
-  pid: number;
-  processName: string;
-  command: string;
-};
-
-export type DiagnosticsOpencodeInstancesResponse = {
-  requestId?: string;
-  ok: boolean;
-  rows: DiagnosticsProcessRow[];
-  error?: string;
 };
 
 export type DiagnosticsStopResponse = {

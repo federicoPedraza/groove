@@ -32,9 +32,19 @@ vi.mock("@/src/components/ui/confirm-modal", () => ({
     <div data-testid={`confirm-modal-${title}`} data-open={String(open)}>
       <p>{title}</p>
       <p>{description}</p>
-      <button type="button" onClick={onConfirm}>{confirmLabel ?? "Confirm"}</button>
-      <button type="button" onClick={onCancel}>{cancelLabel ?? "Cancel"}</button>
-      <button type="button" onClick={() => { onOpenChange(false); }} data-testid={`close-${title}`}>
+      <button type="button" onClick={onConfirm}>
+        {confirmLabel ?? "Confirm"}
+      </button>
+      <button type="button" onClick={onCancel}>
+        {cancelLabel ?? "Cancel"}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onOpenChange(false);
+        }}
+        data-testid={`close-${title}`}
+      >
         CloseOverlay
       </button>
     </div>
@@ -56,11 +66,21 @@ vi.mock("@/src/components/create-worktree-modal", () => ({
     open ? (
       <div data-testid="create-worktree-modal">
         <p>Create worktree dialog</p>
-        <button type="button" onClick={() => { onOpenChange(false); }} data-testid="create-close">
+        <button
+          type="button"
+          onClick={() => {
+            onOpenChange(false);
+          }}
+          data-testid="create-close"
+        >
           Close dialog
         </button>
-        <button type="button" onClick={onCancel}>Cancel</button>
-        <button type="button" onClick={onSubmit}>Submit</button>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" onClick={onSubmit}>
+          Submit
+        </button>
       </div>
     ) : null,
 }));
@@ -76,7 +96,9 @@ function buildRow(overrides: Partial<WorktreeRow> = {}): WorktreeRow {
   };
 }
 
-function buildProps(overrides: Partial<Parameters<typeof DashboardModals>[0]> = {}) {
+function buildProps(
+  overrides: Partial<Parameters<typeof DashboardModals>[0]> = {},
+) {
   return {
     workspaceRoot: "/workspace",
     cutConfirmRow: null,
@@ -110,16 +132,28 @@ describe("DashboardModals", () => {
     });
 
     it("is open when cutConfirmRow is set", () => {
-      render(<DashboardModals {...buildProps({ cutConfirmRow: buildRow() })} />);
+      render(
+        <DashboardModals {...buildProps({ cutConfirmRow: buildRow() })} />,
+      );
       const modal = screen.getByTestId("confirm-modal-Cut this groove?");
       expect(modal.getAttribute("data-open")).toBe("true");
-      expect(screen.getByText(/removes worktree "feature-branch"/)).toBeTruthy();
+      expect(
+        screen.getByText(/removes worktree "feature-branch"/),
+      ).toBeTruthy();
     });
 
     it("shows forget deleted worktree title for deleted status", () => {
-      render(<DashboardModals {...buildProps({ cutConfirmRow: buildRow({ status: "deleted" }) })} />);
-      expect(screen.getByText("Forget this deleted worktree forever?")).toBeTruthy();
-      expect(screen.getByText(/permanently removes deleted worktree/)).toBeTruthy();
+      render(
+        <DashboardModals
+          {...buildProps({ cutConfirmRow: buildRow({ status: "deleted" }) })}
+        />,
+      );
+      expect(
+        screen.getByText("Forget this deleted worktree forever?"),
+      ).toBeTruthy();
+      expect(
+        screen.getByText(/permanently removes deleted worktree/),
+      ).toBeTruthy();
     });
 
     it("calls onRunCutGrooveAction on confirm", () => {
@@ -164,10 +198,14 @@ describe("DashboardModals", () => {
     });
 
     it("is open when forceCutConfirmRow is set", () => {
-      render(<DashboardModals {...buildProps({ forceCutConfirmRow: buildRow() })} />);
+      render(
+        <DashboardModals {...buildProps({ forceCutConfirmRow: buildRow() })} />,
+      );
       const modal = screen.getByTestId("confirm-modal-Force cut this groove?");
       expect(modal.getAttribute("data-open")).toBe("true");
-      expect(screen.getByText(/contains modified or untracked files/)).toBeTruthy();
+      expect(
+        screen.getByText(/contains modified or untracked files/),
+      ).toBeTruthy();
     });
 
     it("calls onRunCutGrooveAction with force flag on confirm", () => {
@@ -194,8 +232,16 @@ describe("DashboardModals", () => {
     });
 
     it("shows worktree-specific description with worktree name", () => {
-      render(<DashboardModals {...buildProps({ forceCutConfirmRow: buildRow({ worktree: "my-wt" }) })} />);
-      expect(screen.getByText(/Worktree "my-wt" contains modified/)).toBeTruthy();
+      render(
+        <DashboardModals
+          {...buildProps({
+            forceCutConfirmRow: buildRow({ worktree: "my-wt" }),
+          })}
+        />,
+      );
+      expect(
+        screen.getByText(/Worktree "my-wt" contains modified/),
+      ).toBeTruthy();
     });
 
     it("clears forceCutConfirmRow via onOpenChange(false)", () => {
@@ -209,13 +255,21 @@ describe("DashboardModals", () => {
   describe("Close workspace confirm modal", () => {
     it("is closed when isCloseWorkspaceConfirmOpen is false", () => {
       render(<DashboardModals {...buildProps()} />);
-      const modal = screen.getByTestId("confirm-modal-Close current workspace?");
+      const modal = screen.getByTestId(
+        "confirm-modal-Close current workspace?",
+      );
       expect(modal.getAttribute("data-open")).toBe("false");
     });
 
     it("is open when isCloseWorkspaceConfirmOpen is true", () => {
-      render(<DashboardModals {...buildProps({ isCloseWorkspaceConfirmOpen: true })} />);
-      const modal = screen.getByTestId("confirm-modal-Close current workspace?");
+      render(
+        <DashboardModals
+          {...buildProps({ isCloseWorkspaceConfirmOpen: true })}
+        />,
+      );
+      const modal = screen.getByTestId(
+        "confirm-modal-Close current workspace?",
+      );
       expect(modal.getAttribute("data-open")).toBe("true");
       expect(screen.getByText(/clears the active workspace/)).toBeTruthy();
     });
@@ -252,7 +306,9 @@ describe("DashboardModals", () => {
       render(<DashboardModals {...props} />);
       // The Cancel button inside the create-worktree-modal mock
       const createModal = screen.getByTestId("create-worktree-modal");
-      const cancelButton = createModal.querySelector("button:nth-of-type(2)") as HTMLButtonElement;
+      const cancelButton = createModal.querySelector(
+        "button:nth-of-type(2)",
+      ) as HTMLButtonElement;
       fireEvent.click(cancelButton);
       expect(props.setIsCreateModalOpen).toHaveBeenCalledWith(false);
       expect(props.setCreateBranch).toHaveBeenCalledWith("");
@@ -260,10 +316,15 @@ describe("DashboardModals", () => {
     });
 
     it("does not close modal on cancel when isCreatePending", () => {
-      const props = buildProps({ isCreateModalOpen: true, isCreatePending: true });
+      const props = buildProps({
+        isCreateModalOpen: true,
+        isCreatePending: true,
+      });
       render(<DashboardModals {...props} />);
       const createModal = screen.getByTestId("create-worktree-modal");
-      const cancelButton = createModal.querySelector("button:nth-of-type(2)") as HTMLButtonElement;
+      const cancelButton = createModal.querySelector(
+        "button:nth-of-type(2)",
+      ) as HTMLButtonElement;
       fireEvent.click(cancelButton);
       expect(props.setIsCreateModalOpen).not.toHaveBeenCalled();
     });
@@ -278,7 +339,10 @@ describe("DashboardModals", () => {
     });
 
     it("does not clear branch and base via onOpenChange(false) when pending", () => {
-      const props = buildProps({ isCreateModalOpen: true, isCreatePending: true });
+      const props = buildProps({
+        isCreateModalOpen: true,
+        isCreatePending: true,
+      });
       render(<DashboardModals {...props} />);
       fireEvent.click(screen.getByTestId("create-close"));
       expect(props.setIsCreateModalOpen).toHaveBeenCalledWith(false);
@@ -292,11 +356,17 @@ describe("DashboardModals", () => {
       // When cutConfirmRow is set, the description includes the worktree name
       const row = buildRow({ worktree: "test-wt", branchGuess: "test-branch" });
       render(<DashboardModals {...buildProps({ cutConfirmRow: row })} />);
-      expect(screen.getByText(/removes worktree "test-wt" \(branch "test-branch"\)/)).toBeTruthy();
+      expect(
+        screen.getByText(/removes worktree "test-wt" \(branch "test-branch"\)/),
+      ).toBeTruthy();
     });
 
     it("shows forget label for deleted worktree confirm button", () => {
-      render(<DashboardModals {...buildProps({ cutConfirmRow: buildRow({ status: "deleted" }) })} />);
+      render(
+        <DashboardModals
+          {...buildProps({ cutConfirmRow: buildRow({ status: "deleted" }) })}
+        />,
+      );
       expect(screen.getByText("Forget forever")).toBeTruthy();
     });
 

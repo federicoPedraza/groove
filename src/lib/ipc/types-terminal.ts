@@ -82,6 +82,25 @@ export type GrooveTerminalSessionsResponse = {
   error?: string;
 };
 
+export type GrooveTerminalActiveWorktreesResponse = {
+  requestId?: string;
+  ok: boolean;
+  worktrees: string[];
+  error?: string;
+};
+
+export type GrooveTerminalActivityEntry = {
+  sessionId: string;
+  hasActivity: boolean;
+};
+
+export type GrooveTerminalActivityResponse = {
+  requestId?: string;
+  ok: boolean;
+  entries: GrooveTerminalActivityEntry[];
+  error?: string;
+};
+
 export type GrooveTerminalOutputEvent = {
   sessionId: string;
   workspaceRoot: string;
@@ -99,6 +118,7 @@ export type GrooveTerminalLifecycleEvent = {
 
 export type GrooveNotification = {
   id: string;
+  action?: string;
   worktree: string;
   message: string;
   type: "info" | "warning" | "error" | "success";

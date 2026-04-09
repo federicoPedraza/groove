@@ -8,14 +8,22 @@ import { DiagnosticsSystemSidebar } from "@/src/components/pages/diagnostics/dia
 import { EmergencyCard } from "@/src/components/pages/diagnostics/emergency-card";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
 import { Button } from "@/src/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/src/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/src/components/ui/table";
 import { toast } from "@/src/lib/toast";
+import { playGrooveHookSound } from "@/src/lib/groove-sound-system";
 import { appendRequestId } from "@/src/lib/utils/common/request-id";
 import {
   diagnosticsCleanAllDevServers,
   diagnosticsGetSystemOverview,
   diagnosticsGetMsotConsumingPrograms,
-  diagnosticsKillAllNodeAndOpencodeInstances,
+  diagnosticsKillAllNodeInstances,
   isTelemetryEnabled,
   type DiagnosticsMostConsumingProgramsResponse,
   type DiagnosticsSystemOverview,
@@ -32,7 +40,10 @@ import {
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 
-function logDiagnosticsTelemetry(event: string, payload: Record<string, unknown>): void {
+function logDiagnosticsTelemetry(
+  event: string,
+  payload: Record<string, unknown>,
+): void {
   if (!isTelemetryEnabled()) {
     return;
   }
@@ -42,25 +53,44 @@ function logDiagnosticsTelemetry(event: string, payload: Record<string, unknown>
 export default function DiagnosticsPage() {
   const diagnosticsEnterPerfMsRef = useRef<number>(performance.now());
   const isSystemOverviewRequestInFlightRef = useRef(false);
-  const [isKillingAllNodeAndOpencodeInstances, setIsKillingAllNodeAndOpencodeInstances] = useState(false);
+  const [isKillingAllNodeInstances, setIsKillingAllNodeInstances] =
+    useState(false);
   const [isCleaningAllDevServers, setIsCleaningAllDevServers] = useState(false);
-  const [mostConsumingProgramsOutput, setMostConsumingProgramsOutput] = useState<string | null>(null);
-  const [mostConsumingProgramsError, setMostConsumingProgramsError] = useState<string | null>(null);
-  const [isLoadingMostConsumingPrograms, setIsLoadingMostConsumingPrograms] = useState(false);
-  const [systemOverview, setSystemOverview] = useState<DiagnosticsSystemOverview | null>(null);
-  const [systemOverviewError, setSystemOverviewError] = useState<string | null>(null);
+  const [mostConsumingProgramsOutput, setMostConsumingProgramsOutput] =
+    useState<string | null>(null);
+  const [mostConsumingProgramsError, setMostConsumingProgramsError] = useState<
+    string | null
+  >(null);
+  const [isLoadingMostConsumingPrograms, setIsLoadingMostConsumingPrograms] =
+    useState(false);
+  const [systemOverview, setSystemOverview] =
+    useState<DiagnosticsSystemOverview | null>(null);
+  const [systemOverviewError, setSystemOverviewError] = useState<string | null>(
+    null,
+  );
   const [isLoadingSystemOverview, setIsLoadingSystemOverview] = useState(false);
   const [hasActiveWorkspace, setHasActiveWorkspace] = useState(false);
-  const [gitignoreSanity, setGitignoreSanity] = useState<WorkspaceGitignoreSanityResponse | null>(null);
-  const [gitignoreSanityStatusMessage, setGitignoreSanityStatusMessage] = useState<string | null>(null);
-  const [gitignoreSanityErrorMessage, setGitignoreSanityErrorMessage] = useState<string | null>(null);
-  const [isGitignoreSanityChecking, setIsGitignoreSanityChecking] = useState(false);
-  const [isGitignoreSanityApplyPending, setIsGitignoreSanityApplyPending] = useState(false);
-  const [termSanity, setTermSanity] = useState<WorkspaceTermSanityResponse | null>(null);
-  const [termSanityStatusMessage, setTermSanityStatusMessage] = useState<string | null>(null);
-  const [termSanityErrorMessage, setTermSanityErrorMessage] = useState<string | null>(null);
+  const [gitignoreSanity, setGitignoreSanity] =
+    useState<WorkspaceGitignoreSanityResponse | null>(null);
+  const [gitignoreSanityStatusMessage, setGitignoreSanityStatusMessage] =
+    useState<string | null>(null);
+  const [gitignoreSanityErrorMessage, setGitignoreSanityErrorMessage] =
+    useState<string | null>(null);
+  const [isGitignoreSanityChecking, setIsGitignoreSanityChecking] =
+    useState(false);
+  const [isGitignoreSanityApplyPending, setIsGitignoreSanityApplyPending] =
+    useState(false);
+  const [termSanity, setTermSanity] =
+    useState<WorkspaceTermSanityResponse | null>(null);
+  const [termSanityStatusMessage, setTermSanityStatusMessage] = useState<
+    string | null
+  >(null);
+  const [termSanityErrorMessage, setTermSanityErrorMessage] = useState<
+    string | null
+  >(null);
   const [isTermSanityChecking, setIsTermSanityChecking] = useState(false);
-  const [isTermSanityApplyPending, setIsTermSanityApplyPending] = useState(false);
+  const [isTermSanityApplyPending, setIsTermSanityApplyPending] =
+    useState(false);
 
   const clearGitignoreSanityState = useCallback((): void => {
     setHasActiveWorkspace(false);
@@ -72,7 +102,10 @@ export default function DiagnosticsPage() {
   }, []);
 
   const loadGitignoreSanityCheck = useCallback(
-    async (options?: { showPending?: boolean; clearStatusMessage?: boolean }): Promise<void> => {
+    async (options?: {
+      showPending?: boolean;
+      clearStatusMessage?: boolean;
+    }): Promise<void> => {
       const showPending = options?.showPending !== false;
 
       try {
@@ -93,7 +126,9 @@ export default function DiagnosticsPage() {
         const result = await workspaceGitignoreSanityCheck();
         if (!result.ok) {
           setGitignoreSanity(null);
-          setGitignoreSanityErrorMessage(result.error ?? "Failed to check .gitignore sanity.");
+          setGitignoreSanityErrorMessage(
+            result.error ?? "Failed to check .gitignore sanity.",
+          );
           return;
         }
 
@@ -126,60 +161,78 @@ export default function DiagnosticsPage() {
       setHasActiveWorkspace(true);
       const result = await workspaceGitignoreSanityApply();
       if (!result.ok) {
-        setGitignoreSanityErrorMessage(result.error ?? "Failed to apply .gitignore sanity patch.");
+        setGitignoreSanityErrorMessage(
+          result.error ?? "Failed to apply .gitignore sanity patch.",
+        );
         return;
       }
 
       setGitignoreSanity(result);
       if (!result.isApplicable) {
-        setGitignoreSanityStatusMessage("No .gitignore found in the active workspace.");
+        setGitignoreSanityStatusMessage(
+          "No .gitignore found in the active workspace.",
+        );
       } else if (result.patched) {
         if (result.patchedWorktree) {
           setGitignoreSanityStatusMessage(
             `Applied Groove .gitignore sanity patch in ${result.patchedWorktree} and started Play Groove.`,
           );
         } else {
-          setGitignoreSanityStatusMessage("Applied Groove .gitignore sanity patch.");
+          setGitignoreSanityStatusMessage(
+            "Applied Groove .gitignore sanity patch.",
+          );
         }
       } else {
-        setGitignoreSanityStatusMessage("Groove .gitignore sanity patch is already applied.");
+        setGitignoreSanityStatusMessage(
+          "Groove .gitignore sanity patch is already applied.",
+        );
       }
     } catch {
-      setGitignoreSanityErrorMessage("Failed to apply .gitignore sanity patch.");
+      setGitignoreSanityErrorMessage(
+        "Failed to apply .gitignore sanity patch.",
+      );
     } finally {
       setIsGitignoreSanityApplyPending(false);
     }
   }, [clearGitignoreSanityState]);
 
-  const loadTermSanityCheck = useCallback(async (options?: { showPending?: boolean; clearStatusMessage?: boolean }): Promise<void> => {
-    const showPending = options?.showPending !== false;
+  const loadTermSanityCheck = useCallback(
+    async (options?: {
+      showPending?: boolean;
+      clearStatusMessage?: boolean;
+    }): Promise<void> => {
+      const showPending = options?.showPending !== false;
 
-    try {
-      if (showPending) {
-        setIsTermSanityChecking(true);
-      }
-      if (options?.clearStatusMessage) {
-        setTermSanityStatusMessage(null);
-      }
+      try {
+        if (showPending) {
+          setIsTermSanityChecking(true);
+        }
+        if (options?.clearStatusMessage) {
+          setTermSanityStatusMessage(null);
+        }
 
-      const result = await workspaceTermSanityCheck();
-      if (!result.ok) {
+        const result = await workspaceTermSanityCheck();
+        if (!result.ok) {
+          setTermSanity(null);
+          setTermSanityErrorMessage(
+            result.error ?? "Failed to check TERM sanity.",
+          );
+          return;
+        }
+
+        setTermSanity(result);
+        setTermSanityErrorMessage(null);
+      } catch {
         setTermSanity(null);
-        setTermSanityErrorMessage(result.error ?? "Failed to check TERM sanity.");
-        return;
+        setTermSanityErrorMessage("Failed to check TERM sanity.");
+      } finally {
+        if (showPending) {
+          setIsTermSanityChecking(false);
+        }
       }
-
-      setTermSanity(result);
-      setTermSanityErrorMessage(null);
-    } catch {
-      setTermSanity(null);
-      setTermSanityErrorMessage("Failed to check TERM sanity.");
-    } finally {
-      if (showPending) {
-        setIsTermSanityChecking(false);
-      }
-    }
-  }, []);
+    },
+    [],
+  );
 
   const applyTermSanityPatch = useCallback(async (): Promise<void> => {
     try {
@@ -189,14 +242,19 @@ export default function DiagnosticsPage() {
 
       const result = await workspaceTermSanityApply();
       if (!result.ok) {
-        setTermSanityErrorMessage(result.error ?? "Failed to apply TERM sanity patch.");
+        setTermSanityErrorMessage(
+          result.error ?? "Failed to apply TERM sanity patch.",
+        );
         return;
       }
 
       setTermSanity(result);
       if (result.applied) {
-        const fixedValue = result.fixedValue ?? result.termValue ?? "xterm-256color";
-        setTermSanityStatusMessage(`Applied TERM sanity patch (TERM=${fixedValue}).`);
+        const fixedValue =
+          result.fixedValue ?? result.termValue ?? "xterm-256color";
+        setTermSanityStatusMessage(
+          `Applied TERM sanity patch (TERM=${fixedValue}).`,
+        );
       } else {
         setTermSanityStatusMessage("TERM sanity patch is already applied.");
       }
@@ -208,7 +266,10 @@ export default function DiagnosticsPage() {
   }, []);
 
   useEffect(() => {
-    const mountDurationMs = Math.max(0, performance.now() - diagnosticsEnterPerfMsRef.current);
+    const mountDurationMs = Math.max(
+      0,
+      performance.now() - diagnosticsEnterPerfMsRef.current,
+    );
     logDiagnosticsTelemetry("diagnostics.enter.mount", {
       duration_ms: Number(mountDurationMs.toFixed(2)),
     });
@@ -217,7 +278,10 @@ export default function DiagnosticsPage() {
     let rafNestedFrameId = 0;
     rafFrameId = requestAnimationFrame(() => {
       rafNestedFrameId = requestAnimationFrame(() => {
-        const afterPaintDurationMs = Math.max(0, performance.now() - diagnosticsEnterPerfMsRef.current);
+        const afterPaintDurationMs = Math.max(
+          0,
+          performance.now() - diagnosticsEnterPerfMsRef.current,
+        );
         logDiagnosticsTelemetry("diagnostics.enter.after_paint", {
           duration_ms: Number(afterPaintDurationMs.toFixed(2)),
         });
@@ -230,36 +294,42 @@ export default function DiagnosticsPage() {
     };
   }, []);
 
-  const loadSystemOverview = useCallback(async (showLoading = true): Promise<void> => {
-    if (isSystemOverviewRequestInFlightRef.current) {
-      return;
-    }
-
-    isSystemOverviewRequestInFlightRef.current = true;
-    if (showLoading) {
-      setIsLoadingSystemOverview(true);
-    }
-    setSystemOverviewError(null);
-
-    try {
-      const result = (await diagnosticsGetSystemOverview()) as DiagnosticsSystemOverviewResponse;
-      if (!result.ok || !result.overview) {
-        setSystemOverview(null);
-        setSystemOverviewError(result.error ?? "Failed to load system usage.");
+  const loadSystemOverview = useCallback(
+    async (showLoading = true): Promise<void> => {
+      if (isSystemOverviewRequestInFlightRef.current) {
         return;
       }
 
-      setSystemOverview(result.overview);
-    } catch {
-      setSystemOverview(null);
-      setSystemOverviewError("Failed to load system usage.");
-    } finally {
-      isSystemOverviewRequestInFlightRef.current = false;
+      isSystemOverviewRequestInFlightRef.current = true;
       if (showLoading) {
-        setIsLoadingSystemOverview(false);
+        setIsLoadingSystemOverview(true);
       }
-    }
-  }, []);
+      setSystemOverviewError(null);
+
+      try {
+        const result =
+          (await diagnosticsGetSystemOverview()) as DiagnosticsSystemOverviewResponse;
+        if (!result.ok || !result.overview) {
+          setSystemOverview(null);
+          setSystemOverviewError(
+            result.error ?? "Failed to load system usage.",
+          );
+          return;
+        }
+
+        setSystemOverview(result.overview);
+      } catch {
+        setSystemOverview(null);
+        setSystemOverviewError("Failed to load system usage.");
+      } finally {
+        isSystemOverviewRequestInFlightRef.current = false;
+        if (showLoading) {
+          setIsLoadingSystemOverview(false);
+        }
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     void loadSystemOverview();
@@ -288,49 +358,60 @@ export default function DiagnosticsPage() {
     setIsCleaningAllDevServers(true);
 
     try {
-      const result = (await diagnosticsCleanAllDevServers()) as DiagnosticsStopAllResponse;
+      const result =
+        (await diagnosticsCleanAllDevServers()) as DiagnosticsStopAllResponse;
       if (!result.ok) {
         toast.error("Clean all failed.", {
           description: appendRequestId(result.error, result.requestId),
+          command: "diagnostics_clean_all_dev_servers",
         });
       } else {
-        toast.success("Clean all completed for worktree OpenCode + worktree Node processes.", {
+        playGrooveHookSound("emergency");
+        toast.success("Clean all completed for worktree Node processes.", {
           description: appendRequestId(
             `attempted=${String(result.attempted)}, stopped=${String(result.stopped)}, alreadyStopped=${String(result.alreadyStopped)}, failed=${String(result.failed)}`,
             result.requestId,
           ),
+          command: "diagnostics_clean_all_dev_servers",
         });
       }
-
     } catch {
-      toast.error("Clean-all request failed.");
+      toast.error("Clean-all request failed.", {
+        command: "diagnostics_clean_all_dev_servers",
+      });
     } finally {
       setIsCleaningAllDevServers(false);
     }
   };
 
-  const runKillAllNodeAndOpencodeInstancesAction = async (): Promise<void> => {
-    setIsKillingAllNodeAndOpencodeInstances(true);
+  const runKillAllNodeInstancesAction = async (): Promise<void> => {
+    setIsKillingAllNodeInstances(true);
 
     try {
-      const result = (await diagnosticsKillAllNodeAndOpencodeInstances()) as DiagnosticsStopAllResponse;
+      const result =
+        (await diagnosticsKillAllNodeInstances()) as DiagnosticsStopAllResponse;
       if (!result.ok) {
-        toast.error("Failed to kill all Node and OpenCode processes.", {
+        toast.error("Failed to kill all Node processes.", {
           description: appendRequestId(result.error, result.requestId),
+          command: "diagnostics_kill_all_node_instances",
         });
         return;
       }
 
-      toast.success("Emergency kill completed for all Node and OpenCode processes.", {
+      playGrooveHookSound("emergency");
+      toast.success("Emergency kill completed for all Node processes.", {
         description: appendRequestId(
           `attempted=${String(result.attempted)}, stopped=${String(result.stopped)}, alreadyStopped=${String(result.alreadyStopped)}, failed=${String(result.failed)}`,
           result.requestId,
         ),
+        command: "diagnostics_kill_all_node_instances",
       });
     } catch {
-      toast.error("Emergency kill request failed.");
+      toast.error("Emergency kill request failed.", {
+        command: "diagnostics_kill_all_node_instances",
+      });
     } finally {
-      setIsKillingAllNodeAndOpencodeInstances(false);
+      setIsKillingAllNodeInstances(false);
     }
   };
 
@@ -339,57 +420,73 @@ export default function DiagnosticsPage() {
     setMostConsumingProgramsError(null);
 
     try {
-      const result = (await diagnosticsGetMsotConsumingPrograms()) as DiagnosticsMostConsumingProgramsResponse;
+      const result =
+        (await diagnosticsGetMsotConsumingPrograms()) as DiagnosticsMostConsumingProgramsResponse;
       if (!result.ok) {
         setMostConsumingProgramsOutput(null);
-        const message = appendRequestId(result.error ?? "Failed to run memory usage query.", result.requestId) ?? "Failed to run memory usage query.";
+        const message =
+          appendRequestId(
+            result.error ?? "Failed to run memory usage query.",
+            result.requestId,
+          ) ?? "Failed to run memory usage query.";
         setMostConsumingProgramsError(message);
         toast.error("Failed to load top processes.", {
           description: message,
+          command: "diagnostics_get_msot_consuming_programs",
         });
         return;
       }
 
       setMostConsumingProgramsOutput(result.output || "No output.");
-      toast.success("Loaded top processes.");
+      toast.success("Loaded top processes.", {
+        command: "diagnostics_get_msot_consuming_programs",
+      });
     } catch {
       setMostConsumingProgramsOutput(null);
       setMostConsumingProgramsError("Failed to run memory usage query.");
-      toast.error("Failed to load top processes.");
+      toast.error("Failed to load top processes.", {
+        command: "diagnostics_get_msot_consuming_programs",
+      });
     } finally {
       setIsLoadingMostConsumingPrograms(false);
     }
   };
 
   const shouldShowApplyPatch = Boolean(
-    hasActiveWorkspace && gitignoreSanity?.isApplicable && gitignoreSanity.missingEntries.length > 0,
+    hasActiveWorkspace &&
+    gitignoreSanity?.isApplicable &&
+    gitignoreSanity.missingEntries.length > 0,
   );
   const shouldShowGitignoreSanityPanel = Boolean(
     isGitignoreSanityChecking ||
-      gitignoreSanityErrorMessage ||
-      !hasActiveWorkspace ||
-      !gitignoreSanity?.isApplicable ||
-      gitignoreSanity.missingEntries.length > 0 ||
-      (gitignoreSanity?.isApplicable && gitignoreSanity.missingEntries.length === 0),
+    gitignoreSanityErrorMessage ||
+    !hasActiveWorkspace ||
+    !gitignoreSanity?.isApplicable ||
+    gitignoreSanity.missingEntries.length > 0 ||
+    (gitignoreSanity?.isApplicable &&
+      gitignoreSanity.missingEntries.length === 0),
   );
   const isGitignoreSanityHealthy = Boolean(
     hasActiveWorkspace &&
-      !isGitignoreSanityChecking &&
-      !gitignoreSanityErrorMessage &&
-      gitignoreSanity?.isApplicable &&
-      gitignoreSanity.missingEntries.length === 0,
+    !isGitignoreSanityChecking &&
+    !gitignoreSanityErrorMessage &&
+    gitignoreSanity?.isApplicable &&
+    gitignoreSanity.missingEntries.length === 0,
   );
   const shouldShowApplyTermPatch = Boolean(termSanity && !termSanity.isUsable);
   const gitignoreNeedsRepair = shouldShowApplyPatch;
   const termNeedsRepair = shouldShowApplyTermPatch;
-  const isGitignoreApplyNowDisabled = isGitignoreSanityChecking || isGitignoreSanityApplyPending || !gitignoreNeedsRepair;
-  const isTermApplyNowDisabled = isTermSanityChecking || isTermSanityApplyPending || !termNeedsRepair;
+  const isGitignoreApplyNowDisabled =
+    isGitignoreSanityChecking ||
+    isGitignoreSanityApplyPending ||
+    !gitignoreNeedsRepair;
+  const isTermApplyNowDisabled =
+    isTermSanityChecking || isTermSanityApplyPending || !termNeedsRepair;
   const isTermSanityHealthy = Boolean(
-    !isTermSanityChecking &&
-      !termSanityErrorMessage &&
-      termSanity?.isUsable,
+    !isTermSanityChecking && !termSanityErrorMessage && termSanity?.isUsable,
   );
-  const gitignoreApplyButtonLabel = "Apply fix for .gitignore includes Groove entries";
+  const gitignoreApplyButtonLabel =
+    "Apply fix for .gitignore includes Groove entries";
   const termApplyButtonLabel = "Apply fix for TERM is missing or unusable";
 
   let gitignoreSanityLabel = "Checking .gitignore sanity...";
@@ -411,7 +508,9 @@ export default function DiagnosticsPage() {
   if (termSanityErrorMessage) {
     termSanityLabel = "Unable to check TERM sanity.";
   } else if (!isTermSanityChecking) {
-    const termValueLabel = termSanity?.termValue ? ` (${termSanity.termValue})` : "";
+    const termValueLabel = termSanity?.termValue
+      ? ` (${termSanity.termValue})`
+      : "";
     if (termSanity?.isUsable) {
       termSanityLabel = `TERM is usable${termValueLabel}.`;
     } else {
@@ -447,7 +546,11 @@ export default function DiagnosticsPage() {
       />
 
       {shouldShowGitignoreSanityPanel ? (
-        <div role="region" aria-label="Groove sanity checks table" className="rounded-lg border bg-card">
+        <div
+          role="region"
+          aria-label="Groove sanity checks table"
+          className="rounded-lg border bg-card"
+        >
           <Table>
             <TableHeader>
               <TableRow>
@@ -458,10 +561,18 @@ export default function DiagnosticsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow className={`${gitignoreNeedsRepair ? "bg-amber-500/10" : ""}`}>
-                <TableCell className="font-medium">.gitignore includes Groove entries</TableCell>
-                <TableCell>{isGitignoreSanityHealthy ? "Healthy" : "Needs attention"}</TableCell>
-                <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">{gitignoreSanityLabel}</TableCell>
+              <TableRow
+                className={`${gitignoreNeedsRepair ? "bg-amber-500/10" : ""}`}
+              >
+                <TableCell className="font-medium">
+                  .gitignore includes Groove entries
+                </TableCell>
+                <TableCell>
+                  {isGitignoreSanityHealthy ? "Healthy" : "Needs attention"}
+                </TableCell>
+                <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">
+                  {gitignoreSanityLabel}
+                </TableCell>
                 <TableCell className="text-right">
                   <Button
                     type="button"
@@ -475,14 +586,29 @@ export default function DiagnosticsPage() {
                     title={gitignoreApplyButtonLabel}
                     className="size-8 p-0"
                   >
-                    {isGitignoreSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Hammer aria-hidden="true" className="size-4" />}
+                    {isGitignoreSanityApplyPending ? (
+                      <Loader2
+                        aria-hidden="true"
+                        className="size-4 animate-spin"
+                      />
+                    ) : (
+                      <Hammer aria-hidden="true" className="size-4" />
+                    )}
                   </Button>
                 </TableCell>
               </TableRow>
-              <TableRow className={`${termNeedsRepair ? "bg-amber-500/10" : ""}`}>
-                <TableCell className="font-medium">TERM is missing or unusable</TableCell>
-                <TableCell>{isTermSanityHealthy ? "Healthy" : "Needs attention"}</TableCell>
-                <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">{termSanityLabel}</TableCell>
+              <TableRow
+                className={`${termNeedsRepair ? "bg-amber-500/10" : ""}`}
+              >
+                <TableCell className="font-medium">
+                  TERM is missing or unusable
+                </TableCell>
+                <TableCell>
+                  {isTermSanityHealthy ? "Healthy" : "Needs attention"}
+                </TableCell>
+                <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">
+                  {termSanityLabel}
+                </TableCell>
                 <TableCell className="text-right">
                   <Button
                     type="button"
@@ -496,21 +622,46 @@ export default function DiagnosticsPage() {
                     title={termApplyButtonLabel}
                     className="size-8 p-0"
                   >
-                    {isTermSanityApplyPending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Hammer aria-hidden="true" className="size-4" />}
+                    {isTermSanityApplyPending ? (
+                      <Loader2
+                        aria-hidden="true"
+                        className="size-4 animate-spin"
+                      />
+                    ) : (
+                      <Hammer aria-hidden="true" className="size-4" />
+                    )}
                   </Button>
                 </TableCell>
               </TableRow>
             </TableBody>
           </Table>
-          {gitignoreSanityStatusMessage ? <p className="mt-1 text-xs text-emerald-700">{gitignoreSanityStatusMessage}</p> : null}
-          {gitignoreSanityErrorMessage ? <p className="mt-1 text-xs text-destructive">{gitignoreSanityErrorMessage}</p> : null}
-          {termSanityStatusMessage ? <p className="mt-1 text-xs text-emerald-700">{termSanityStatusMessage}</p> : null}
-          {termSanityErrorMessage ? <p className="mt-1 text-xs text-destructive">{termSanityErrorMessage}</p> : null}
+          {gitignoreSanityStatusMessage ? (
+            <p className="mt-1 text-xs text-emerald-700">
+              {gitignoreSanityStatusMessage}
+            </p>
+          ) : null}
+          {gitignoreSanityErrorMessage ? (
+            <p className="mt-1 text-xs text-destructive">
+              {gitignoreSanityErrorMessage}
+            </p>
+          ) : null}
+          {termSanityStatusMessage ? (
+            <p className="mt-1 text-xs text-emerald-700">
+              {termSanityStatusMessage}
+            </p>
+          ) : null}
+          {termSanityErrorMessage ? (
+            <p className="mt-1 text-xs text-destructive">
+              {termSanityErrorMessage}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
       {mostConsumingProgramsError && (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{mostConsumingProgramsError}</p>
+        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {mostConsumingProgramsError}
+        </p>
       )}
 
       {mostConsumingProgramsOutput && (
@@ -530,14 +681,16 @@ export default function DiagnosticsPage() {
               <span>Hide</span>
             </Button>
           </div>
-          <pre className="overflow-x-auto text-xs text-foreground">{mostConsumingProgramsOutput}</pre>
+          <pre className="overflow-x-auto text-xs text-foreground">
+            {mostConsumingProgramsOutput}
+          </pre>
         </div>
       )}
 
       <EmergencyCard
-        isKillingAllNodeAndOpencodeInstances={isKillingAllNodeAndOpencodeInstances}
-        onKillAllNodeAndOpencodeInstances={() => {
-          void runKillAllNodeAndOpencodeInstancesAction();
+        isKillingAllNodeInstances={isKillingAllNodeInstances}
+        onKillAllNodeInstances={() => {
+          void runKillAllNodeInstancesAction();
         }}
       />
     </div>

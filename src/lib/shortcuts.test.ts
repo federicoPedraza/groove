@@ -11,8 +11,14 @@ import {
 
 describe("shortcut defaults", () => {
   it("maps open actions to leader+k and worktree details to leader+p", () => {
-    expect(DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_ACTION_LAUNCHER_COMMAND_ID]).toBe("k");
-    expect(DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID]).toBe("p");
+    expect(
+      DEFAULT_KEYBOARD_LEADER_BINDINGS[OPEN_ACTION_LAUNCHER_COMMAND_ID],
+    ).toBe("k");
+    expect(
+      DEFAULT_KEYBOARD_LEADER_BINDINGS[
+        OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID
+      ],
+    ).toBe("p");
   });
 
   it("migrates legacy action-only default binding without creating duplicate keys", () => {

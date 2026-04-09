@@ -8,6 +8,7 @@ type ThemeVariantClassNames = {
 
 export type MascotColorDefinition = {
   id: string;
+  hex: string;
   borderClassName: ThemeVariantClassNames;
   textClassName: ThemeVariantClassNames;
 };
@@ -119,6 +120,7 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
 export const WORKTREE_MASCOT_COLOR_PALETTE: readonly MascotColorDefinition[] = [
   {
     id: "emerald",
+    hex: "#10b981",
     borderClassName: {
       light: "border-emerald-700/45",
       dark: "dark:border-emerald-300/55",
@@ -130,6 +132,7 @@ export const WORKTREE_MASCOT_COLOR_PALETTE: readonly MascotColorDefinition[] = [
   },
   {
     id: "sky",
+    hex: "#0ea5e9",
     borderClassName: {
       light: "border-sky-700/45",
       dark: "dark:border-sky-300/55",
@@ -141,6 +144,7 @@ export const WORKTREE_MASCOT_COLOR_PALETTE: readonly MascotColorDefinition[] = [
   },
   {
     id: "amber",
+    hex: "#f59e0b",
     borderClassName: {
       light: "border-amber-700/45",
       dark: "dark:border-amber-300/55",
@@ -152,6 +156,7 @@ export const WORKTREE_MASCOT_COLOR_PALETTE: readonly MascotColorDefinition[] = [
   },
   {
     id: "cyan",
+    hex: "#06b6d4",
     borderClassName: {
       light: "border-cyan-700/45",
       dark: "dark:border-cyan-300/55",
@@ -163,6 +168,7 @@ export const WORKTREE_MASCOT_COLOR_PALETTE: readonly MascotColorDefinition[] = [
   },
   {
     id: "indigo",
+    hex: "#6366f1",
     borderClassName: {
       light: "border-indigo-700/45",
       dark: "dark:border-indigo-300/55",
@@ -174,6 +180,7 @@ export const WORKTREE_MASCOT_COLOR_PALETTE: readonly MascotColorDefinition[] = [
   },
   {
     id: "orange",
+    hex: "#f97316",
     borderClassName: {
       light: "border-orange-700/45",
       dark: "dark:border-orange-300/55",
@@ -190,7 +197,10 @@ type WorktreeMascotAssignmentIndex = {
   colorIndex: number;
 };
 
-const worktreeMascotAssignmentByKey = new Map<string, WorktreeMascotAssignmentIndex>();
+const worktreeMascotAssignmentByKey = new Map<
+  string,
+  WorktreeMascotAssignmentIndex
+>();
 const activeWorktreeMascotKeys = new Set<string>();
 
 function pickRandomIndex(length: number): number {
@@ -216,7 +226,9 @@ function pickPaletteIndex(length: number, usedIndices: Set<number>): number {
   return availableIndices[pickRandomIndex(availableIndices.length)];
 }
 
-function ensureWorktreeMascotAssignment(instanceKey: string): WorktreeMascotAssignmentIndex {
+function ensureWorktreeMascotAssignment(
+  instanceKey: string,
+): WorktreeMascotAssignmentIndex {
   const existingAssignment = worktreeMascotAssignmentByKey.get(instanceKey);
   if (existingAssignment) {
     activeWorktreeMascotKeys.add(instanceKey);
@@ -238,7 +250,10 @@ function ensureWorktreeMascotAssignment(instanceKey: string): WorktreeMascotAssi
 
   const nextAssignment: WorktreeMascotAssignmentIndex = {
     mascotIndex: pickPaletteIndex(MASCOT_DEFINITIONS.length, usedMascotIndices),
-    colorIndex: pickPaletteIndex(WORKTREE_MASCOT_COLOR_PALETTE.length, usedColorIndices),
+    colorIndex: pickPaletteIndex(
+      WORKTREE_MASCOT_COLOR_PALETTE.length,
+      usedColorIndices,
+    ),
   };
 
   worktreeMascotAssignmentByKey.set(instanceKey, nextAssignment);
@@ -247,17 +262,26 @@ function ensureWorktreeMascotAssignment(instanceKey: string): WorktreeMascotAssi
 }
 
 function findDefaultMascot(): MascotDefinition {
-  return MASCOT_DEFINITIONS.find((mascot) => mascot.id === DEFAULT_MASCOT_ID) ?? MASCOT_DEFINITIONS[0];
+  return (
+    MASCOT_DEFINITIONS.find((mascot) => mascot.id === DEFAULT_MASCOT_ID) ??
+    MASCOT_DEFINITIONS[0]
+  );
 }
 
 export function getMascotColorClassNames(color: MascotColorDefinition): string {
-  return [
-    color.textClassName.light,
-    color.textClassName.dark,
-  ].join(" ");
+  return [color.textClassName.light, color.textClassName.dark].join(" ");
 }
 
-export function getMascotSpriteForMode(mascot: MascotDefinition, mode: MascotSpriteMode): MascotSpriteDefinition {
+export function getMascotBorderClassNames(
+  color: MascotColorDefinition,
+): string {
+  return [color.borderClassName.light, color.borderClassName.dark].join(" ");
+}
+
+export function getMascotSpriteForMode(
+  mascot: MascotDefinition,
+  mode: MascotSpriteMode,
+): MascotSpriteDefinition {
   if (mode === "running") {
     return mascot.sprites.running ?? mascot.sprites.idle;
   }
@@ -269,7 +293,9 @@ export function getMascotSpriteForMode(mascot: MascotDefinition, mode: MascotSpr
   return mascot.sprites.idle;
 }
 
-export function syncActiveWorktreeMascotAssignments(instanceKeys: readonly string[]): void {
+export function syncActiveWorktreeMascotAssignments(
+  instanceKeys: readonly string[],
+): void {
   const nextActiveKeys = new Set(instanceKeys);
 
   activeWorktreeMascotKeys.clear();
@@ -288,7 +314,10 @@ export function syncActiveWorktreeMascotAssignments(instanceKeys: readonly strin
   }
 }
 
-export function getWorktreeMascotAssignment(instanceKey: string): { mascot: MascotDefinition; color: MascotColorDefinition } {
+export function getWorktreeMascotAssignment(instanceKey: string): {
+  mascot: MascotDefinition;
+  color: MascotColorDefinition;
+} {
   const assignment = ensureWorktreeMascotAssignment(instanceKey);
   return {
     mascot: MASCOT_DEFINITIONS[assignment.mascotIndex],
@@ -296,7 +325,10 @@ export function getWorktreeMascotAssignment(instanceKey: string): { mascot: Masc
   };
 }
 
-export function getDefaultMascotAssignment(): { mascot: MascotDefinition; color: MascotColorDefinition } {
+export function getDefaultMascotAssignment(): {
+  mascot: MascotDefinition;
+  color: MascotColorDefinition;
+} {
   return {
     mascot: findDefaultMascot(),
     color: WORKTREE_MASCOT_COLOR_PALETTE[0],

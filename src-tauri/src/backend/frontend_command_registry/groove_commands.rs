@@ -1898,19 +1898,16 @@ fn groove_stop(app: AppHandle, payload: GrooveStopPayload) -> GrooveStopResponse
         }
     };
 
-    let dir = match validate_optional_relative_path(&payload.dir, "dir") {
-        Ok(value) => value,
-        Err(error) => {
-            return GrooveStopResponse {
-                request_id,
-                ok: false,
-                already_stopped: None,
-                pid: None,
-                source: None,
-                error: Some(error),
-            }
-        }
-    };
+    if let Err(error) = validate_optional_relative_path(&payload.dir, "dir") {
+        return GrooveStopResponse {
+            request_id,
+            ok: false,
+            already_stopped: None,
+            pid: None,
+            source: None,
+            error: Some(error),
+        };
+    }
 
     let workspace_root = match resolve_workspace_root(
         &app,
@@ -1954,40 +1951,6 @@ fn groove_stop(app: AppHandle, payload: GrooveStopPayload) -> GrooveStopResponse
                     pid: None,
                     source: None,
                     error: Some(error),
-                }
-            }
-        }
-    }
-
-    if pid.is_none() {
-        let mut args = vec!["list".to_string()];
-        if let Some(dir) = dir.clone() {
-            args.push("--dir".to_string());
-            args.push(dir);
-        }
-
-        let result = run_command(&groove_binary_path(&app), &args, &workspace_root);
-        if result.exit_code != Some(0) || result.error.is_some() {
-            return GrooveStopResponse {
-                request_id,
-                ok: false,
-                already_stopped: None,
-                pid: None,
-                source: None,
-                error: result.error.or_else(|| {
-                    Some("Unable to resolve opencode PID from groove list.".to_string())
-                }),
-            };
-        }
-
-        let rows = parse_groove_list_output(&result.stdout, &known_worktrees);
-        if let Some(row) = rows.get(worktree) {
-            if row.opencode_state == "running" {
-                if let Some(instance_id) = row.opencode_instance_id.as_deref() {
-                    if let Ok(parsed) = parse_pid(instance_id) {
-                        pid = Some(parsed);
-                        source = Some("runtime".to_string());
-                    }
                 }
             }
         }

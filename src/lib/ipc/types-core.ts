@@ -1,12 +1,22 @@
 import type { ThemeMode } from "@/src/lib/theme-constants";
 
-export type DefaultTerminal = "auto" | "ghostty" | "warp" | "kitty" | "gnome" | "xterm" | "none" | "custom";
+export type DefaultTerminal =
+  | "auto"
+  | "ghostty"
+  | "warp"
+  | "kitty"
+  | "gnome"
+  | "xterm"
+  | "none"
+  | "custom";
 
 export type CommandIntent = "blocking" | "background";
 
-export const DEFAULT_PLAY_GROOVE_COMMAND = "x-terminal-emulator -e bash -lc \"cd \\\"{worktree}\\\" && opencode\"";
+export const DEFAULT_PLAY_GROOVE_COMMAND =
+  'x-terminal-emulator -e bash -lc "cd \\"{worktree}\\" && opencode"';
 export const GROOVE_PLAY_COMMAND_SENTINEL = "__groove_terminal__";
-export const GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL = "__groove_terminal_claude__";
+export const GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL =
+  "__groove_terminal_claude__";
 export const GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL = "__groove_terminal_open__";
 export const DEFAULT_OPENCODE_SETTINGS_DIRECTORY = "~/.config/opencode";
 export const DEFAULT_RUN_LOCAL_COMMAND = "pnpm run dev";
@@ -66,7 +76,7 @@ export type WorkspaceRow = {
   worktreeId?: string | null;
   branchGuess: string;
   path: string;
-  status: "paused" | "closing" | "ready" | "corrupted" | "deleted";
+  status: "paused" | "ready" | "corrupted" | "deleted";
   lastExecutedAt?: string;
 };
 
@@ -107,6 +117,44 @@ export type WorkspaceGitignoreSanityResponse = {
   error?: string;
 };
 
+export type SoundLibraryEntry = {
+  id: string;
+  name: string;
+  fileName: string;
+};
+
+export type ClaudeCodeHookSoundEntry = {
+  enabled: boolean;
+  soundId: string | null;
+};
+
+export type ClaudeCodeSoundSettings = {
+  notification: ClaudeCodeHookSoundEntry;
+  stop: ClaudeCodeHookSoundEntry;
+};
+
+export type GrooveSoundHookType =
+  | "play"
+  | "pause"
+  | "summaryStart"
+  | "summaryEnd"
+  | "emergency"
+  | "remove";
+
+export type GrooveSoundHookEntry = {
+  enabled: boolean;
+  soundId: string | null;
+};
+
+export type GrooveSoundSettings = {
+  play: GrooveSoundHookEntry;
+  pause: GrooveSoundHookEntry;
+  summaryStart: GrooveSoundHookEntry;
+  summaryEnd: GrooveSoundHookEntry;
+  emergency: GrooveSoundHookEntry;
+  remove: GrooveSoundHookEntry;
+};
+
 export type GlobalSettings = {
   telemetryEnabled: boolean;
   disableGrooveLoadingSection: boolean;
@@ -117,6 +165,9 @@ export type GlobalSettings = {
   keyboardShortcutLeader: string;
   keyboardLeaderBindings: Record<string, string>;
   opencodeSettings: OpencodeSettings;
+  soundLibrary: SoundLibraryEntry[];
+  claudeCodeSoundSettings: ClaudeCodeSoundSettings;
+  grooveSoundSettings: GrooveSoundSettings;
 };
 
 export type GlobalSettingsUpdatePayload = {
@@ -129,6 +180,9 @@ export type GlobalSettingsUpdatePayload = {
   keyboardShortcutLeader?: string;
   keyboardLeaderBindings?: Record<string, string>;
   opencodeSettings?: OpencodeUpdateGlobalSettingsPayload;
+  soundLibrary?: SoundLibraryEntry[];
+  claudeCodeSoundSettings?: ClaudeCodeSoundSettings;
+  grooveSoundSettings?: GrooveSoundSettings;
 };
 
 export type GlobalSettingsResponse = {
@@ -154,7 +208,8 @@ export type WorkspaceTerminalSettingsResponse = {
   error?: string;
 };
 
-export type WorkspaceCommandSettingsResponse = WorkspaceTerminalSettingsResponse;
+export type WorkspaceCommandSettingsResponse =
+  WorkspaceTerminalSettingsResponse;
 
 export type WorkspaceCommandSettingsPayload = {
   playGrooveCommand: string;

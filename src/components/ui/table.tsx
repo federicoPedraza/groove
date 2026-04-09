@@ -4,7 +4,10 @@ import { cn } from "@/src/lib/utils";
 
 function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>) {
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
+    <div
+      data-slot="table-container"
+      className="relative w-full overflow-x-auto"
+    >
       <table
         data-slot="table"
         className={cn("w-full caption-bottom text-sm", className)}
@@ -14,11 +17,23 @@ function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>) {
   );
 }
 
-function TableHeader({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
-  return <thead data-slot="table-header" className={cn("[&_tr]:border-b", className)} {...props} />;
+function TableHeader({
+  className,
+  ...props
+}: HTMLAttributes<HTMLTableSectionElement>) {
+  return (
+    <thead
+      data-slot="table-header"
+      className={cn("[&_tr]:border-b", className)}
+      {...props}
+    />
+  );
 }
 
-function TableBody({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
+function TableBody({
+  className,
+  ...props
+}: HTMLAttributes<HTMLTableSectionElement>) {
   return (
     <tbody
       data-slot="table-body"
@@ -28,7 +43,10 @@ function TableBody({ className, ...props }: HTMLAttributes<HTMLTableSectionEleme
   );
 }
 
-function TableRow({ className, ...props }: HTMLAttributes<HTMLTableRowElement>) {
+function TableRow({
+  className,
+  ...props
+}: HTMLAttributes<HTMLTableRowElement>) {
   return (
     <tr
       data-slot="table-row"
@@ -38,7 +56,10 @@ function TableRow({ className, ...props }: HTMLAttributes<HTMLTableRowElement>) 
   );
 }
 
-function TableHead({ className, ...props }: ThHTMLAttributes<HTMLTableCellElement>) {
+function TableHead({
+  className,
+  ...props
+}: ThHTMLAttributes<HTMLTableCellElement>) {
   return (
     <th
       data-slot="table-head"
@@ -51,11 +72,17 @@ function TableHead({ className, ...props }: ThHTMLAttributes<HTMLTableCellElemen
   );
 }
 
-function TableCell({ className, ...props }: TdHTMLAttributes<HTMLTableCellElement>) {
+function TableCell({
+  className,
+  ...props
+}: TdHTMLAttributes<HTMLTableCellElement>) {
   return (
     <td
       data-slot="table-cell"
-      className={cn("p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]", className)}
+      className={cn(
+        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        className,
+      )}
       {...props}
     />
   );

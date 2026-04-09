@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ActionLauncher, type ActionLauncherItem } from "@/src/components/shortcuts/action-launcher";
+import {
+  ActionLauncher,
+  type ActionLauncherItem,
+} from "@/src/components/shortcuts/action-launcher";
 
 describe("ActionLauncher keyboard interaction", () => {
   it("runs the first visible action by default and wraps with arrow navigation", () => {
@@ -16,7 +19,14 @@ describe("ActionLauncher keyboard interaction", () => {
     ];
     const onOpenChange = vi.fn();
 
-    render(<ActionLauncher open={true} onOpenChange={onOpenChange} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={onOpenChange}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     const input = screen.getByPlaceholderText("Search actions...");
     const firstAction = screen.getByRole("button", { name: "First" });
@@ -49,7 +59,14 @@ describe("ActionLauncher keyboard interaction", () => {
     ];
     const onOpenChange = vi.fn();
 
-    render(<ActionLauncher open={true} onOpenChange={onOpenChange} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={onOpenChange}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     const input = screen.getByPlaceholderText("Search actions...");
     fireEvent.change(input, { target: { value: "beta" } });
@@ -69,15 +86,34 @@ describe("ActionLauncher keyboard interaction", () => {
         type: "dropdown",
         label: "Group",
         items: [
-          { id: "nested-first", type: "button", label: "Nested first", closeOnRun: false, run: runNestedFirst },
-          { id: "nested-second", type: "button", label: "Nested second", closeOnRun: false, run: runNestedSecond },
+          {
+            id: "nested-first",
+            type: "button",
+            label: "Nested first",
+            closeOnRun: false,
+            run: runNestedFirst,
+          },
+          {
+            id: "nested-second",
+            type: "button",
+            label: "Nested second",
+            closeOnRun: false,
+            run: runNestedSecond,
+          },
         ],
       },
       { id: "other", type: "button", label: "Other", run: vi.fn() },
     ];
     const onOpenChange = vi.fn();
 
-    render(<ActionLauncher open={true} onOpenChange={onOpenChange} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={onOpenChange}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     const input = screen.getByPlaceholderText("Search actions...");
     fireEvent.keyDown(input, { key: "Enter" });
@@ -109,7 +145,14 @@ describe("ActionLauncher keyboard interaction", () => {
     ];
     const onOpenChange = vi.fn();
 
-    render(<ActionLauncher open={true} onOpenChange={onOpenChange} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={onOpenChange}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     const input = screen.getByPlaceholderText("Search actions...");
     // Enter the checkbox-multiple-input level
@@ -132,12 +175,25 @@ describe("ActionLauncher keyboard interaction", () => {
         type: "dropdown",
         label: "Group",
         items: [
-          { id: "nested", type: "button", label: "Nested", closeOnRun: false, run: vi.fn() },
+          {
+            id: "nested",
+            type: "button",
+            label: "Nested",
+            closeOnRun: false,
+            run: vi.fn(),
+          },
         ],
       },
     ];
 
-    render(<ActionLauncher open={true} onOpenChange={vi.fn()} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={vi.fn()}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     const input = screen.getByPlaceholderText("Search actions...");
     fireEvent.keyDown(input, { key: "Enter" });
@@ -159,7 +215,14 @@ describe("ActionLauncher keyboard interaction", () => {
       { id: "one", type: "button", label: "One", run: vi.fn() },
     ];
 
-    render(<ActionLauncher open={true} onOpenChange={vi.fn()} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={vi.fn()}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     const input = screen.getByPlaceholderText("Search actions...");
     fireEvent.change(input, { target: { value: "zzz-nonexistent" } });
@@ -173,7 +236,14 @@ describe("ActionLauncher keyboard interaction", () => {
       { id: "one", type: "button", label: "One", run },
     ];
 
-    render(<ActionLauncher open={true} onOpenChange={vi.fn()} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={vi.fn()}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     const input = screen.getByPlaceholderText("Search actions...");
     fireEvent.change(input, { target: { value: "nonexistent" } });
@@ -183,30 +253,69 @@ describe("ActionLauncher keyboard interaction", () => {
 
   it("displays shortcutKeyHint for button items", () => {
     const items: ActionLauncherItem[] = [
-      { id: "action-with-hint", type: "button", label: "Hinted Action", shortcutKeyHint: "k", run: vi.fn() },
+      {
+        id: "action-with-hint",
+        type: "button",
+        label: "Hinted Action",
+        shortcutKeyHint: "k",
+        run: vi.fn(),
+      },
     ];
 
-    render(<ActionLauncher open={true} onOpenChange={vi.fn()} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={vi.fn()}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     expect(screen.getByText("K")).toBeTruthy();
   });
 
   it("displays 'Selected' badge for shortcutKeyHint=Selected", () => {
     const items: ActionLauncherItem[] = [
-      { id: "selected-hint", type: "button", label: "Selected Hint", shortcutKeyHint: "Selected", run: vi.fn() },
+      {
+        id: "selected-hint",
+        type: "button",
+        label: "Selected Hint",
+        shortcutKeyHint: "Selected",
+        run: vi.fn(),
+      },
     ];
 
-    render(<ActionLauncher open={true} onOpenChange={vi.fn()} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={vi.fn()}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     expect(screen.getByText("Selected")).toBeTruthy();
   });
 
   it("displays selected badge for isSelected items without shortcutKeyHint", () => {
     const items: ActionLauncherItem[] = [
-      { id: "sel-item", type: "button", label: "Sel Item", isSelected: true, run: vi.fn() },
+      {
+        id: "sel-item",
+        type: "button",
+        label: "Sel Item",
+        isSelected: true,
+        run: vi.fn(),
+      },
     ];
 
-    render(<ActionLauncher open={true} onOpenChange={vi.fn()} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={vi.fn()}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     // There should be a "Selected" text from the isSelected badge
     expect(screen.getByText("Selected")).toBeTruthy();
@@ -215,11 +324,25 @@ describe("ActionLauncher keyboard interaction", () => {
   it("toggles isSelected state when running closeOnRun=false item", () => {
     const run = vi.fn();
     const items: ActionLauncherItem[] = [
-      { id: "toggle:sub", type: "button", label: "Toggle Item", closeOnRun: false, isSelected: false, run },
+      {
+        id: "toggle:sub",
+        type: "button",
+        label: "Toggle Item",
+        closeOnRun: false,
+        isSelected: false,
+        run,
+      },
     ];
 
     const onOpenChange = vi.fn();
-    render(<ActionLauncher open={true} onOpenChange={onOpenChange} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={onOpenChange}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     fireEvent.click(screen.getByText("Toggle Item"));
     expect(run).toHaveBeenCalled();
@@ -233,7 +356,14 @@ describe("ActionLauncher keyboard interaction", () => {
       { id: "b", type: "button", label: "Item B", run: vi.fn() },
     ];
 
-    render(<ActionLauncher open={true} onOpenChange={vi.fn()} title="Actions" items={items} />);
+    render(
+      <ActionLauncher
+        open={true}
+        onOpenChange={vi.fn()}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     const itemB = screen.getByRole("button", { name: "Item B" });
     fireEvent.mouseEnter(itemB);
@@ -247,8 +377,22 @@ describe("ActionLauncher keyboard interaction", () => {
       { id: "y", type: "button", label: "Y", run: vi.fn() },
     ];
 
-    const { rerender } = render(<ActionLauncher open={false} onOpenChange={vi.fn()} title="Actions" items={items} />);
-    rerender(<ActionLauncher open={true} onOpenChange={vi.fn()} title="Actions" items={items} />);
+    const { rerender } = render(
+      <ActionLauncher
+        open={false}
+        onOpenChange={vi.fn()}
+        title="Actions"
+        items={items}
+      />,
+    );
+    rerender(
+      <ActionLauncher
+        open={true}
+        onOpenChange={vi.fn()}
+        title="Actions"
+        items={items}
+      />,
+    );
 
     const input = screen.getByPlaceholderText("Search actions...");
     // Items should be highlighted at index 0 after open

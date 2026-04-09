@@ -48,7 +48,9 @@ export function SearchDropdown({
       ? options.filter((option) => {
           return [option.label, option.value, option.valueLabel]
             .filter((candidate): candidate is string => Boolean(candidate))
-            .some((candidate) => candidate.toLowerCase().includes(normalizedQuery));
+            .some((candidate) =>
+              candidate.toLowerCase().includes(normalizedQuery),
+            );
         })
       : options;
 
@@ -75,9 +77,12 @@ export function SearchDropdown({
   }, [open]);
 
   const emptyStateLabel = options.length === 0 ? emptyLabel : noResultsLabel;
-  const selectedOption = value ? options.find((option) => option.value === value) ?? null : null;
+  const selectedOption = value
+    ? (options.find((option) => option.value === value) ?? null)
+    : null;
   const dropdownOptions =
-    selectedOption && !filteredOptions.some((option) => option.value === selectedOption.value)
+    selectedOption &&
+    !filteredOptions.some((option) => option.value === selectedOption.value)
       ? [selectedOption, ...filteredOptions]
       : filteredOptions;
 
@@ -103,7 +108,10 @@ export function SearchDropdown({
             {searchAriaLabel}
           </label>
           <div className="relative">
-            <Search aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
             <Input
               id={searchInputId}
               ref={searchInputRef}

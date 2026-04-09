@@ -83,7 +83,7 @@ function createDefaultDashboardState(overrides: Record<string, unknown> = {}) {
     isCloseWorkspaceConfirmOpen: false,
     cutConfirmRow: null,
     forceCutConfirmRow: null,
-    runtimeStateByWorktree: {},
+    activeTerminalWorktrees: new Set(),
     isCreateModalOpen: false,
     createBranch: "",
     createBase: "",
@@ -107,6 +107,8 @@ function createDefaultDashboardState(overrides: Record<string, unknown> = {}) {
     runCreateWorktreeAction: vi.fn(),
     copyBranchName: vi.fn(),
     closeCurrentWorkspace: vi.fn(),
+    mutedWorktrees: new Set<string>(),
+    toggleWorktreeMute: vi.fn(),
     ...overrides,
   } as unknown as ReturnType<typeof useDashboardState>;
 }
@@ -114,7 +116,10 @@ function createDefaultDashboardState(overrides: Record<string, unknown> = {}) {
 // Import at top level since mocks are hoisted
 import WorktreeDetailPage from "@/src/app/worktrees/worktree-detail-page";
 
-function renderWithRoute(worktreeParam: string, overrides: Record<string, unknown> = {}) {
+function renderWithRoute(
+  worktreeParam: string,
+  overrides: Record<string, unknown> = {},
+) {
   mockUseDashboardState.mockReturnValue(createDefaultDashboardState(overrides));
 
   return render(
@@ -142,7 +147,6 @@ describe("WorktreeDetailPage", () => {
       activeWorkspace: { workspaceRoot: "/test" },
     });
     expect(screen.getByText("Worktree: feature-1")).toBeInTheDocument();
-    expect(screen.getByText("Back to Worktrees")).toBeInTheDocument();
   });
 
   it("shows worktree not available card when row not found", () => {
@@ -150,7 +154,9 @@ describe("WorktreeDetailPage", () => {
       activeWorkspace: { workspaceRoot: "/test" },
       worktreeRows: [],
     });
-    expect(screen.getByText(/is not available in the active workspace/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/is not available in the active workspace/),
+    ).toBeInTheDocument();
   });
 
   it("shows tip about switching workspaces when recent directories exist", () => {
@@ -159,7 +165,9 @@ describe("WorktreeDetailPage", () => {
       worktreeRows: [],
       recentDirectories: ["/other/dir"],
     });
-    expect(screen.getByText(/Tip: switch to the correct workspace/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Tip: switch to the correct workspace/),
+    ).toBeInTheDocument();
   });
 
   it("shows worktree name from param in header", () => {
@@ -182,7 +190,7 @@ describe("WorktreeDetailPage", () => {
     renderWithRoute("feature-1", {
       activeWorkspace: { workspaceRoot: "/test" },
       worktreeRows: rows,
-      runtimeStateByWorktree: {},
+      activeTerminalWorktrees: new Set(),
     });
     expect(screen.getByText("feature/branch-1")).toBeInTheDocument();
     expect(screen.getByTestId("worktree-row-actions")).toBeInTheDocument();
@@ -200,9 +208,14 @@ describe("WorktreeDetailPage", () => {
     renderWithRoute("feature-1", {
       activeWorkspace: { workspaceRoot: "/test" },
       worktreeRows: rows,
-      runtimeStateByWorktree: {},
+      activeTerminalWorktrees: new Set(),
       workspaceRoot: "/test",
-      workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+      workspaceMeta: {
+        version: 1,
+        rootName: "test",
+        createdAt: "",
+        updatedAt: "",
+      },
     });
     expect(screen.getByTestId("groove-terminal")).toBeInTheDocument();
   });
@@ -213,7 +226,9 @@ describe("WorktreeDetailPage", () => {
       hasWorktreesDirectory: false,
       worktreeRows: [],
     });
-    expect(screen.getByText(/directory found under this workspace root yet/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/directory found under this workspace root yet/),
+    ).toBeInTheDocument();
   });
 
   it("shows status message when set", () => {
@@ -251,8 +266,13 @@ describe("WorktreeDetailPage", () => {
     renderWithRoute("feature-1", {
       activeWorkspace: { workspaceRoot: "/test" },
       worktreeRows: rows,
-      runtimeStateByWorktree: {},
-      workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+      activeTerminalWorktrees: new Set(),
+      workspaceMeta: {
+        version: 1,
+        rootName: "test",
+        createdAt: "",
+        updatedAt: "",
+      },
       workspaceRoot: "/test",
     });
 
@@ -273,7 +293,10 @@ describe("WorktreeDetailPage", () => {
 
   it("shows toast error when open terminal fails", async () => {
     const { toast } = await import("@/src/lib/toast");
-    grooveTerminalOpenMock.mockResolvedValue({ ok: false, error: "Terminal error" });
+    grooveTerminalOpenMock.mockResolvedValue({
+      ok: false,
+      error: "Terminal error",
+    });
 
     const rows = [
       {
@@ -286,8 +309,13 @@ describe("WorktreeDetailPage", () => {
     renderWithRoute("feature-1", {
       activeWorkspace: { workspaceRoot: "/test" },
       worktreeRows: rows,
-      runtimeStateByWorktree: {},
-      workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+      activeTerminalWorktrees: new Set(),
+      workspaceMeta: {
+        version: 1,
+        rootName: "test",
+        createdAt: "",
+        updatedAt: "",
+      },
       workspaceRoot: "/test",
     });
 
@@ -296,7 +324,10 @@ describe("WorktreeDetailPage", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Terminal error"));
+      expect(toast.error).toHaveBeenCalledWith(
+        expect.stringContaining("Terminal error"),
+        { command: "groove_restore" },
+      );
     });
   });
 
@@ -315,8 +346,13 @@ describe("WorktreeDetailPage", () => {
     renderWithRoute("feature-1", {
       activeWorkspace: { workspaceRoot: "/test" },
       worktreeRows: rows,
-      runtimeStateByWorktree: {},
-      workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+      activeTerminalWorktrees: new Set(),
+      workspaceMeta: {
+        version: 1,
+        rootName: "test",
+        createdAt: "",
+        updatedAt: "",
+      },
       workspaceRoot: "/test",
     });
 
@@ -325,7 +361,10 @@ describe("WorktreeDetailPage", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Failed to open in-app terminal.");
+      expect(toast.error).toHaveBeenCalledWith(
+        "Failed to open in-app terminal.",
+        { command: "groove_restore" },
+      );
     });
   });
 
@@ -344,8 +383,13 @@ describe("WorktreeDetailPage", () => {
     renderWithRoute("feature-1", {
       activeWorkspace: { workspaceRoot: "/test" },
       worktreeRows: rows,
-      runtimeStateByWorktree: {},
-      workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+      activeTerminalWorktrees: new Set(),
+      workspaceMeta: {
+        version: 1,
+        rootName: "test",
+        createdAt: "",
+        updatedAt: "",
+      },
       workspaceRoot: "/test",
     });
 
@@ -354,7 +398,10 @@ describe("WorktreeDetailPage", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("In-app terminal open request failed.");
+      expect(toast.error).toHaveBeenCalledWith(
+        "In-app terminal open request failed.",
+        { command: "groove_restore" },
+      );
     });
   });
 
@@ -372,7 +419,7 @@ describe("WorktreeDetailPage", () => {
     renderWithRoute("feature-1", {
       activeWorkspace: { workspaceRoot: "/test" },
       worktreeRows: rows,
-      runtimeStateByWorktree: {},
+      activeTerminalWorktrees: new Set(),
       workspaceMeta: null,
       workspaceRoot: "/test",
     });
@@ -382,7 +429,9 @@ describe("WorktreeDetailPage", () => {
     });
 
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("Select a workspace before opening a terminal.");
+      expect(toast.error).toHaveBeenCalledWith(
+        "Select a workspace before opening a terminal.",
+      );
     });
   });
 
@@ -398,7 +447,7 @@ describe("WorktreeDetailPage", () => {
     renderWithRoute(encodeURIComponent("feature/one"), {
       activeWorkspace: { workspaceRoot: "/test" },
       worktreeRows: rows,
-      runtimeStateByWorktree: {},
+      activeTerminalWorktrees: new Set(),
     });
     expect(screen.getByText("Worktree: feature/one")).toBeInTheDocument();
   });
@@ -416,7 +465,7 @@ describe("WorktreeDetailPage", () => {
     renderWithRoute("feature-1", {
       activeWorkspace: { workspaceRoot: "/test" },
       worktreeRows: rows,
-      runtimeStateByWorktree: {},
+      activeTerminalWorktrees: new Set(),
       copyBranchName,
     });
 
@@ -443,8 +492,13 @@ describe("WorktreeDetailPage", () => {
     renderWithRoute("feature-1", {
       activeWorkspace: { workspaceRoot: "/test" },
       worktreeRows: rows,
-      runtimeStateByWorktree: {},
-      workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+      activeTerminalWorktrees: new Set(),
+      workspaceMeta: {
+        version: 1,
+        rootName: "test",
+        createdAt: "",
+        updatedAt: "",
+      },
       workspaceRoot: "/test",
     });
     // Terminal should be rendered (with workspaceMeta and workspaceRoot)

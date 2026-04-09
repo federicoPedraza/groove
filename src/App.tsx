@@ -1,17 +1,27 @@
-import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import Home from "@/src/app/page";
 import { AppLayout } from "@/src/components/pages/app-layout";
 import { CommandHistoryPanel } from "@/src/components/command-history-panel";
 import { KeyboardShortcutsProvider } from "@/src/components/shortcuts/keyboard-shortcuts-provider";
-import { Toaster } from "@/src/components/ui/sonner";
-import { isPeriodicRerenderEnabled, subscribeToGlobalSettings } from "@/src/lib/ipc";
+import {
+  isPeriodicRerenderEnabled,
+  subscribeToGlobalSettings,
+} from "@/src/lib/ipc";
 
 const DiagnosticsPage = lazy(async () => import("@/src/app/diagnostics/page"));
 const SettingsPage = lazy(async () => import("@/src/app/settings/page"));
 const WorktreesPage = lazy(async () => import("@/src/app/worktrees/page"));
-const WorktreeDetailPage = lazy(async () => import("@/src/app/worktrees/worktree-detail-page"));
+const WorktreeDetailPage = lazy(
+  async () => import("@/src/app/worktrees/worktree-detail-page"),
+);
 
 type RouteFallbackProps = {
   pageName: string;
@@ -20,7 +30,9 @@ type RouteFallbackProps = {
 function RouteFallback({ pageName }: RouteFallbackProps) {
   return (
     <section aria-live="polite" className="mx-auto w-full max-w-7xl p-4 md:p-6">
-      <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">Loading {pageName}...</p>
+      <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+        Loading {pageName}...
+      </p>
     </section>
   );
 }
@@ -73,7 +85,9 @@ export function App() {
           <Route
             path="worktrees/:worktree"
             element={
-              <Suspense fallback={<RouteFallback pageName="worktree details" />}>
+              <Suspense
+                fallback={<RouteFallback pageName="worktree details" />}
+              >
                 <WorktreeDetailPage />
               </Suspense>
             }
@@ -98,7 +112,6 @@ export function App() {
         </Route>
       </Routes>
       <CommandHistoryPanel />
-      <Toaster />
     </KeyboardShortcutsProvider>
   );
 }

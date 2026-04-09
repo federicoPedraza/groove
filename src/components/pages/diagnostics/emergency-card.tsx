@@ -3,7 +3,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { SOFT_RED_BUTTON_CLASSES } from "@/src/components/pages/diagnostics/constants";
 import { Button } from "@/src/components/ui/button";
-import { Card, CardContent, CardDescription, CardTitle } from "@/src/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardTitle,
+} from "@/src/components/ui/card";
 import { cn } from "@/src/lib/utils";
 
 const KILL_ANIMATION_FRAME_COUNT = 8;
@@ -13,13 +18,13 @@ const KILL_ANIMATION_FRAME_WIDTH_PX = 100;
 const KILL_ANIMATION_FRAME_HEIGHT_PX = 100;
 
 type EmergencyCardProps = {
-  isKillingAllNodeAndOpencodeInstances: boolean;
-  onKillAllNodeAndOpencodeInstances: () => void;
+  isKillingAllNodeInstances: boolean;
+  onKillAllNodeInstances: () => void;
 };
 
 export function EmergencyCard({
-  isKillingAllNodeAndOpencodeInstances,
-  onKillAllNodeAndOpencodeInstances,
+  isKillingAllNodeInstances,
+  onKillAllNodeInstances,
 }: EmergencyCardProps) {
   const [frameIndex, setFrameIndex] = useState(0);
   const [isKillButtonHovered, setIsKillButtonHovered] = useState(false);
@@ -28,7 +33,10 @@ export function EmergencyCard({
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
-      setFrameIndex((previousFrameIndex) => (previousFrameIndex + 1) % KILL_ANIMATION_FRAME_COUNT);
+      setFrameIndex(
+        (previousFrameIndex) =>
+          (previousFrameIndex + 1) % KILL_ANIMATION_FRAME_COUNT,
+      );
     }, KILL_ANIMATION_FRAME_DURATION_MS);
 
     return () => {
@@ -43,10 +51,19 @@ export function EmergencyCard({
     }
 
     const updateSpriteScale = (widthPx: number, heightPx: number) => {
-      const widthBasedScale = Math.floor(widthPx / KILL_ANIMATION_FRAME_WIDTH_PX);
-      const heightBasedScale = Math.floor(heightPx / KILL_ANIMATION_FRAME_HEIGHT_PX);
-      const nextScale = Math.max(1, Math.min(widthBasedScale, heightBasedScale));
-      setSpriteScale((previousScale) => (previousScale === nextScale ? previousScale : nextScale));
+      const widthBasedScale = Math.floor(
+        widthPx / KILL_ANIMATION_FRAME_WIDTH_PX,
+      );
+      const heightBasedScale = Math.floor(
+        heightPx / KILL_ANIMATION_FRAME_HEIGHT_PX,
+      );
+      const nextScale = Math.max(
+        1,
+        Math.min(widthBasedScale, heightBasedScale),
+      );
+      setSpriteScale((previousScale) =>
+        previousScale === nextScale ? previousScale : nextScale,
+      );
     };
 
     const resizeObserver = new ResizeObserver((entries) => {
@@ -59,7 +76,10 @@ export function EmergencyCard({
     });
 
     resizeObserver.observe(animationPaneElement);
-    updateSpriteScale(animationPaneElement.clientWidth, animationPaneElement.clientHeight);
+    updateSpriteScale(
+      animationPaneElement.clientWidth,
+      animationPaneElement.clientHeight,
+    );
 
     return () => {
       resizeObserver.disconnect();
@@ -76,31 +96,38 @@ export function EmergencyCard({
           <div className="space-y-1.5">
             <CardTitle>Emergency</CardTitle>
             <CardDescription>
-              Kill all Node and OpenCode processes with no exceptions. Use only when you need to force-reset all local dev sessions.
+              Kill all Node processes with no exceptions. Use only when you need
+              to force-reset all local dev sessions.
             </CardDescription>
           </div>
           <Button
             type="button"
             variant="outline"
             className={SOFT_RED_BUTTON_CLASSES}
-            onClick={onKillAllNodeAndOpencodeInstances}
+            onClick={onKillAllNodeInstances}
             onMouseEnter={() => {
               setIsKillButtonHovered(true);
             }}
             onMouseLeave={() => {
               setIsKillButtonHovered(false);
             }}
-            disabled={isKillingAllNodeAndOpencodeInstances}
+            disabled={isKillingAllNodeInstances}
           >
-            {isKillingAllNodeAndOpencodeInstances ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <OctagonX aria-hidden="true" className="size-4" />}
-            <span>Kill all Node + OpenCode</span>
+            {isKillingAllNodeInstances ? (
+              <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+            ) : (
+              <OctagonX aria-hidden="true" className="size-4" />
+            )}
+            <span>Kill all Node</span>
           </Button>
         </div>
         <div
           ref={animationPaneRef}
           className={cn(
             "pointer-events-none relative h-full min-h-40 w-full overflow-hidden rounded-sm border bg-background transition-colors",
-            isKillButtonHovered ? "text-red-600 dark:text-red-400" : "text-foreground dark:text-white",
+            isKillButtonHovered
+              ? "text-red-600 dark:text-red-400"
+              : "text-foreground dark:text-white",
           )}
           aria-hidden="true"
         >

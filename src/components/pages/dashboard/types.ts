@@ -5,7 +5,15 @@ export type WorkspaceMeta = {
   rootName: string;
   createdAt: string;
   updatedAt: string;
-  defaultTerminal?: "auto" | "ghostty" | "warp" | "kitty" | "gnome" | "xterm" | "none" | "custom";
+  defaultTerminal?:
+    | "auto"
+    | "ghostty"
+    | "warp"
+    | "kitty"
+    | "gnome"
+    | "xterm"
+    | "none"
+    | "custom";
   terminalCustomCommand?: string | null;
   playGrooveCommand?: string;
   openTerminalAtWorktreeCommand?: string | null;
@@ -14,32 +22,6 @@ export type WorkspaceMeta = {
 
 export type WorktreeRow = WorkspaceRow;
 export type WorktreeStatus = WorkspaceRow["status"];
-export type OpencodeState = "running" | "not-running" | "unknown";
-
-export type RuntimeStateRow = {
-  branch: string;
-  worktree: string;
-  opencodeState: OpencodeState;
-  opencodeInstanceId?: string;
-  logState: "latest" | "broken-latest" | "none" | "unknown";
-  logTarget?: string;
-  opencodeActivityState?: "thinking" | "idle" | "finished" | "error" | "unknown";
-  opencodeActivityDetail?: {
-    reason?: string;
-    ageS?: number;
-    marker?: string;
-    log?: string;
-  };
-};
-
-export type RuntimeListApiResponse = {
-  requestId?: string;
-  ok: boolean;
-  rows: Record<string, RuntimeStateRow>;
-  stdout: string;
-  stderr: string;
-  error?: string;
-};
 
 export type RestoreApiResponse = {
   requestId?: string;

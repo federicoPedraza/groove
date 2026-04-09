@@ -10,10 +10,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/src/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/src/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/src/components/ui/table";
 import { Input } from "@/src/components/ui/input";
 import { cn } from "@/src/lib/utils";
-import { workspaceListSymlinkEntries, type WorkspaceBrowseEntry } from "@/src/lib/ipc";
+import {
+  workspaceListSymlinkEntries,
+  type WorkspaceBrowseEntry,
+} from "@/src/lib/ipc";
 
 type WorktreeSymlinkPathsModalProps = {
   open: boolean;
@@ -104,7 +114,9 @@ export function WorktreeSymlinkPathsModal({
 
         if (!response.ok) {
           setEntries([]);
-          setLoadingError(response.error ?? "Failed to browse workspace entries.");
+          setLoadingError(
+            response.error ?? "Failed to browse workspace entries.",
+          );
           return;
         }
 
@@ -133,23 +145,30 @@ export function WorktreeSymlinkPathsModal({
       return entries;
     }
 
-    return entries.filter((entry) => entry.name.toLocaleLowerCase().includes(debouncedSearchValue));
+    return entries.filter((entry) =>
+      entry.name.toLocaleLowerCase().includes(debouncedSearchValue),
+    );
   }, [debouncedSearchValue, entries]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-6xl p-0">
         <DialogHeader className="border-b px-4 py-3">
-          <DialogTitle className="text-base">Edit worktree symlink paths</DialogTitle>
+          <DialogTitle className="text-base">
+            Edit worktree symlink paths
+          </DialogTitle>
           <DialogDescription>
-            Browse repository entries and choose files or folders to symlink into worktrees.
+            Browse repository entries and choose files or folders to symlink
+            into worktrees.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid min-h-[500px] grid-cols-1 gap-3 px-4 py-3 md:grid-cols-2">
           <div className="space-y-2 rounded-md border border-dashed p-2">
             <div className="flex items-center justify-between gap-2 px-1">
-              <p className="text-xs text-muted-foreground">Browsing: {browsePath || "."}</p>
+              <p className="text-xs text-muted-foreground">
+                Browsing: {browsePath || "."}
+              </p>
               <Button
                 type="button"
                 variant="ghost"
@@ -179,7 +198,9 @@ export function WorktreeSymlinkPathsModal({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
-                    <TableHead className="w-[120px] text-right">Action</TableHead>
+                    <TableHead className="w-[120px] text-right">
+                      Action
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -200,65 +221,90 @@ export function WorktreeSymlinkPathsModal({
                       </TableCell>
                     </TableRow>
                   )}
-                  {!isLoadingEntries && !loadingError && filteredEntries.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={2} className="text-muted-foreground">
-                        {debouncedSearchValue ? "No matching entries." : "This directory is empty."}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {!isLoadingEntries && !loadingError && filteredEntries.map((entry) => {
-                    const isSelected = selectedSet.has(entry.path);
-                    const isRestricted = isRestrictedWorktreeSymlinkPath(entry.path);
-
-                    return (
-                      <TableRow
-                        key={entry.path}
-                        className={cn(
-                          isSelected ? "bg-blue-500/10 hover:bg-blue-500/20" : "hover:bg-muted/50",
-                        )}
-                      >
-                        <TableCell>
-                          <button
-                            type="button"
-                            className={cn(
-                              "inline-flex items-center gap-2 text-left text-sm text-foreground",
-                              entry.isDir ? "hover:text-primary" : "cursor-default",
-                            )}
-                            onClick={() => {
-                              if (entry.isDir) {
-                                setBrowsePath(entry.path);
-                              }
-                            }}
-                          >
-                            {entry.isDir && <ChevronRight className="size-4 opacity-65" />}
-                            <span>{entry.name}</span>
-                          </button>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={isSelected ? "secondary" : "outline"}
-                            disabled={isSelected || isRestricted}
-                            className="h-8 w-8 p-0"
-                            title={isRestricted ? "Restricted path cannot be symlinked." : undefined}
-                            onClick={() => {
-                              if (isRestricted) {
-                                setValidationError("Restricted paths like .worktrees cannot be symlinked.");
-                                return;
-                              }
-                              setValidationError(null);
-                              setDraftPaths((current) => sortSelectedPaths([...current, entry.path]));
-                            }}
-                          >
-                            <Plus className="size-4" />
-                            <span className="sr-only">Add {entry.path}</span>
-                          </Button>
+                  {!isLoadingEntries &&
+                    !loadingError &&
+                    filteredEntries.length === 0 && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={2}
+                          className="text-muted-foreground"
+                        >
+                          {debouncedSearchValue
+                            ? "No matching entries."
+                            : "This directory is empty."}
                         </TableCell>
                       </TableRow>
-                    );
-                  })}
+                    )}
+                  {!isLoadingEntries &&
+                    !loadingError &&
+                    filteredEntries.map((entry) => {
+                      const isSelected = selectedSet.has(entry.path);
+                      const isRestricted = isRestrictedWorktreeSymlinkPath(
+                        entry.path,
+                      );
+
+                      return (
+                        <TableRow
+                          key={entry.path}
+                          className={cn(
+                            isSelected
+                              ? "bg-blue-500/10 hover:bg-blue-500/20"
+                              : "hover:bg-muted/50",
+                          )}
+                        >
+                          <TableCell>
+                            <button
+                              type="button"
+                              className={cn(
+                                "inline-flex items-center gap-2 text-left text-sm text-foreground",
+                                entry.isDir
+                                  ? "hover:text-primary"
+                                  : "cursor-default",
+                              )}
+                              onClick={() => {
+                                if (entry.isDir) {
+                                  setBrowsePath(entry.path);
+                                }
+                              }}
+                            >
+                              {entry.isDir && (
+                                <ChevronRight className="size-4 opacity-65" />
+                              )}
+                              <span>{entry.name}</span>
+                            </button>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={isSelected ? "secondary" : "outline"}
+                              disabled={isSelected || isRestricted}
+                              className="h-8 w-8 p-0"
+                              title={
+                                isRestricted
+                                  ? "Restricted path cannot be symlinked."
+                                  : undefined
+                              }
+                              onClick={() => {
+                                if (isRestricted) {
+                                  setValidationError(
+                                    "Restricted paths like .worktrees cannot be symlinked.",
+                                  );
+                                  return;
+                                }
+                                setValidationError(null);
+                                setDraftPaths((current) =>
+                                  sortSelectedPaths([...current, entry.path]),
+                                );
+                              }}
+                            >
+                              <Plus className="size-4" />
+                              <span className="sr-only">Add {entry.path}</span>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                 </TableBody>
               </Table>
             </div>
@@ -267,9 +313,16 @@ export function WorktreeSymlinkPathsModal({
           <div className="space-y-2 rounded-md border border-dashed p-2">
             <p className="px-1 text-xs text-muted-foreground">Selected paths</p>
             <div className="max-h-[420px] space-y-1 overflow-auto">
-              {draftPaths.length === 0 && <p className="px-1 py-2 text-sm text-muted-foreground">No paths selected.</p>}
+              {draftPaths.length === 0 && (
+                <p className="px-1 py-2 text-sm text-muted-foreground">
+                  No paths selected.
+                </p>
+              )}
               {draftPaths.map((path) => (
-                <div key={path} className="flex items-center justify-between gap-2 rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1.5">
+                <div
+                  key={path}
+                  className="flex items-center justify-between gap-2 rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1.5"
+                >
                   <code className="truncate text-xs">{path}</code>
                   <Button
                     type="button"
@@ -277,7 +330,9 @@ export function WorktreeSymlinkPathsModal({
                     size="sm"
                     className="h-7 px-2"
                     onClick={() => {
-                      setDraftPaths((current) => current.filter((entry) => entry !== path));
+                      setDraftPaths((current) =>
+                        current.filter((entry) => entry !== path),
+                      );
                     }}
                   >
                     <X className="size-4" />
@@ -286,12 +341,18 @@ export function WorktreeSymlinkPathsModal({
                 </div>
               ))}
             </div>
-            {validationError && <p className="px-1 text-xs text-destructive">{validationError}</p>}
+            {validationError && (
+              <p className="px-1 text-xs text-destructive">{validationError}</p>
+            )}
           </div>
         </div>
 
         <DialogFooter className="border-t px-4 py-3">
-          <div className="mr-auto text-xs text-muted-foreground">{workspaceRoot ? `Workspace: ${workspaceRoot}` : "No active workspace"}</div>
+          <div className="mr-auto text-xs text-muted-foreground">
+            {workspaceRoot
+              ? `Workspace: ${workspaceRoot}`
+              : "No active workspace"}
+          </div>
           <Button
             type="button"
             variant="outline"
@@ -306,9 +367,13 @@ export function WorktreeSymlinkPathsModal({
             type="button"
             disabled={savePending}
             onClick={() => {
-              const hasRestrictedPath = draftPaths.some((path) => isRestrictedWorktreeSymlinkPath(path));
+              const hasRestrictedPath = draftPaths.some((path) =>
+                isRestrictedWorktreeSymlinkPath(path),
+              );
               if (hasRestrictedPath) {
-                setValidationError("Restricted paths like .worktrees cannot be saved.");
+                setValidationError(
+                  "Restricted paths like .worktrees cannot be saved.",
+                );
                 return;
               }
               setValidationError(null);

@@ -21,7 +21,10 @@ type DashboardModalsProps = {
   setCreateBase: (value: string) => void;
   onRunCutGrooveAction: (row: WorktreeRow, force?: boolean) => void;
   onCloseCurrentWorkspace: () => void;
-  onRunCreateWorktreeAction: (options?: { branchOverride?: string; baseOverride?: string }) => void;
+  onRunCreateWorktreeAction: (options?: {
+    branchOverride?: string;
+    baseOverride?: string;
+  }) => void;
 };
 
 export function DashboardModals({
@@ -56,7 +59,11 @@ export function DashboardModals({
             setCutConfirmRow(null);
           }
         }}
-        title={isForgetDeletedWorktree ? "Forget this deleted worktree forever?" : "Cut this groove?"}
+        title={
+          isForgetDeletedWorktree
+            ? "Forget this deleted worktree forever?"
+            : "Cut this groove?"
+        }
         description={
           cutConfirmRow
             ? isForgetDeletedWorktree

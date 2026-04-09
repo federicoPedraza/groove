@@ -748,3 +748,151 @@ fn groove_terminal_list_sessions(
         error: None,
     }
 }
+
+#[tauri::command]
+fn groove_terminal_check_activity(
+    app: AppHandle,
+    state: State<GrooveTerminalState>,
+    payload: GrooveTerminalSessionPayload,
+) -> GrooveTerminalActivityResponse {
+    let request_id = request_id();
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return GrooveTerminalActivityResponse {
+            request_id,
+            ok: false,
+            entries: Vec::new(),
+            error: Some("worktree is required and must be a non-empty string.".to_string()),
+        };
+    }
+
+    let (workspace_root, _) = match resolve_terminal_worktree_context(
+        &app,
+        &payload.root_name,
+        &payload.known_worktrees,
+        &payload.workspace_meta,
+        worktree,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalActivityResponse {
+                request_id,
+                ok: false,
+                entries: Vec::new(),
+                error: Some(error),
+            };
+        }
+    };
+
+    let worktree_key = groove_terminal_session_key(&workspace_root, worktree);
+
+    let session_pids: Vec<(String, Option<u32>)> = {
+        let sessions_state = match state.inner.lock() {
+            Ok(value) => value,
+            Err(error) => {
+                return GrooveTerminalActivityResponse {
+                    request_id,
+                    ok: false,
+                    entries: Vec::new(),
+                    error: Some(format!(
+                        "Failed to acquire Groove terminal state lock: {error}"
+                    )),
+                };
+            }
+        };
+
+        let session_ids = sessions_state
+            .session_ids_by_worktree
+            .get(&worktree_key)
+            .cloned()
+            .unwrap_or_default();
+
+        session_ids
+            .iter()
+            .filter_map(|session_id| {
+                sessions_state
+                    .sessions_by_id
+                    .get(session_id)
+                    .map(|session| (session_id.clone(), session.child.process_id()))
+            })
+            .collect()
+    };
+
+    let entries = session_pids
+        .into_iter()
+        .map(|(session_id, pid)| {
+            let has_activity = pid.map(has_child_processes).unwrap_or(false);
+            GrooveTerminalActivityEntry {
+                session_id,
+                has_activity,
+            }
+        })
+        .collect();
+
+    GrooveTerminalActivityResponse {
+        request_id,
+        ok: true,
+        entries,
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn groove_terminal_active_worktrees(
+    app: AppHandle,
+    state: State<GrooveTerminalState>,
+    payload: WorkspaceEventsPayload,
+) -> GrooveTerminalActiveWorktreesResponse {
+    let request_id = request_id();
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalActiveWorktreesResponse {
+                request_id,
+                ok: false,
+                worktrees: Vec::new(),
+                error: Some(error),
+            };
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return GrooveTerminalActiveWorktreesResponse {
+                request_id,
+                ok: false,
+                worktrees: Vec::new(),
+                error: Some(error),
+            };
+        }
+    };
+
+    let sessions_state = match state.inner.lock() {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveTerminalActiveWorktreesResponse {
+                request_id,
+                ok: false,
+                worktrees: Vec::new(),
+                error: Some(format!(
+                    "Failed to acquire Groove terminal state lock: {error}"
+                )),
+            };
+        }
+    };
+
+    GrooveTerminalActiveWorktreesResponse {
+        request_id,
+        ok: true,
+        worktrees: active_worktrees_for_workspace(&sessions_state, &workspace_root),
+        error: None,
+    }
+}

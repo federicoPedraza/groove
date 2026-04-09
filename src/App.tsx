@@ -7,7 +7,7 @@ import {
 } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
-import Home from "@/src/app/page";
+const Home = lazy(async () => import("@/src/app/page"));
 import { AppLayout } from "@/src/components/pages/app-layout";
 import { CommandHistoryPanel } from "@/src/components/command-history-panel";
 import { KeyboardShortcutsProvider } from "@/src/components/shortcuts/keyboard-shortcuts-provider";
@@ -73,7 +73,7 @@ export function App() {
     <KeyboardShortcutsProvider>
       <Routes>
         <Route path="/" element={<AppLayout />}>
-          <Route index element={<Home />} />
+          <Route index element={<Suspense fallback={<RouteFallback pageName="home" />}><Home /></Suspense>} />
           <Route
             path="worktrees"
             element={

@@ -271,10 +271,23 @@ fn spawn_terminal_process(
     command
         .args(args)
         .current_dir(cwd)
+        .env("PWD", cwd.display().to_string())
         .env("GROOVE_WORKTREE", worktree_path.display().to_string());
     if let Some(path) = augmented_child_path() {
         command.env("PATH", path);
     }
+
+    // Clean AppImage-injected environment variables so the child terminal uses
+    // system libraries and paths instead of the FUSE-mounted AppImage ones.
+    // Skip PATH — already handled by augmented_child_path() using PATH_ORIG.
+    for (key, value) in crate::backend::common::platform_env::appimage_cleaned_env() {
+        if key == "PATH" { continue; }
+        match value {
+            Some(restored) => { command.env(&key, restored); }
+            None => { command.env_remove(&key); }
+        }
+    }
+
     command.spawn().map(|_| ())
 }
 

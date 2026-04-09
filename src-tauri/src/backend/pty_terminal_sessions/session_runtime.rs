@@ -295,7 +295,11 @@ fn resolve_plain_terminal_command() -> (String, Vec<String>) {
 }
 
 fn augmented_child_path() -> Option<String> {
-    let mut paths = std::env::var_os("PATH")
+    // In an AppImage, PATH is contaminated with FUSE mount paths.
+    // Use the original PATH (saved as PATH_ORIG by AppImage) when available.
+    let base_path = std::env::var_os("PATH_ORIG")
+        .or_else(|| std::env::var_os("PATH"));
+    let mut paths = base_path
         .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
         .unwrap_or_default();
 
@@ -560,9 +564,21 @@ fn open_groove_terminal_session(
         spawn_command.arg(arg);
     }
     spawn_command.cwd(worktree_path);
+    spawn_command.env("PWD", worktree_path.display().to_string());
     spawn_command.env("GROOVE_WORKTREE", worktree_path.display().to_string());
     if let Some(path) = augmented_child_path() {
         spawn_command.env("PATH", path);
+    }
+
+    // Clean AppImage-injected environment variables so the child shell uses
+    // system libraries and paths instead of the FUSE-mounted AppImage ones.
+    // Skip PATH — already handled by augmented_child_path() using PATH_ORIG.
+    for (key, value) in crate::backend::common::platform_env::appimage_cleaned_env() {
+        if key == "PATH" { continue; }
+        match value {
+            Some(restored) => { spawn_command.env(&key, restored); }
+            None => { spawn_command.env_remove(&key); }
+        }
     }
 
     let child = pair.slave.spawn_command(spawn_command).map_err(|error| {

@@ -959,7 +959,11 @@ fn sound_library_read(app: AppHandle, payload: SoundLibraryReadPayload) -> Sound
             request_id,
             ok: false,
             data: None,
-            error: Some(format!("Sound file not found: {}", payload.file_name)),
+            error: Some(format!(
+                "Sound file not found: {} (resolved path: {})",
+                payload.file_name,
+                sound_file.display()
+            )),
         };
     }
 

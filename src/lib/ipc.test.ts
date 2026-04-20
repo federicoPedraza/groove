@@ -69,8 +69,11 @@ import {
   repairOpencodeIntegration,
   runOpencodeFlow,
   setOpencodeProfile,
+  soundLibraryGetPath,
   soundLibraryImport,
+  soundLibraryOpenDirectory,
   soundLibraryRemove,
+  soundLibraryRename,
   subscribeToBlockingInvokes,
   subscribeToGlobalSettings,
   subscribeToWorkspaceSettings,
@@ -1715,5 +1718,27 @@ describe("sound library IPC wrappers", () => {
     expect(mockInvoke).toHaveBeenCalledWith("sound_library_remove", {
       payload: { soundId: "test-id" },
     });
+  });
+
+  it("soundLibraryRename calls sound_library_rename with payload", async () => {
+    await soundLibraryRename("test-id", "New Name");
+    expect(mockInvoke).toHaveBeenCalledWith("sound_library_rename", {
+      payload: { soundId: "test-id", newName: "New Name" },
+    });
+  });
+
+  it("soundLibraryGetPath calls sound_library_get_path with payload", async () => {
+    await soundLibraryGetPath("test-id");
+    expect(mockInvoke).toHaveBeenCalledWith("sound_library_get_path", {
+      payload: { soundId: "test-id" },
+    });
+  });
+
+  it("soundLibraryOpenDirectory calls sound_library_open_directory", async () => {
+    await soundLibraryOpenDirectory();
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "sound_library_open_directory",
+      undefined,
+    );
   });
 });

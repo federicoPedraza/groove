@@ -165,6 +165,7 @@ export type DiagnosticsSystemOverview = {
   diskUsagePercent?: number;
   platform: string;
   hostname?: string;
+  warnings?: string[];
 };
 
 export type DiagnosticsSystemOverviewResponse = {

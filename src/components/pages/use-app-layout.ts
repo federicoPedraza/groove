@@ -2,7 +2,6 @@
 
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -35,16 +34,6 @@ export function useAppLayout(options: AppLayoutOptions): void {
   const { pageSidebar, noDirectoryOpenState } = options;
   const pageSidebarRef = useRef(pageSidebar);
   pageSidebarRef.current = pageSidebar;
-
-  const stablePageSidebar = useCallback(
-    ({ collapsed }: { collapsed: boolean }) => {
-      const currentPageSidebar = pageSidebarRef.current;
-      return typeof currentPageSidebar === "function"
-        ? currentPageSidebar({ collapsed })
-        : currentPageSidebar;
-    },
-    [],
-  );
 
   const {
     isVisible,
@@ -82,14 +71,19 @@ export function useAppLayout(options: AppLayoutOptions): void {
   ]);
 
   useEffect(() => {
-    const resolvedPageSidebar = pageSidebarRef.current
-      ? stablePageSidebar
+    const resolvedPageSidebar = pageSidebar
+      ? ({ collapsed }: { collapsed: boolean }) => {
+          const currentPageSidebar = pageSidebarRef.current;
+          return typeof currentPageSidebar === "function"
+            ? currentPageSidebar({ collapsed })
+            : currentPageSidebar;
+        }
       : undefined;
     context.setOptions({
       pageSidebar: resolvedPageSidebar,
       noDirectoryOpenState: stableNoDirectoryOpenState,
     });
-  }, [context, stablePageSidebar, stableNoDirectoryOpenState]);
+  }, [context, pageSidebar, stableNoDirectoryOpenState]);
 
   useEffect(() => {
     return () => {

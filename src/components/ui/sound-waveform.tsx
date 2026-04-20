@@ -3,12 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 
 import { soundLibraryRead } from "@/src/lib/ipc/commands-features";
+import { getSharedAudioContext } from "@/src/lib/utils/sound";
+
+export type SoundWaveformStatus = "idle" | "loading" | "ready" | "error";
 
 type SoundWaveformProps = {
   fileName: string | null;
   isPlaying?: boolean;
   barCount?: number;
   className?: string;
+  onStatusChange?: (status: SoundWaveformStatus) => void;
 };
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
@@ -30,9 +34,13 @@ async function fetchWaveformData(
   }
 
   const arrayBuffer = base64ToArrayBuffer(result.data);
-  const audioContext = new AudioContext();
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-  await audioContext.close();
+  const ctx = getSharedAudioContext();
+
+  const decodePromise = ctx.decodeAudioData(arrayBuffer);
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("Audio decode timed out")), 5000),
+  );
+  const audioBuffer = await Promise.race([decodePromise, timeoutPromise]);
 
   const channelData = audioBuffer.getChannelData(0);
   const samplesPerBar = Math.floor(channelData.length / barCount);
@@ -55,10 +63,12 @@ async function fetchWaveformData(
 function PlaceholderBars({
   barCount,
   isPlaying,
+  isError,
   className,
 }: {
   barCount: number;
   isPlaying: boolean;
+  isError: boolean;
   className?: string;
 }) {
   return (
@@ -70,12 +80,16 @@ function PlaceholderBars({
         <div
           key={i}
           className={`w-[2px] rounded-full transition-colors ${
-            isPlaying
-              ? "bg-green-600/40 dark:bg-green-400/40"
-              : "bg-muted-foreground/20"
+            isError
+              ? "bg-destructive/25"
+              : isPlaying
+                ? "bg-green-600/40 dark:bg-green-400/40"
+                : "bg-muted-foreground/20"
           }`}
           style={{
-            height: `${Math.max(2, Math.sin((i / barCount) * Math.PI) * 16)}px`,
+            height: isError
+              ? "2px"
+              : `${Math.max(2, Math.sin((i / barCount) * Math.PI) * 16)}px`,
           }}
         />
       ))}
@@ -88,10 +102,13 @@ export function SoundWaveform({
   isPlaying = false,
   barCount = 40,
   className,
+  onStatusChange,
 }: SoundWaveformProps) {
   const [bars, setBars] = useState<number[] | null>(null);
   const [error, setError] = useState(false);
   const fileNameRef = useRef(fileName);
+  const onStatusChangeRef = useRef(onStatusChange);
+  onStatusChangeRef.current = onStatusChange;
 
   useEffect(() => {
     fileNameRef.current = fileName;
@@ -99,18 +116,23 @@ export function SoundWaveform({
     setError(false);
 
     if (!fileName) {
+      onStatusChangeRef.current?.("idle");
       return;
     }
+
+    onStatusChangeRef.current?.("loading");
 
     void (async () => {
       try {
         const data = await fetchWaveformData(fileName, barCount);
         if (fileNameRef.current === fileName) {
           setBars(data);
+          onStatusChangeRef.current?.("ready");
         }
       } catch {
         if (fileNameRef.current === fileName) {
           setError(true);
+          onStatusChangeRef.current?.("error");
         }
       }
     })();
@@ -121,6 +143,7 @@ export function SoundWaveform({
       <PlaceholderBars
         barCount={barCount}
         isPlaying={isPlaying}
+        isError={error}
         className={className}
       />
     );

@@ -4,7 +4,7 @@ import {
   type ThemeMode,
 } from "@/src/lib/theme-constants";
 
-const DARK_THEME_MODES: ReadonlySet<ThemeMode> = new Set([
+export const DARK_THEME_MODES: ReadonlySet<ThemeMode> = new Set([
   "lava",
   "earth",
   "dark",
@@ -17,6 +17,7 @@ function isThemeMode(value: string): value is ThemeMode {
     value === "groove" ||
     value === "ice" ||
     value === "gum" ||
+    value === "cappuccino" ||
     value === "lava" ||
     value === "earth" ||
     value === "wind" ||

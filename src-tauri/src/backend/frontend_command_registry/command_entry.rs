@@ -21,6 +21,17 @@ pub(crate) fn run() {
 
             let _ = ensure_global_settings(&app.handle());
 
+            // Ensure TERM is set so PTY sessions render correctly.
+            // GUI-launched apps (AppImage, desktop entry) often lack TERM.
+            let term_ok = std::env::var("TERM")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty() && v != "dumb" && v != "unknown")
+                .is_some();
+            if !term_ok {
+                std::env::set_var("TERM", "xterm-256color");
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -37,8 +48,12 @@ pub(crate) fn run() {
             sound_library_read,
             sound_library_import,
             sound_library_remove,
+            sound_library_rename,
+            sound_library_get_path,
+            sound_library_open_directory,
             workspace_update_terminal_settings,
             workspace_update_commands_settings,
+            workspace_mark_onboarding_configured,
             workspace_update_worktree_symlink_paths,
             workspace_list_symlink_entries,
             workspace_open_terminal,

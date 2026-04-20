@@ -118,6 +118,10 @@ vi.mock("@/src/components/pages/use-app-layout", () => ({
   useAppLayout: vi.fn(),
 }));
 
+vi.mock("react-router-dom", () => ({
+  useNavigate: vi.fn(() => vi.fn()),
+}));
+
 vi.mock("@/src/lib/toast", () => ({
   toast: {
     success: vi.fn(),
@@ -239,7 +243,7 @@ describe("DiagnosticsPage", () => {
         screen.getByText(".gitignore includes Groove entries"),
       ).toBeInTheDocument();
     });
-    const healthyElements = screen.getAllByText("Healthy");
+    const healthyElements = screen.getAllByText("healthy");
     expect(healthyElements.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -321,7 +325,7 @@ describe("DiagnosticsPage", () => {
     await renderPage();
     await waitFor(() => {
       expect(
-        screen.getByText("TERM is usable (xterm-256color)."),
+        screen.getByText("TERM resolves to a valid terminfo entry."),
       ).toBeInTheDocument();
     });
   });
@@ -335,7 +339,7 @@ describe("DiagnosticsPage", () => {
     await renderPage();
     await waitFor(() => {
       expect(
-        screen.getByText("TERM is missing or unusable (dumb)."),
+        screen.getByText("TERM does not resolve to a valid terminfo entry."),
       ).toBeInTheDocument();
     });
   });
@@ -350,7 +354,7 @@ describe("DiagnosticsPage", () => {
     await renderPage();
     await waitFor(() => {
       expect(
-        screen.getByText("Unable to check TERM sanity."),
+        screen.getByText("Unable to verify the TERM variable."),
       ).toBeInTheDocument();
     });
   });
@@ -360,7 +364,7 @@ describe("DiagnosticsPage", () => {
     await renderPage();
     await waitFor(() => {
       expect(
-        screen.getByText("Unable to check TERM sanity."),
+        screen.getByText("Unable to verify the TERM variable."),
       ).toBeInTheDocument();
     });
   });
@@ -400,7 +404,7 @@ describe("DiagnosticsPage", () => {
     await renderPage();
     await waitFor(() => {
       expect(
-        screen.getAllByText(/TERM is missing or unusable/).length,
+        screen.getAllByText(/TERM does not resolve/).length,
       ).toBeGreaterThanOrEqual(1);
     });
 
@@ -999,7 +1003,9 @@ describe("DiagnosticsPage", () => {
     await renderPage();
     await waitFor(() => {
       expect(
-        screen.getByText("TERM is missing or unusable."),
+        screen.getByText(
+          "TERM is not set, terminal sessions may render incorrectly.",
+        ),
       ).toBeInTheDocument();
     });
   });

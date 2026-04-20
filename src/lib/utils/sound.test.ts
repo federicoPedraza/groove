@@ -157,43 +157,43 @@ describe("playCustomSound", () => {
     expect(mockGain.gain.value).toBe(0.5);
   });
 
-  it("falls back to synthesized sound when IPC read fails", async () => {
+  it("returns error result when IPC read fails", async () => {
     mockSoundLibraryRead.mockResolvedValue({ ok: false, error: "not found" });
 
-    const mockCtx = {
-      currentTime: 0,
-      destination: {},
-      createOscillator: vi.fn(() => createMockOscillator()),
-      createGain: vi.fn(() => createMockGain()),
-    };
     vi.stubGlobal(
       "AudioContext",
-      vi.fn(() => mockCtx),
+      vi.fn(() => ({
+        currentTime: 0,
+        destination: {},
+        createOscillator: vi.fn(() => createMockOscillator()),
+        createGain: vi.fn(() => createMockGain()),
+      })),
     );
 
     const { playCustomSound } = await import("@/src/lib/utils/sound");
-    await playCustomSound("missing.mp3");
+    const result = await playCustomSound("missing.mp3");
 
-    expect(mockCtx.createOscillator).toHaveBeenCalled();
+    expect(result.played).toBe(false);
+    expect(result.error).toBeTruthy();
   });
 
-  it("falls back to synthesized sound when IPC throws", async () => {
+  it("returns error result when IPC throws", async () => {
     mockSoundLibraryRead.mockRejectedValue(new Error("ipc error"));
 
-    const mockCtx = {
-      currentTime: 0,
-      destination: {},
-      createOscillator: vi.fn(() => createMockOscillator()),
-      createGain: vi.fn(() => createMockGain()),
-    };
     vi.stubGlobal(
       "AudioContext",
-      vi.fn(() => mockCtx),
+      vi.fn(() => ({
+        currentTime: 0,
+        destination: {},
+        createOscillator: vi.fn(() => createMockOscillator()),
+        createGain: vi.fn(() => createMockGain()),
+      })),
     );
 
     const { playCustomSound } = await import("@/src/lib/utils/sound");
-    await playCustomSound("s1.mp3");
+    const result = await playCustomSound("s1.mp3");
 
-    expect(mockCtx.createOscillator).toHaveBeenCalled();
+    expect(result.played).toBe(false);
+    expect(result.error).toBe("ipc error");
   });
 });

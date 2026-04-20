@@ -3,6 +3,7 @@ export type ThemeMode =
   | "groove"
   | "ice"
   | "gum"
+  | "cappuccino"
   | "lava"
   | "earth"
   | "wind"
@@ -38,6 +39,16 @@ export const THEME_MODE_OPTIONS: Array<{
     description: "Warm pink palette with bubblegum rose accents.",
   },
   {
+    value: "cappuccino",
+    label: "Cappuccino",
+    description: "Warm coffee palette with cinnamon and cream tones.",
+  },
+  {
+    value: "wind",
+    label: "Wind",
+    description: "Airy light palette with soft sky-blue neutrals.",
+  },
+  {
     value: "lava",
     label: "Lava",
     description: "Volcanic dark palette with ember-orange contrast.",
@@ -46,11 +57,6 @@ export const THEME_MODE_OPTIONS: Array<{
     value: "earth",
     label: "Earth",
     description: "Grounded dark palette with moss and clay tones.",
-  },
-  {
-    value: "wind",
-    label: "Wind",
-    description: "Airy light palette with soft sky-blue neutrals.",
   },
   {
     value: "dark-groove",

@@ -257,6 +257,19 @@ export function DiagnosticsSystemSidebar({
               </p>
             </div>
 
+            {overview?.warnings && overview.warnings.length > 0 && (
+              <div className="space-y-1 rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-2">
+                {overview.warnings.map((w, i) => (
+                  <p
+                    key={i}
+                    className="text-[11px] leading-snug text-amber-600 dark:text-amber-400"
+                  >
+                    {w}
+                  </p>
+                ))}
+              </div>
+            )}
+
             {errorMessage && (
               <p className="rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
                 {errorMessage}

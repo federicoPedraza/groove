@@ -9,6 +9,11 @@ function getAudioContext(): AudioContext {
   return audioContext;
 }
 
+/** Shared AudioContext for waveform analysis — avoids browser limit on concurrent contexts. */
+export function getSharedAudioContext(): AudioContext {
+  return getAudioContext();
+}
+
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
@@ -18,13 +23,24 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-/** Plays a custom sound file. Returns the duration in seconds, or 0 on fallback. */
-export async function playCustomSound(fileName: string): Promise<number> {
+export type PlaySoundResult = {
+  played: boolean;
+  duration: number;
+  error?: string;
+};
+
+/** Plays a custom sound file. Returns whether it actually played and the duration. */
+export async function playCustomSound(
+  fileName: string,
+): Promise<PlaySoundResult> {
   try {
     const result = await soundLibraryRead(fileName);
     if (!result.ok || !result.data) {
-      playNotificationSound();
-      return 0;
+      return {
+        played: false,
+        duration: 0,
+        error: result.error ?? "Sound file not found",
+      };
     }
 
     const arrayBuffer = base64ToArrayBuffer(result.data);
@@ -37,10 +53,13 @@ export async function playCustomSound(fileName: string): Promise<number> {
     source.connect(gain);
     gain.connect(ctx.destination);
     source.start(0);
-    return audioBuffer.duration;
-  } catch {
-    playNotificationSound();
-    return 0;
+    return { played: true, duration: audioBuffer.duration };
+  } catch (e) {
+    return {
+      played: false,
+      duration: 0,
+      error: e instanceof Error ? e.message : "Failed to play sound",
+    };
   }
 }
 

@@ -5,6 +5,7 @@ export type DefaultTerminal =
   | "ghostty"
   | "warp"
   | "kitty"
+  | "alacritty"
   | "gnome"
   | "xterm"
   | "none"
@@ -67,6 +68,8 @@ export type WorkspaceMeta = {
   playGrooveCommand?: string;
   worktreeSymlinkPaths?: string[];
   opencodeSettings?: OpencodeSettings;
+  onboardingSymlinksConfigured?: boolean;
+  onboardingCommandsConfigured?: boolean;
   worktreeRecords?: Record<string, WorktreeRecord>;
   summaries?: SummaryRecord[];
 };

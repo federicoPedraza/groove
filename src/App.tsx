@@ -73,7 +73,14 @@ export function App() {
     <KeyboardShortcutsProvider>
       <Routes>
         <Route path="/" element={<AppLayout />}>
-          <Route index element={<Suspense fallback={<RouteFallback pageName="home" />}><Home /></Suspense>} />
+          <Route
+            index
+            element={
+              <Suspense fallback={<RouteFallback pageName="home" />}>
+                <Home />
+              </Suspense>
+            }
+          />
           <Route
             path="worktrees"
             element={

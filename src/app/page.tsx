@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderClock, FolderOpen, Terminal, X } from "lucide-react";
+import { AlertTriangle, FolderClock, FolderOpen, Terminal, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -190,6 +190,11 @@ export default function Home() {
     (sectionKey: string, sessionIds: string[]) => {
       if (!workspaceRoot || summarizingSections.has(sectionKey)) return;
       setSummarizingSections((prev) => new Set(prev).add(sectionKey));
+      setSummarizingWorktreeIds((prev) => {
+        const next = new Set(prev);
+        for (const id of sessionIds) next.add(id);
+        return next;
+      });
       playGrooveHookSound("summaryStart");
 
       void grooveSummary({
@@ -219,6 +224,11 @@ export default function Home() {
           setSummarizingSections((prev) => {
             const next = new Set(prev);
             next.delete(sectionKey);
+            return next;
+          });
+          setSummarizingWorktreeIds((prev) => {
+            const next = new Set(prev);
+            for (const id of sessionIds) next.delete(id);
             return next;
           });
         });
@@ -259,16 +269,8 @@ export default function Home() {
     worktreeDetailActionables: worktreeDetailShortcutActionables,
   });
 
-  useAppLayout({
-    noDirectoryOpenState: {
-      isVisible: !activeWorkspace,
-      isBusy: isWorkspaceHydrating || isBusy,
-      statusMessage,
-      errorMessage,
-      onSelectDirectory: pickDirectory,
-      onOpenRecentDirectory: openRecentDirectory,
-    },
-    pageSidebar: ({ collapsed }: { collapsed: boolean }) => (
+  const dashboardPageSidebar = useCallback(
+    ({ collapsed }: { collapsed: boolean }) => (
       <Sidebar collapsed={collapsed}>
         <SidebarHeader>
           {collapsed ? (
@@ -292,7 +294,7 @@ export default function Home() {
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
                     onClick={() => {
                       void pickDirectory();
@@ -355,7 +357,7 @@ export default function Home() {
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="outline"
                     size="sm"
                     onClick={() => {
                       void runOpenWorkspaceTerminalAction();
@@ -374,6 +376,28 @@ export default function Home() {
         </SidebarContent>
       </Sidebar>
     ),
+    [
+      workspaceDisplayName,
+      isBusy,
+      hasDirectory,
+      pickDirectory,
+      recentDirectories,
+      openRecentDirectory,
+      setIsCloseWorkspaceConfirmOpen,
+      runOpenWorkspaceTerminalAction,
+    ],
+  );
+
+  useAppLayout({
+    noDirectoryOpenState: {
+      isVisible: !activeWorkspace,
+      isBusy: isWorkspaceHydrating || isBusy,
+      statusMessage,
+      errorMessage,
+      onSelectDirectory: pickDirectory,
+      onOpenRecentDirectory: openRecentDirectory,
+    },
+    pageSidebar: dashboardPageSidebar,
   });
 
   return (
@@ -392,6 +416,27 @@ export default function Home() {
               void refreshWorktrees();
             }}
           />
+
+          {ipcWorkspaceMeta &&
+            (!ipcWorkspaceMeta.onboardingSymlinksConfigured ||
+              !ipcWorkspaceMeta.onboardingCommandsConfigured) && (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-left text-sm text-amber-700 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
+                onClick={() => {
+                  navigate("/diagnostics");
+                }}
+              >
+                <AlertTriangle
+                  aria-hidden="true"
+                  className="size-4 shrink-0"
+                />
+                <span>
+                  Some workspace checks need attention. Review diagnostics
+                  before creating worktrees.
+                </span>
+              </button>
+            )}
 
           <div className="space-y-3">
             {!hasWorktreesDirectory ? (
@@ -517,6 +562,14 @@ export default function Home() {
         }}
         onRunCreateWorktreeAction={(options) => {
           void runCreateWorktreeAction(options);
+        }}
+        onboardingIncomplete={
+          ipcWorkspaceMeta != null &&
+          (!ipcWorkspaceMeta.onboardingSymlinksConfigured ||
+            !ipcWorkspaceMeta.onboardingCommandsConfigured)
+        }
+        onNavigateToDiagnostics={() => {
+          navigate("/diagnostics");
         }}
       />
 

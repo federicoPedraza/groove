@@ -264,6 +264,16 @@ export function workspaceUpdateCommandsSettings(
   );
 }
 
+export function workspaceMarkOnboardingConfigured(payload: {
+  symlinksConfigured?: boolean;
+  commandsConfigured?: boolean;
+}): Promise<WorkspaceTerminalSettingsResponse> {
+  return invokeCommand<WorkspaceTerminalSettingsResponse>(
+    "workspace_mark_onboarding_configured",
+    { payload },
+  );
+}
+
 export function workspaceUpdateWorktreeSymlinkPaths(
   payload: WorkspaceWorktreeSymlinkPathsPayload,
 ): Promise<WorkspaceCommandSettingsResponse> {

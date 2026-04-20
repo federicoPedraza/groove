@@ -171,8 +171,9 @@ export default function WorktreeDetailPage() {
     [worktreeRows],
   );
   const branchCopied = row ? copiedBranchPath === row.path : false;
+  const emptyPageSidebar = useCallback(() => null, []);
   useAppLayout({
-    pageSidebar: () => null,
+    pageSidebar: emptyPageSidebar,
     noDirectoryOpenState: {
       isVisible: !isWorkspaceHydrating && !activeWorkspace,
       isBusy,

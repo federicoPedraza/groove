@@ -21,7 +21,11 @@ export function playGrooveHookSound(hookType: GrooveSoundHookType): void {
     const soundLibrary = getSoundLibrary();
     const sound = soundLibrary.find((s) => s.id === hookEntry.soundId);
     if (sound) {
-      void playCustomSound(sound.fileName);
+      void playCustomSound(sound.fileName).then((result) => {
+        if (!result.played) {
+          playNotificationSound();
+        }
+      });
       return;
     }
   }

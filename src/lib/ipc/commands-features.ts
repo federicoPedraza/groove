@@ -103,6 +103,47 @@ export function soundLibraryRemove(
   });
 }
 
+export function soundLibraryRename(
+  soundId: string,
+  newName: string,
+): Promise<GlobalSettingsResponse> {
+  return invokeCommand<GlobalSettingsResponse>("sound_library_rename", {
+    payload: { soundId, newName },
+  });
+}
+
+export function soundLibraryGetPath(
+  soundId: string,
+): Promise<{
+  requestId?: string;
+  ok: boolean;
+  folderPath?: string;
+  filePath?: string;
+  error?: string;
+}> {
+  return invokeCommand<{
+    requestId?: string;
+    ok: boolean;
+    folderPath?: string;
+    filePath?: string;
+    error?: string;
+  }>("sound_library_get_path", { payload: { soundId } });
+}
+
+export function soundLibraryOpenDirectory(): Promise<{
+  requestId?: string;
+  ok: boolean;
+  folderPath?: string;
+  error?: string;
+}> {
+  return invokeCommand<{
+    requestId?: string;
+    ok: boolean;
+    folderPath?: string;
+    error?: string;
+  }>("sound_library_open_directory");
+}
+
 export function opencodeIntegrationStatus(): Promise<OpencodeIntegrationStatusResponse> {
   return invokeCommand<OpencodeIntegrationStatusResponse>(
     "opencode_integration_status",

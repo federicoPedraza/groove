@@ -25,6 +25,8 @@ type DashboardModalsProps = {
     branchOverride?: string;
     baseOverride?: string;
   }) => void;
+  onboardingIncomplete?: boolean;
+  onNavigateToDiagnostics?: () => void;
 };
 
 export function DashboardModals({
@@ -47,6 +49,8 @@ export function DashboardModals({
   onRunCutGrooveAction,
   onCloseCurrentWorkspace,
   onRunCreateWorktreeAction,
+  onboardingIncomplete,
+  onNavigateToDiagnostics,
 }: DashboardModalsProps) {
   const isForgetDeletedWorktree = cutConfirmRow?.status === "deleted";
 
@@ -140,6 +144,8 @@ export function DashboardModals({
         branch={createBranch}
         base={createBase}
         loading={isCreatePending}
+        onboardingIncomplete={onboardingIncomplete}
+        onNavigateToDiagnostics={onNavigateToDiagnostics}
         onOpenChange={(open) => {
           setIsCreateModalOpen(open);
           if (!open && !isCreatePending) {

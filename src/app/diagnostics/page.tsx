@@ -1,12 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Hammer, Loader2, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import {
+  Check,
+  ExternalLink,
+  Hammer,
+  Loader2,
+  Octagon,
+  OctagonPause,
+  X,
+} from "lucide-react";
 
 import { DiagnosticsHeader } from "@/src/components/pages/diagnostics/diagnostics-header";
 import { DiagnosticsSystemSidebar } from "@/src/components/pages/diagnostics/diagnostics-system-sidebar";
 import { EmergencyCard } from "@/src/components/pages/diagnostics/emergency-card";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
+import { Badge } from "@/src/components/ui/badge";
 import { Button } from "@/src/components/ui/button";
 import {
   Table,
@@ -16,6 +26,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/src/components/ui/table";
+import {
+  READY_STATUS_CLASSES,
+  PAUSED_STATUS_CLASSES,
+} from "@/src/components/pages/dashboard/constants";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/src/components/ui/tooltip";
 import { toast } from "@/src/lib/toast";
 import { playGrooveHookSound } from "@/src/lib/groove-sound-system";
 import { appendRequestId } from "@/src/lib/utils/common/request-id";
@@ -25,11 +45,13 @@ import {
   diagnosticsGetMsotConsumingPrograms,
   diagnosticsKillAllNodeInstances,
   isTelemetryEnabled,
+  workspaceMarkOnboardingConfigured,
   type DiagnosticsMostConsumingProgramsResponse,
   type DiagnosticsSystemOverview,
   type DiagnosticsSystemOverviewResponse,
   type DiagnosticsStopAllResponse,
   type WorkspaceGitignoreSanityResponse,
+  type WorkspaceMeta,
   type WorkspaceTermSanityResponse,
   workspaceGetActive,
   workspaceGitignoreSanityApply,
@@ -51,8 +73,12 @@ function logDiagnosticsTelemetry(
 }
 
 export default function DiagnosticsPage() {
+  const navigate = useNavigate();
   const diagnosticsEnterPerfMsRef = useRef<number>(performance.now());
   const isSystemOverviewRequestInFlightRef = useRef(false);
+  const [workspaceMeta, setWorkspaceMeta] = useState<WorkspaceMeta | null>(
+    null,
+  );
   const [isKillingAllNodeInstances, setIsKillingAllNodeInstances] =
     useState(false);
   const [isCleaningAllDevServers, setIsCleaningAllDevServers] = useState(false);
@@ -119,10 +145,12 @@ export default function DiagnosticsPage() {
         const workspace = await workspaceGetActive();
         if (!workspace.ok || !workspace.workspaceRoot) {
           clearGitignoreSanityState();
+          setWorkspaceMeta(null);
           return;
         }
 
         setHasActiveWorkspace(true);
+        setWorkspaceMeta(workspace.workspaceMeta ?? null);
         const result = await workspaceGitignoreSanityCheck();
         if (!result.ok) {
           setGitignoreSanity(null);
@@ -487,7 +515,7 @@ export default function DiagnosticsPage() {
   );
   const gitignoreApplyButtonLabel =
     "Apply fix for .gitignore includes Groove entries";
-  const termApplyButtonLabel = "Apply fix for TERM is missing or unusable";
+  const termApplyButtonLabel = "Apply fix for TERM environment variable";
 
   let gitignoreSanityLabel = "Checking .gitignore sanity...";
   if (!hasActiveWorkspace && !isGitignoreSanityChecking) {
@@ -504,22 +532,21 @@ export default function DiagnosticsPage() {
     }
   }
 
-  let termSanityLabel = "Checking TERM sanity...";
+  let termSanityLabel = "Checking TERM environment variable...";
   if (termSanityErrorMessage) {
-    termSanityLabel = "Unable to check TERM sanity.";
+    termSanityLabel = "Unable to verify the TERM variable.";
   } else if (!isTermSanityChecking) {
-    const termValueLabel = termSanity?.termValue
-      ? ` (${termSanity.termValue})`
-      : "";
     if (termSanity?.isUsable) {
-      termSanityLabel = `TERM is usable${termValueLabel}.`;
+      termSanityLabel = "TERM resolves to a valid terminfo entry.";
+    } else if (termSanity?.termValue) {
+      termSanityLabel = `TERM does not resolve to a valid terminfo entry.`;
     } else {
-      termSanityLabel = `TERM is missing or unusable${termValueLabel}.`;
+      termSanityLabel = "TERM is not set, terminal sessions may render incorrectly.";
     }
   }
 
-  useAppLayout({
-    pageSidebar: ({ collapsed }) => (
+  const diagnosticsPageSidebar = useCallback(
+    ({ collapsed }: { collapsed: boolean }) => (
       <DiagnosticsSystemSidebar
         collapsed={collapsed}
         overview={systemOverview}
@@ -530,6 +557,11 @@ export default function DiagnosticsPage() {
         }}
       />
     ),
+    [systemOverview, isLoadingSystemOverview, systemOverviewError, loadSystemOverview],
+  );
+
+  useAppLayout({
+    pageSidebar: diagnosticsPageSidebar,
   });
 
   return (
@@ -545,118 +577,365 @@ export default function DiagnosticsPage() {
         }}
       />
 
-      {shouldShowGitignoreSanityPanel ? (
+      {(shouldShowGitignoreSanityPanel || hasActiveWorkspace) && (
         <div
           role="region"
-          aria-label="Groove sanity checks table"
+          aria-label="Setup checks"
           className="rounded-lg border bg-card"
         >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Check</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Details</TableHead>
-                <TableHead className="text-right">Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow
-                className={`${gitignoreNeedsRepair ? "bg-amber-500/10" : ""}`}
-              >
-                <TableCell className="font-medium">
-                  .gitignore includes Groove entries
-                </TableCell>
-                <TableCell>
-                  {isGitignoreSanityHealthy ? "Healthy" : "Needs attention"}
-                </TableCell>
-                <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">
-                  {gitignoreSanityLabel}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      void applyGitignoreSanityPatch();
-                    }}
-                    disabled={isGitignoreApplyNowDisabled}
-                    aria-label={gitignoreApplyButtonLabel}
-                    title={gitignoreApplyButtonLabel}
-                    className="size-8 p-0"
-                  >
-                    {isGitignoreSanityApplyPending ? (
-                      <Loader2
-                        aria-hidden="true"
-                        className="size-4 animate-spin"
-                      />
-                    ) : (
-                      <Hammer aria-hidden="true" className="size-4" />
-                    )}
-                  </Button>
-                </TableCell>
-              </TableRow>
-              <TableRow
-                className={`${termNeedsRepair ? "bg-amber-500/10" : ""}`}
-              >
-                <TableCell className="font-medium">
-                  TERM is missing or unusable
-                </TableCell>
-                <TableCell>
-                  {isTermSanityHealthy ? "Healthy" : "Needs attention"}
-                </TableCell>
-                <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">
-                  {termSanityLabel}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      void applyTermSanityPatch();
-                    }}
-                    disabled={isTermApplyNowDisabled}
-                    aria-label={termApplyButtonLabel}
-                    title={termApplyButtonLabel}
-                    className="size-8 p-0"
-                  >
-                    {isTermSanityApplyPending ? (
-                      <Loader2
-                        aria-hidden="true"
-                        className="size-4 animate-spin"
-                      />
-                    ) : (
-                      <Hammer aria-hidden="true" className="size-4" />
-                    )}
-                  </Button>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
+          <TooltipProvider>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Check</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Details</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {hasActiveWorkspace && (
+                  <>
+                    <TableRow className="bg-muted/25">
+                      <TableCell
+                        colSpan={4}
+                        className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        Workspace checks
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="font-medium">
+                        Symlink configuration
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            workspaceMeta?.onboardingSymlinksConfigured
+                              ? READY_STATUS_CLASSES
+                              : PAUSED_STATUS_CLASSES
+                          }
+                        >
+                          {workspaceMeta?.onboardingSymlinksConfigured ? (
+                            <Octagon aria-hidden="true" />
+                          ) : (
+                            <OctagonPause aria-hidden="true" />
+                          )}
+                          {workspaceMeta?.onboardingSymlinksConfigured
+                            ? "configured"
+                            : "not configured"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">
+                        {workspaceMeta?.onboardingSymlinksConfigured
+                          ? "Worktree symlink paths have been reviewed."
+                          : "Review which paths should be symlinked into new worktrees."}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {workspaceMeta?.onboardingSymlinksConfigured ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled
+                            aria-label="Symlink configuration reviewed"
+                            className="size-8 p-0"
+                          >
+                            <Hammer aria-hidden="true" className="size-4" />
+                          </Button>
+                        ) : (
+                          <div className="flex items-center justify-end gap-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => {
+                                    navigate("/settings?subpage=workspace");
+                                  }}
+                                  aria-label="Go to symlink settings"
+                                  className="size-8 p-0"
+                                >
+                                  <ExternalLink
+                                    aria-hidden="true"
+                                    className="size-4"
+                                  />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Go to symlink settings
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  className="size-8 p-0"
+                                  aria-label="Mark symlink configuration as reviewed"
+                                  onClick={() => {
+                                    void workspaceMarkOnboardingConfigured({
+                                      symlinksConfigured: true,
+                                    }).then((res) => {
+                                      if (res.ok && res.workspaceMeta) {
+                                        setWorkspaceMeta(res.workspaceMeta);
+                                      }
+                                    });
+                                  }}
+                                >
+                                  <Check
+                                    aria-hidden="true"
+                                    className="size-4"
+                                  />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Mark as reviewed
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="font-medium">
+                        Workspace commands
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            workspaceMeta?.onboardingCommandsConfigured
+                              ? READY_STATUS_CLASSES
+                              : PAUSED_STATUS_CLASSES
+                          }
+                        >
+                          {workspaceMeta?.onboardingCommandsConfigured ? (
+                            <Octagon aria-hidden="true" />
+                          ) : (
+                            <OctagonPause aria-hidden="true" />
+                          )}
+                          {workspaceMeta?.onboardingCommandsConfigured
+                            ? "configured"
+                            : "not configured"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">
+                        {workspaceMeta?.onboardingCommandsConfigured
+                          ? "Workspace commands have been reviewed."
+                          : "Review Play Groove, Open Terminal, and Run Local commands."}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {workspaceMeta?.onboardingCommandsConfigured ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled
+                            aria-label="Workspace commands reviewed"
+                            className="size-8 p-0"
+                          >
+                            <Hammer aria-hidden="true" className="size-4" />
+                          </Button>
+                        ) : (
+                          <div className="flex items-center justify-end gap-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => {
+                                    navigate("/settings?subpage=workspace");
+                                  }}
+                                  aria-label="Go to workspace command settings"
+                                  className="size-8 p-0"
+                                >
+                                  <ExternalLink
+                                    aria-hidden="true"
+                                    className="size-4"
+                                  />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Go to workspace command settings
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  className="size-8 p-0"
+                                  aria-label="Mark workspace commands as reviewed"
+                                  onClick={() => {
+                                    void workspaceMarkOnboardingConfigured({
+                                      commandsConfigured: true,
+                                    }).then((res) => {
+                                      if (res.ok && res.workspaceMeta) {
+                                        setWorkspaceMeta(res.workspaceMeta);
+                                      }
+                                    });
+                                  }}
+                                >
+                                  <Check
+                                    aria-hidden="true"
+                                    className="size-4"
+                                  />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Mark as reviewed
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  </>
+                )}
+
+                {shouldShowGitignoreSanityPanel && (
+                  <>
+                    <TableRow className="bg-muted/25">
+                      <TableCell
+                        colSpan={4}
+                        className="py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        Global checks
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="font-medium">
+                        .gitignore includes Groove entries
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            isGitignoreSanityHealthy
+                              ? READY_STATUS_CLASSES
+                              : PAUSED_STATUS_CLASSES
+                          }
+                        >
+                          {isGitignoreSanityHealthy ? (
+                            <Octagon aria-hidden="true" />
+                          ) : (
+                            <OctagonPause aria-hidden="true" />
+                          )}
+                          {isGitignoreSanityHealthy
+                            ? "healthy"
+                            : "needs attention"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">
+                        {gitignoreSanityLabel}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            void applyGitignoreSanityPatch();
+                          }}
+                          disabled={isGitignoreApplyNowDisabled}
+                          aria-label={gitignoreApplyButtonLabel}
+                          title={gitignoreApplyButtonLabel}
+                          className="size-8 p-0"
+                        >
+                          {isGitignoreSanityApplyPending ? (
+                            <Loader2
+                              aria-hidden="true"
+                              className="size-4 animate-spin"
+                            />
+                          ) : (
+                            <Hammer aria-hidden="true" className="size-4" />
+                          )}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="font-medium">
+                        TERM environment variable
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            isTermSanityHealthy
+                              ? READY_STATUS_CLASSES
+                              : PAUSED_STATUS_CLASSES
+                          }
+                        >
+                          {isTermSanityHealthy ? (
+                            <Octagon aria-hidden="true" />
+                          ) : (
+                            <OctagonPause aria-hidden="true" />
+                          )}
+                          {isTermSanityHealthy
+                            ? "healthy"
+                            : "needs attention"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">
+                        {termSanityLabel}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            void applyTermSanityPatch();
+                          }}
+                          disabled={isTermApplyNowDisabled}
+                          aria-label={termApplyButtonLabel}
+                          title={termApplyButtonLabel}
+                          className="size-8 p-0"
+                        >
+                          {isTermSanityApplyPending ? (
+                            <Loader2
+                              aria-hidden="true"
+                              className="size-4 animate-spin"
+                            />
+                          ) : (
+                            <Hammer aria-hidden="true" className="size-4" />
+                          )}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  </>
+                )}
+              </TableBody>
+            </Table>
+          </TooltipProvider>
           {gitignoreSanityStatusMessage ? (
-            <p className="mt-1 text-xs text-emerald-700">
+            <p className="px-3 py-1 text-xs text-emerald-700">
               {gitignoreSanityStatusMessage}
             </p>
           ) : null}
           {gitignoreSanityErrorMessage ? (
-            <p className="mt-1 text-xs text-destructive">
+            <p className="px-3 py-1 text-xs text-destructive">
               {gitignoreSanityErrorMessage}
             </p>
           ) : null}
           {termSanityStatusMessage ? (
-            <p className="mt-1 text-xs text-emerald-700">
+            <p className="px-3 py-1 text-xs text-emerald-700">
               {termSanityStatusMessage}
             </p>
           ) : null}
           {termSanityErrorMessage ? (
-            <p className="mt-1 text-xs text-destructive">
+            <p className="px-3 py-1 text-xs text-destructive">
               {termSanityErrorMessage}
             </p>
           ) : null}
         </div>
-      ) : null}
+      )}
 
       {mostConsumingProgramsError && (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">

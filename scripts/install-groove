@@ -132,7 +132,8 @@ check_runtime_dependencies() {
     # Check for webkit2gtk runtime (not -dev, just the runtime library)
     if ! ldconfig -p 2>/dev/null | grep -q "libwebkit2gtk-4.1" && \
        ! dpkg -l 2>/dev/null | grep -q "libwebkit2gtk-4.1" && \
-       ! rpm -q 2>/dev/null webkit2gtk4.1 >/dev/null 2>&1; then
+       ! rpm -q 2>/dev/null webkit2gtk4.1 >/dev/null 2>&1 && \
+       ! pacman -Q 2>/dev/null webkit2gtk-4.1 >/dev/null 2>&1; then
       warn "webkit2gtk-4.1 runtime library may not be installed"
       warn "the desktop app requires it — install via your package manager:"
       warn "  Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0"

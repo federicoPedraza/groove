@@ -101,6 +101,7 @@ describe("notification-sound-listener", () => {
     getSoundLibraryMock.mockReturnValue([
       { id: "s1", name: "Chime", fileName: "chime.mp3" },
     ]);
+    playCustomSoundMock.mockResolvedValue({ played: true, duration: 1 });
 
     await startListener();
     fireNotification();
@@ -127,6 +128,7 @@ describe("notification-sound-listener", () => {
     getSoundLibraryMock.mockReturnValue([
       { id: "s2", name: "Done", fileName: "done.wav" },
     ]);
+    playCustomSoundMock.mockResolvedValue({ played: true, duration: 1 });
 
     await startListener();
     fireNotification({ action: "stop" });

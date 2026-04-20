@@ -1220,6 +1220,239 @@ fn sound_library_remove(app: AppHandle, payload: SoundLibraryRemovePayload) -> G
 }
 
 #[tauri::command]
+fn sound_library_rename(app: AppHandle, payload: SoundLibraryRenamePayload) -> GlobalSettingsResponse {
+    let request_id = request_id();
+
+    let new_name = payload.new_name.trim().to_string();
+    if new_name.is_empty() {
+        return GlobalSettingsResponse {
+            request_id,
+            ok: false,
+            global_settings: None,
+            error: Some("Name must not be empty.".to_string()),
+        };
+    }
+
+    let mut global_settings = match ensure_global_settings(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return GlobalSettingsResponse {
+                request_id,
+                ok: false,
+                global_settings: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let app_data_dir = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            return GlobalSettingsResponse {
+                request_id,
+                ok: false,
+                global_settings: None,
+                error: Some(format!("Failed to resolve app data directory: {error}")),
+            };
+        }
+    };
+    let sounds_dir = app_data_dir.join("sounds");
+
+    let entry = global_settings
+        .sound_library
+        .iter_mut()
+        .find(|e| e.id == payload.sound_id);
+
+    match entry {
+        Some(e) => {
+            let extension = e
+                .file_name
+                .rsplit_once('.')
+                .map(|(_, ext)| ext.to_string())
+                .unwrap_or_else(|| "wav".to_string());
+
+            let base_name = match sanitize_sound_file_name(&new_name, &e.id) {
+                Ok(name) => name,
+                Err(reason) => {
+                    return GlobalSettingsResponse {
+                        request_id,
+                        ok: false,
+                        global_settings: Some(global_settings),
+                        error: Some(reason),
+                    };
+                }
+            };
+
+            // Build new file name, handling conflicts
+            let mut new_file_name = format!("{base_name}.{extension}");
+            let mut counter = 1u32;
+            while sounds_dir.join(&new_file_name).exists()
+                && new_file_name != e.file_name
+            {
+                new_file_name = format!("{base_name} ({counter}).{extension}");
+                counter += 1;
+            }
+
+            // Rename physical file
+            let old_path = sounds_dir.join(&e.file_name);
+            let new_path = sounds_dir.join(&new_file_name);
+            if old_path.is_file() && new_file_name != e.file_name {
+                if let Err(error) = fs::rename(&old_path, &new_path) {
+                    return GlobalSettingsResponse {
+                        request_id,
+                        ok: false,
+                        global_settings: Some(global_settings),
+                        error: Some(format!("Failed to rename sound file: {error}")),
+                    };
+                }
+            }
+
+            e.name = new_name;
+            e.file_name = new_file_name;
+        }
+        None => {
+            return GlobalSettingsResponse {
+                request_id,
+                ok: false,
+                global_settings: Some(global_settings),
+                error: Some("Sound not found in library.".to_string()),
+            };
+        }
+    }
+
+    let settings_file = match global_settings_file(&app) {
+        Ok(path) => path,
+        Err(error) => {
+            return GlobalSettingsResponse {
+                request_id,
+                ok: false,
+                global_settings: Some(global_settings),
+                error: Some(error),
+            };
+        }
+    };
+
+    if let Err(error) = write_global_settings_file(&settings_file, &global_settings) {
+        return GlobalSettingsResponse {
+            request_id,
+            ok: false,
+            global_settings: Some(global_settings),
+            error: Some(error),
+        };
+    }
+
+    GlobalSettingsResponse {
+        request_id,
+        ok: true,
+        global_settings: Some(global_settings),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn sound_library_get_path(app: AppHandle, payload: SoundLibraryGetPathPayload) -> SoundLibraryPathResponse {
+    let request_id = request_id();
+
+    let global_settings = match ensure_global_settings(&app) {
+        Ok(value) => value,
+        Err(error) => {
+            return SoundLibraryPathResponse {
+                request_id,
+                ok: false,
+                folder_path: None,
+                file_path: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let entry = global_settings
+        .sound_library
+        .iter()
+        .find(|e| e.id == payload.sound_id);
+
+    let entry = match entry {
+        Some(e) => e,
+        None => {
+            return SoundLibraryPathResponse {
+                request_id,
+                ok: false,
+                folder_path: None,
+                file_path: None,
+                error: Some("Sound not found in library.".to_string()),
+            };
+        }
+    };
+
+    let app_data_dir = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            return SoundLibraryPathResponse {
+                request_id,
+                ok: false,
+                folder_path: None,
+                file_path: None,
+                error: Some(format!("Failed to resolve app data directory: {error}")),
+            };
+        }
+    };
+
+    let sounds_dir = app_data_dir.join("sounds");
+    let sound_file = sounds_dir.join(&entry.file_name);
+
+    SoundLibraryPathResponse {
+        request_id,
+        ok: true,
+        folder_path: Some(sounds_dir.to_string_lossy().to_string()),
+        file_path: Some(sound_file.to_string_lossy().to_string()),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn sound_library_open_directory(app: AppHandle) -> SoundLibraryPathResponse {
+    let request_id = request_id();
+
+    let app_data_dir = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            return SoundLibraryPathResponse {
+                request_id,
+                ok: false,
+                folder_path: None,
+                file_path: None,
+                error: Some(format!("Failed to resolve app data directory: {error}")),
+            };
+        }
+    };
+
+    let sounds_dir = app_data_dir.join("sounds");
+    if let Err(error) = fs::create_dir_all(&sounds_dir) {
+        return SoundLibraryPathResponse {
+            request_id,
+            ok: false,
+            folder_path: None,
+            file_path: None,
+            error: Some(format!("Failed to create sounds directory: {error}")),
+        };
+    }
+
+    let dir_str = sounds_dir.to_string_lossy().to_string();
+    let _ = std::process::Command::new("xdg-open")
+        .arg(&dir_str)
+        .spawn()
+        .or_else(|_| std::process::Command::new("open").arg(&dir_str).spawn());
+
+    SoundLibraryPathResponse {
+        request_id,
+        ok: true,
+        folder_path: Some(dir_str),
+        file_path: None,
+        error: None,
+    }
+}
+
+#[tauri::command]
 fn workspace_update_terminal_settings(
     app: AppHandle,
     payload: WorkspaceTerminalSettingsPayload,
@@ -1440,6 +1673,92 @@ fn workspace_update_commands_settings(
     workspace_meta.play_groove_command = play_groove_command;
     workspace_meta.open_terminal_at_worktree_command = open_terminal_at_worktree_command;
     workspace_meta.run_local_command = run_local_command;
+    workspace_meta.onboarding_commands_configured = true;
+    workspace_meta.updated_at = now_iso();
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    if let Err(error) = write_workspace_meta_file(&workspace_json, &workspace_meta) {
+        return WorkspaceTerminalSettingsResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            workspace_meta: None,
+            error: Some(error),
+        };
+    }
+
+    invalidate_workspace_context_cache(&app, &workspace_root);
+
+    WorkspaceTerminalSettingsResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        workspace_meta: Some(workspace_meta),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn workspace_mark_onboarding_configured(
+    app: AppHandle,
+    payload: WorkspaceMarkOnboardingPayload,
+) -> WorkspaceTerminalSettingsResponse {
+    let request_id = request_id();
+
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some("No active workspace selected.".to_string()),
+            };
+        }
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let workspace_root = match validate_workspace_root_path(&persisted_root) {
+        Ok(root) => root,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(persisted_root),
+                workspace_meta: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    let (mut workspace_meta, _) = match ensure_workspace_meta(&workspace_root) {
+        Ok(result) => result,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                workspace_meta: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    if payload.symlinks_configured {
+        workspace_meta.onboarding_symlinks_configured = true;
+    }
+    if payload.commands_configured {
+        workspace_meta.onboarding_commands_configured = true;
+    }
     workspace_meta.updated_at = now_iso();
 
     let workspace_json = workspace_root.join(".groove").join("workspace.json");
@@ -1533,6 +1852,7 @@ fn workspace_update_worktree_symlink_paths(
     };
 
     workspace_meta.worktree_symlink_paths = worktree_symlink_paths;
+    workspace_meta.onboarding_symlinks_configured = true;
     workspace_meta.updated_at = now_iso();
 
     let workspace_json = workspace_root.join(".groove").join("workspace.json");
@@ -1712,5 +2032,202 @@ fn persist_workspace_meta_update(
     write_workspace_meta_file(&workspace_json, workspace_meta)?;
     invalidate_workspace_context_cache(app, workspace_root);
     Ok(())
+}
+
+/// Sanitize a user-provided name into a safe file name base (without extension).
+///
+/// Rules:
+/// 1. Replace path separators, control chars, and OS-reserved chars with `_`
+/// 2. Strip leading/trailing dots and whitespace
+/// 3. Reject Windows reserved device names (CON, PRN, NUL, COM1-9, LPT1-9)
+/// 4. Truncate to 200 characters
+/// 5. Fall back to `fallback_id` if the result is empty
+fn sanitize_sound_file_name(name: &str, fallback_id: &str) -> Result<String, String> {
+    let sanitized: String = name
+        .chars()
+        .map(|c| {
+            if c == '/'
+                || c == '\\'
+                || c == '\0'
+                || c.is_control()
+                || c == ':'
+                || c == '*'
+                || c == '?'
+                || c == '"'
+                || c == '<'
+                || c == '>'
+                || c == '|'
+            {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let sanitized = sanitized.trim().trim_matches('.').trim().to_string();
+
+    let upper = sanitized.to_uppercase();
+    if matches!(
+        upper.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    ) {
+        return Err(format!(
+            "\"{}\" is a reserved name and cannot be used as a file name.",
+            sanitized
+        ));
+    }
+
+    if sanitized.is_empty() {
+        return Ok(fallback_id.to_string());
+    }
+
+    if sanitized.len() > 200 {
+        Ok(sanitized
+            .chars()
+            .take(200)
+            .collect::<String>()
+            .trim_end()
+            .to_string())
+    } else {
+        Ok(sanitized)
+    }
+}
+
+#[cfg(test)]
+mod sound_library_tests {
+    use super::sanitize_sound_file_name;
+
+    #[test]
+    fn normal_name_passes_through() {
+        assert_eq!(
+            sanitize_sound_file_name("my-sound", "fb").unwrap(),
+            "my-sound"
+        );
+    }
+
+    #[test]
+    fn spaces_and_underscores_preserved() {
+        assert_eq!(
+            sanitize_sound_file_name("cool sound_v2", "fb").unwrap(),
+            "cool sound_v2"
+        );
+    }
+
+    #[test]
+    fn path_separators_replaced() {
+        assert_eq!(
+            sanitize_sound_file_name("../../etc/passwd", "fb").unwrap(),
+            "_.._etc_passwd"
+        );
+        assert_eq!(
+            sanitize_sound_file_name("dir\\file", "fb").unwrap(),
+            "dir_file"
+        );
+    }
+
+    #[test]
+    fn control_chars_replaced() {
+        assert_eq!(
+            sanitize_sound_file_name("a\x00b\x01c", "fb").unwrap(),
+            "a_b_c"
+        );
+    }
+
+    #[test]
+    fn os_reserved_chars_replaced() {
+        assert_eq!(
+            sanitize_sound_file_name("a:b*c?d\"e<f>g|h", "fb").unwrap(),
+            "a_b_c_d_e_f_g_h"
+        );
+    }
+
+    #[test]
+    fn leading_trailing_dots_stripped() {
+        assert_eq!(
+            sanitize_sound_file_name("..hidden..", "fb").unwrap(),
+            "hidden"
+        );
+        assert_eq!(
+            sanitize_sound_file_name("....", "fb").unwrap(),
+            "fb"
+        );
+    }
+
+    #[test]
+    fn whitespace_trimmed() {
+        assert_eq!(
+            sanitize_sound_file_name("  hello  ", "fb").unwrap(),
+            "hello"
+        );
+    }
+
+    #[test]
+    fn empty_string_falls_back_to_id() {
+        assert_eq!(
+            sanitize_sound_file_name("", "fallback-id").unwrap(),
+            "fallback-id"
+        );
+    }
+
+    #[test]
+    fn all_invalid_chars_falls_back_to_id() {
+        assert_eq!(
+            sanitize_sound_file_name("...", "fb").unwrap(),
+            "fb"
+        );
+    }
+
+    #[test]
+    fn reserved_names_rejected() {
+        for name in &[
+            "CON", "con", "Con", "PRN", "AUX", "NUL", "COM1", "com9", "LPT1", "lpt9",
+        ] {
+            let result = sanitize_sound_file_name(name, "fb");
+            assert!(result.is_err(), "expected '{}' to be rejected", name);
+        }
+    }
+
+    #[test]
+    fn non_reserved_names_accepted() {
+        assert!(sanitize_sound_file_name("CONSOLE", "fb").is_ok());
+        assert!(sanitize_sound_file_name("connect", "fb").is_ok());
+        assert!(sanitize_sound_file_name("COM10", "fb").is_ok());
+    }
+
+    #[test]
+    fn long_name_truncated_to_200() {
+        let long = "a".repeat(250);
+        let result = sanitize_sound_file_name(&long, "fb").unwrap();
+        assert_eq!(result.len(), 200);
+    }
+
+    #[test]
+    fn unicode_preserved() {
+        assert_eq!(
+            sanitize_sound_file_name("日本語の音", "fb").unwrap(),
+            "日本語の音"
+        );
+    }
 }
 

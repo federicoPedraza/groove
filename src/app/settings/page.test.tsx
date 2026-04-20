@@ -108,6 +108,7 @@ vi.mock("@/src/lib/theme-constants", () => ({
 
 vi.mock("@/src/lib/theme", () => ({
   applyThemeToDom: vi.fn(),
+  DARK_THEME_MODES: new Set(["dark"]),
 }));
 
 vi.mock("@/src/lib/shortcuts", () => ({
@@ -199,6 +200,15 @@ vi.mock("@/src/components/ui/search-dropdown", () => ({
   ),
 }));
 
+let mockSearchParams = new URLSearchParams();
+vi.mock("react-router-dom", () => ({
+  useSearchParams: vi.fn(() => [mockSearchParams, vi.fn()]),
+}));
+
+vi.mock("@/src/components/pages/use-app-layout", () => ({
+  useAppLayout: vi.fn(),
+}));
+
 vi.mock("@/src/lib/utils/workspace/context", () => ({
   describeWorkspaceContextError: vi.fn(
     (_result: unknown, fallback: string) => fallback,
@@ -209,6 +219,7 @@ describe("SettingsPage", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.resetModules();
+    mockSearchParams = new URLSearchParams();
     globalSettingsGetMock.mockResolvedValue({
       ok: true,
       globalSettings: { ...defaultGlobalSettings },
@@ -274,11 +285,12 @@ describe("SettingsPage", () => {
   it("renders settings page with title", async () => {
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Settings")).toBeInTheDocument();
+      expect(screen.getByText("General")).toBeInTheDocument();
     });
   });
 
   it("shows loading state initially", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     // Make workspaceGetActive hang to see loading
     workspaceGetActiveMock.mockReturnValue(new Promise(() => {}));
     const mod = await import("@/src/app/settings/page");
@@ -288,6 +300,7 @@ describe("SettingsPage", () => {
   });
 
   it("renders workspace settings section", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     await renderPage();
     await waitFor(() => {
       expect(
@@ -297,6 +310,7 @@ describe("SettingsPage", () => {
   });
 
   it("renders commands settings form", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByTestId("commands-settings-form")).toBeInTheDocument();
@@ -304,6 +318,7 @@ describe("SettingsPage", () => {
   });
 
   it("disables commands form when no workspace meta", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: undefined,
@@ -316,6 +331,7 @@ describe("SettingsPage", () => {
   });
 
   it("saves command settings via onSave callback", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByTestId("save-commands-btn")).not.toBeDisabled();
@@ -330,6 +346,7 @@ describe("SettingsPage", () => {
   });
 
   it("handles save command settings failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceUpdateCommandsSettingsMock.mockResolvedValue({
       ok: false,
       error: "Save failed",
@@ -348,6 +365,7 @@ describe("SettingsPage", () => {
   });
 
   it("handles save command settings exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceUpdateCommandsSettingsMock.mockRejectedValue(new Error("Net"));
     await renderPage();
     await waitFor(() => {
@@ -363,6 +381,7 @@ describe("SettingsPage", () => {
   });
 
   it("renders keyboard shortcuts section", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     expect(
       screen.getByRole("button", { name: /Toggle keyboard shortcuts/ }),
@@ -370,6 +389,7 @@ describe("SettingsPage", () => {
   });
 
   it("renders appearance section with theme options", async () => {
+    mockSearchParams = new URLSearchParams("subpage=personalization");
     await renderPage();
     expect(
       screen.getByRole("button", { name: /Toggle appearance settings/ }),
@@ -379,6 +399,7 @@ describe("SettingsPage", () => {
   });
 
   it("renders Groove settings section", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     expect(
       screen.getByRole("button", { name: /Toggle Groove settings/ }),
@@ -393,6 +414,7 @@ describe("SettingsPage", () => {
   });
 
   it("renders integrations section", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     expect(
       screen.getByRole("button", { name: /Toggle integrations/ }),
@@ -401,6 +423,7 @@ describe("SettingsPage", () => {
   });
 
   it("renders worktree symlink paths", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByText("node_modules")).toBeInTheDocument();
@@ -408,6 +431,7 @@ describe("SettingsPage", () => {
   });
 
   it("shows no configured paths when empty", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: "/test",
@@ -427,6 +451,7 @@ describe("SettingsPage", () => {
   });
 
   it("handles theme change", async () => {
+    mockSearchParams = new URLSearchParams("subpage=personalization");
     const { applyThemeToDom } = await import("@/src/lib/theme");
     await renderPage();
 
@@ -443,6 +468,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts theme on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=personalization");
     const { applyThemeToDom } = await import("@/src/lib/theme");
     await renderPage();
 
@@ -463,6 +489,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts theme on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=personalization");
     const { applyThemeToDom } = await import("@/src/lib/theme");
     await renderPage();
 
@@ -515,6 +542,7 @@ describe("SettingsPage", () => {
   });
 
   it("handles workspace with no meta", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: undefined,
@@ -527,11 +555,13 @@ describe("SettingsPage", () => {
   });
 
   it("renders symlink modal", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     await renderPage();
     expect(screen.getByTestId("symlink-modal")).toBeInTheDocument();
   });
 
   it("shows connect repository message when no workspace meta for commands", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: undefined,
@@ -548,6 +578,7 @@ describe("SettingsPage", () => {
   });
 
   it("handles save command settings when no workspace meta returns error", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: undefined,
@@ -561,6 +592,7 @@ describe("SettingsPage", () => {
   });
 
   it("changes keyboard shortcut leader key", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
       expect(
@@ -584,6 +616,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts keyboard leader on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockResolvedValue({
@@ -607,6 +640,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts keyboard leader on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
@@ -629,6 +663,7 @@ describe("SettingsPage", () => {
   });
 
   it("changes open actions key binding", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
       expect(
@@ -653,6 +688,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts open actions binding on failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockResolvedValue({
@@ -671,6 +707,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts open actions binding on exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
@@ -686,6 +723,7 @@ describe("SettingsPage", () => {
   });
 
   it("changes open worktree details key binding", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
       expect(
@@ -713,6 +751,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts open worktree details binding on failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockResolvedValue({
@@ -734,6 +773,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts open worktree details binding on exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
@@ -752,6 +792,7 @@ describe("SettingsPage", () => {
   });
 
   it("renders keyboard shortcuts description text", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     expect(
       screen.getByText(/Customize leader-based shortcuts/),
@@ -759,16 +800,19 @@ describe("SettingsPage", () => {
   });
 
   it("renders leader key label", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     expect(screen.getByText("Leader key")).toBeInTheDocument();
   });
 
   it("renders open actions key label", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     expect(screen.getByText("Open actions key")).toBeInTheDocument();
   });
 
   it("renders open worktree details key label", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     expect(screen.getByText("Open worktree details key")).toBeInTheDocument();
   });
@@ -780,10 +824,11 @@ describe("SettingsPage", () => {
     });
     await renderPage();
     // Should not crash, settings still render
-    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("General")).toBeInTheDocument();
   });
 
   it("shows worktree symlink paths from meta", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: "/test",
@@ -804,6 +849,7 @@ describe("SettingsPage", () => {
   });
 
   it("toggles telemetry checkbox and calls globalSettingsUpdate", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByText("Enable telemetry")).toBeInTheDocument();
@@ -828,6 +874,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts telemetry on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockResolvedValue({
@@ -855,6 +902,7 @@ describe("SettingsPage", () => {
   });
 
   it("toggles disable monkey checkbox and calls globalSettingsUpdate", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByText("Disable monkey")).toBeInTheDocument();
@@ -876,6 +924,7 @@ describe("SettingsPage", () => {
   });
 
   it("toggles show FPS checkbox and calls globalSettingsUpdate", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByText("Show FPS")).toBeInTheDocument();
@@ -897,6 +946,7 @@ describe("SettingsPage", () => {
   });
 
   it("toggles periodic re-render checkbox and calls globalSettingsUpdate", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
       expect(
@@ -922,6 +972,7 @@ describe("SettingsPage", () => {
   });
 
   it("toggles always show diagnostics sidebar and calls globalSettingsUpdate", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
       expect(
@@ -947,6 +998,7 @@ describe("SettingsPage", () => {
   });
 
   it("shows error message when global settings update fails for telemetry", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
@@ -971,6 +1023,7 @@ describe("SettingsPage", () => {
   });
 
   it("displays error message in error banner", async () => {
+    mockSearchParams = new URLSearchParams("subpage=personalization");
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
     await renderPage();
 
@@ -988,6 +1041,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts diagnostics sidebar on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockResolvedValue({
@@ -1015,6 +1069,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts diagnostics sidebar on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
@@ -1039,6 +1094,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts disable monkey on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockResolvedValue({
@@ -1064,6 +1120,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts disable monkey on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
@@ -1086,6 +1143,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts show FPS on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockResolvedValue({
@@ -1111,6 +1169,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts show FPS on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
@@ -1133,6 +1192,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts periodic re-render on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockResolvedValue({
@@ -1160,6 +1220,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts periodic re-render on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
@@ -1186,6 +1247,7 @@ describe("SettingsPage", () => {
   });
 
   it("shows connect repository message for symlinks when no workspace meta", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: undefined,

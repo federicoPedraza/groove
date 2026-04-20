@@ -339,14 +339,28 @@ fn launch_plain_terminal(
             "kitty".to_string(),
             vec!["--directory".to_string(), worktree.clone()],
         )],
+        "alacritty" => vec![(
+            "alacritty".to_string(),
+            vec!["--working-directory".to_string(), worktree.clone()],
+        )],
         "gnome" => vec![(
             "gnome-terminal".to_string(),
             vec![format!("--working-directory={worktree}")],
         )],
-        "xterm" => vec![("xterm".to_string(), Vec::new())],
+        "xterm" => vec![(
+            "xterm".to_string(),
+            vec!["-e".to_string(), format!("cd '{}' && exec \"$SHELL\"", worktree.replace('\'', "'\\''"))],
+        )],
         "auto" => {
             let mut terminals = vec![
-                ("x-terminal-emulator".to_string(), Vec::new()),
+                // x-terminal-emulator is a Debian alternatives symlink; it
+                // typically points to gnome-terminal which uses D-Bus and
+                // ignores the parent process CWD. Pass --working-directory
+                // so the shell opens in the right place.
+                (
+                    "x-terminal-emulator".to_string(),
+                    vec![format!("--working-directory={worktree}")],
+                ),
                 (
                     "warp".to_string(),
                     vec!["--working-directory".to_string(), worktree.clone()],
@@ -359,10 +373,17 @@ fn launch_plain_terminal(
                     "gnome-terminal".to_string(),
                     vec![format!("--working-directory={worktree}")],
                 ),
-                ("xterm".to_string(), Vec::new()),
+                (
+                    "alacritty".to_string(),
+                    vec!["--working-directory".to_string(), worktree.clone()],
+                ),
                 (
                     "ghostty".to_string(),
                     vec![format!("--working-directory={worktree}")],
+                ),
+                (
+                    "xterm".to_string(),
+                    vec!["-e".to_string(), format!("cd '{}' && exec \"$SHELL\"", worktree.replace('\'', "'\\''"))],
                 ),
             ];
             if let Some(platform_terminal) =
@@ -547,11 +568,29 @@ fn build_likely_search_bases() -> Vec<PathBuf> {
     let mut bases = Vec::new();
     let mut seen = HashSet::new();
 
-    if let Ok(mut cursor) = std::env::current_dir() {
+    let mut push_unique = |path: PathBuf| {
+        if seen.insert(path.clone()) {
+            bases.push(path);
+        }
+    };
+
+    // In an AppImage, current_dir() may point inside the FUSE mount
+    // (/tmp/.mount_GrooveXXX/) which is useless for workspace discovery.
+    // Use $OWD (Original Working Directory saved by AppImage) instead.
+    let real_cwd = std::env::var_os("OWD")
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .filter(|p| {
+            // Reject paths inside AppImage FUSE mount or /tmp/.mount_*
+            let s = p.to_string_lossy();
+            !s.starts_with("/tmp/.mount_") && std::env::var_os("APPDIR")
+                .map(|appdir| !s.starts_with(&*appdir.to_string_lossy()))
+                .unwrap_or(true)
+        });
+
+    if let Some(mut cursor) = real_cwd {
         for _ in 0..=3 {
-            if seen.insert(cursor.clone()) {
-                bases.push(cursor.clone());
-            }
+            push_unique(cursor.clone());
 
             let Some(parent) = cursor.parent() else {
                 break;
@@ -565,9 +604,24 @@ fn build_likely_search_bases() -> Vec<PathBuf> {
         }
     }
 
+    // Home directory — reliable in both dev and production
     if let Some(home) = dirs_home() {
-        if seen.insert(home.clone()) {
-            bases.push(home);
+        push_unique(home.clone());
+
+        // Common development directories under $HOME
+        for subdir in &["Documents", "Projects", "repos", "src", "dev", "code", "workspace", "workspaces", "git"] {
+            let candidate = home.join(subdir);
+            if candidate.is_dir() {
+                push_unique(candidate);
+            }
+        }
+    }
+
+    // XDG user directories (e.g. ~/Desktop, ~/Downloads — less likely but cheap)
+    if let Ok(dirs) = std::env::var("XDG_DATA_HOME") {
+        let xdg_base = PathBuf::from(dirs);
+        if xdg_base.is_dir() {
+            push_unique(xdg_base);
         }
     }
 
@@ -1139,6 +1193,8 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         opencode_settings: default_opencode_settings(),
         worktree_records: HashMap::new(),
         summaries: Vec::new(),
+        onboarding_symlinks_configured: false,
+        onboarding_commands_configured: false,
     }
 }
 

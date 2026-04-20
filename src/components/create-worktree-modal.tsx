@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { GitBranch, Loader2 } from "lucide-react";
+import { AlertTriangle, GitBranch, Loader2 } from "lucide-react";
 
 import { Button } from "@/src/components/ui/button";
 import {
@@ -22,6 +22,8 @@ type CreateWorktreeModalProps = {
   branch: string;
   base: string;
   loading: boolean;
+  onboardingIncomplete?: boolean;
+  onNavigateToDiagnostics?: () => void;
   onOpenChange: (open: boolean) => void;
   onBranchChange: (value: string) => void;
   onBaseChange: (value: string) => void;
@@ -38,6 +40,8 @@ function CreateWorktreeModal({
   branch,
   base,
   loading,
+  onboardingIncomplete,
+  onNavigateToDiagnostics,
   onOpenChange,
   onBranchChange,
   onBaseChange,
@@ -160,6 +164,26 @@ function CreateWorktreeModal({
               Enter a branch name and choose the base branch.
             </DialogDescription>
           </DialogHeader>
+
+          {onboardingIncomplete && (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-left text-sm text-amber-700 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
+              onClick={() => {
+                onOpenChange(false);
+                onNavigateToDiagnostics?.();
+              }}
+            >
+              <AlertTriangle
+                aria-hidden="true"
+                className="size-4 shrink-0"
+              />
+              <span>
+                Review workspace diagnostics before creating your first
+                worktree.
+              </span>
+            </button>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

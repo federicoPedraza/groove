@@ -60,15 +60,17 @@ describe("playGrooveHookSound", () => {
     expect(playCustomSoundMock).not.toHaveBeenCalled();
   });
 
-  it("plays custom sound when soundId matches a library entry", () => {
+  it("plays custom sound when soundId matches a library entry", async () => {
     mockSettings("play", { enabled: true, soundId: "chime-01" });
     getSoundLibraryMock.mockReturnValue([
       { id: "chime-01", fileName: "chime-01.wav", name: "Chime" },
     ]);
+    playCustomSoundMock.mockResolvedValue({ played: true, duration: 1 });
 
     playGrooveHookSound("play");
-
-    expect(playCustomSoundMock).toHaveBeenCalledWith("chime-01.wav");
+    await vi.waitFor(() => {
+      expect(playCustomSoundMock).toHaveBeenCalledWith("chime-01.wav");
+    });
     expect(playNotificationSoundMock).not.toHaveBeenCalled();
   });
 

@@ -1,19 +1,11 @@
-import type { WorkspaceRow } from "@/src/lib/ipc";
+import type { DefaultTerminal, WorkspaceRow } from "@/src/lib/ipc";
 
 export type WorkspaceMeta = {
   version: number;
   rootName: string;
   createdAt: string;
   updatedAt: string;
-  defaultTerminal?:
-    | "auto"
-    | "ghostty"
-    | "warp"
-    | "kitty"
-    | "gnome"
-    | "xterm"
-    | "none"
-    | "custom";
+  defaultTerminal?: DefaultTerminal;
   terminalCustomCommand?: string | null;
   playGrooveCommand?: string;
   openTerminalAtWorktreeCommand?: string | null;

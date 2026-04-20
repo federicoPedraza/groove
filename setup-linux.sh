@@ -68,10 +68,145 @@ info "node:  $(node -v)"
 info "npm:   $(npm -v)"
 info "rustc: $(rustc --version)"
 
-step "Run fast Linux setup"
+step "Detect package manager"
+detect_pm() {
+  if command -v pacman >/dev/null 2>&1; then echo "pacman"
+  elif command -v dnf >/dev/null 2>&1; then echo "dnf"
+  elif command -v apt-get >/dev/null 2>&1; then echo "apt"
+  elif command -v zypper >/dev/null 2>&1; then echo "zypper"
+  else echo "unknown"; fi
+}
+PM="$(detect_pm)"
+if [[ "$PM" == "unknown" ]]; then
+  err "No supported package manager found (apt, pacman, dnf, zypper)"
+  exit 1
+fi
+pass "Using $PM"
+
+get_sudo() {
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then echo ""
+  elif command -v sudo >/dev/null 2>&1; then echo "sudo"
+  else err "Need root or sudo to install packages"; exit 1; fi
+}
+SUDO_CMD="$(get_sudo)"
+
+DEPS_JSON="$repo_root/scripts/linux-deps.json"
+
+read_packages() {
+  node -e "
+    const d = require('$DEPS_JSON');
+    const libs = d.required_libraries.map(l => l.packages['$PM']).filter(Boolean);
+    const tools = d.build_toolchains.packages['$PM'] || [];
+    console.log([...tools, ...libs].join('\n'));
+  "
+}
+
+step "Install system dependencies via $PM"
+packages=()
+while IFS= read -r pkg; do
+  [[ -n "$pkg" ]] && packages+=("$pkg")
+done < <(read_packages)
+
+if [[ ${#packages[@]} -eq 0 ]]; then
+  warn "No packages found for $PM in linux-deps.json"
+else
+  info "Installing ${#packages[@]} packages: ${packages[*]}"
+  case "$PM" in
+    apt)
+      run_cmd "apt-get update" $SUDO_CMD apt-get update -qq
+      run_cmd "apt-get install" $SUDO_CMD apt-get install -y "${packages[@]}"
+      ;;
+    pacman)
+      run_cmd "pacman install" $SUDO_CMD pacman -Syu --needed --noconfirm "${packages[@]}"
+      ;;
+    dnf)
+      run_cmd "dnf install" $SUDO_CMD dnf install -y "${packages[@]}"
+      ;;
+    zypper)
+      run_cmd "zypper install" $SUDO_CMD zypper install -y "${packages[@]}"
+      ;;
+  esac
+  pass "System packages installed"
+fi
+
+step "Verify system dependencies"
+
+# Refresh ldconfig cache after package installs
+$SUDO_CMD ldconfig 2>/dev/null || true
+
+check_targets="$(node -e "
+  const d = require('$DEPS_JSON');
+  for (const lib of d.required_libraries) {
+    const apt = lib.packages.apt || '';
+    const pac = lib.packages.pacman || '';
+    const dnf = lib.packages.dnf || '';
+    console.log([lib.name, lib.runtime_so, lib.pkg_config, apt, pac, dnf].join('|'));
+  }
+")"
+
+# Check if a .so is present via ldconfig, pkg-config, or direct filesystem search
+check_so() {
+  local so_name="$1" pkg_config="$2"
+  # 1) ldconfig cache
+  if ldconfig -p 2>/dev/null | grep -q "$so_name"; then return 0; fi
+  # 2) pkg-config
+  if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists "$pkg_config" 2>/dev/null; then return 0; fi
+  # 3) direct filesystem search (covers stale ldconfig cache)
+  if find /usr/lib /lib -name "${so_name}*" -print -quit 2>/dev/null | grep -q .; then return 0; fi
+  return 1
+}
+
+missing_count=0
+missing_pkgs=()
+while IFS='|' read -r name so_name pkg_config apt_pkg pacman_pkg dnf_pkg; do
+  if check_so "$so_name" "$pkg_config"; then
+    pass "$name ($so_name)"
+  else
+    fail_msg "$name ($so_name) — not found"
+    case "$PM" in
+      apt) [[ -n "$apt_pkg" ]] && missing_pkgs+=("$apt_pkg") ;;
+      pacman) [[ -n "$pacman_pkg" ]] && missing_pkgs+=("$pacman_pkg") ;;
+      dnf) [[ -n "$dnf_pkg" ]] && missing_pkgs+=("$dnf_pkg") ;;
+    esac
+    missing_count=$((missing_count + 1))
+  fi
+done <<< "$check_targets"
+
+if [[ $missing_count -gt 0 && ${#missing_pkgs[@]} -gt 0 ]]; then
+  info "Attempting to install $missing_count missing dep(s): ${missing_pkgs[*]}"
+  case "$PM" in
+    apt)    $SUDO_CMD apt-get update -qq && $SUDO_CMD apt-get install -y "${missing_pkgs[@]}" ;;
+    pacman) $SUDO_CMD pacman -Syu --needed --noconfirm "${missing_pkgs[@]}" ;;
+    dnf)    $SUDO_CMD dnf install -y "${missing_pkgs[@]}" ;;
+    zypper) $SUDO_CMD zypper install -y "${missing_pkgs[@]}" ;;
+  esac
+  $SUDO_CMD ldconfig 2>/dev/null || true
+
+  # Re-verify
+  still_missing=0
+  while IFS='|' read -r name so_name pkg_config apt_pkg pacman_pkg dnf_pkg; do
+    check_so "$so_name" "$pkg_config" || still_missing=$((still_missing + 1))
+  done <<< "$check_targets"
+
+  if [[ $still_missing -gt 0 ]]; then
+    err "$still_missing dependency(ies) still missing after install attempt"
+    exit 1
+  fi
+  pass "All missing dependencies installed successfully"
+elif [[ $missing_count -gt 0 ]]; then
+  err "$missing_count dependency(ies) missing and no packages found for $PM"
+  exit 1
+fi
+pass "All system dependencies present"
+
+step "Install project dependencies"
 cd "$repo_root"
-run_cmd "executing ./scripts/setup-linux-fast" ./scripts/setup-linux-fast
-pass "Fast setup completed"
+run_cmd "npm install" npm install
+pass "npm dependencies installed"
+
+step "Rust sanity check"
+run_cmd "cargo check" npm run check:rust
+pass "Rust check passed"
 
 step "Validate Linux sidecar readiness"
 run_cmd "executing ./scripts/check-linux-sidecars" ./scripts/check-linux-sidecars

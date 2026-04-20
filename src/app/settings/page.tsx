@@ -7,13 +7,35 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { ChevronDown, Play, X } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  FileText,
+  FolderOpen,
+  Info,
+  MoreHorizontal,
+  Palette,
+  Pencil,
+  Play,
+  Settings2,
+  X,
+} from "lucide-react";
 
 import { CommandsSettingsForm } from "@/src/components/pages/settings/commands-settings-form";
 import { WorktreeSymlinkPathsModal } from "@/src/components/pages/settings/worktree-symlink-paths-modal";
 import { OpencodeIntegrationPanel } from "@/src/components/opencode/opencode-integration-panel";
 import { ClaudeCodeIntegrationPanel } from "@/src/components/claudecode/claudecode-integration-panel";
 import { GrooveSoundSettingsPanel } from "@/src/components/groove-sound-settings-panel";
+import { useAppLayout } from "@/src/components/pages/use-app-layout";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+} from "@/src/components/ui/sidebar";
 import type {
   SaveState,
   WorkspaceMeta,
@@ -44,13 +66,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/src/components/ui/tooltip";
-import { SoundWaveform } from "@/src/components/ui/sound-waveform";
+import {
+  SoundWaveform,
+  type SoundWaveformStatus,
+} from "@/src/components/ui/sound-waveform";
 import {
   SOFT_GREEN_BUTTON_CLASSES,
   SOFT_RED_BUTTON_CLASSES,
 } from "@/src/components/pages/dashboard/constants";
 import { THEME_MODE_OPTIONS, type ThemeMode } from "@/src/lib/theme-constants";
-import { applyThemeToDom } from "@/src/lib/theme";
+import { applyThemeToDom, DARK_THEME_MODES } from "@/src/lib/theme";
 import {
   DEFAULT_KEYBOARD_LEADER_BINDINGS,
   DEFAULT_KEYBOARD_SHORTCUT_LEADER,
@@ -60,6 +85,13 @@ import {
   toShortcutDisplayLabel,
 } from "@/src/lib/shortcuts";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/src/components/ui/dropdown-menu";
+import { Input } from "@/src/components/ui/input";
+import {
   GROOVE_PLAY_COMMAND_SENTINEL,
   getGlobalSettingsSnapshot,
   getThemeMode,
@@ -67,6 +99,9 @@ import {
   globalSettingsUpdate,
   soundLibraryImport,
   soundLibraryRemove,
+  soundLibraryRename,
+  soundLibraryGetPath,
+  soundLibraryOpenDirectory,
   isTelemetryEnabled,
   subscribeToGlobalSettings,
   workspaceGetActive,
@@ -97,6 +132,24 @@ function logSettingsTelemetry(
   console.info(`${UI_TELEMETRY_PREFIX} ${event}`, payload);
 }
 
+type SettingsSubpage =
+  | "personalization"
+  | "workspace"
+  | "general"
+  | "about";
+
+const SETTINGS_SUBPAGES: {
+  id: SettingsSubpage;
+  label: string;
+  shortLabel: string;
+  icon: typeof Palette;
+}[] = [
+  { id: "general", label: "General", shortLabel: "Gen", icon: Settings2 },
+  { id: "workspace", label: "Workspace", shortLabel: "Work", icon: FolderOpen },
+  { id: "personalization", label: "Personalization", shortLabel: "Style", icon: Palette },
+  { id: "about", label: "About", shortLabel: "Info", icon: Info },
+];
+
 function loadSettingsGlobalSettings(): Promise<
   Awaited<ReturnType<typeof globalSettingsGet>>
 > {
@@ -119,7 +172,13 @@ function loadSettingsWorkspaceGetActive(): Promise<
   return settingsWorkspaceGetActivePromise;
 }
 
+function isValidSubpage(value: string | null): value is SettingsSubpage {
+  return SETTINGS_SUBPAGES.some((s) => s.id === value);
+}
+
 export default function SettingsPage() {
+  const [searchParams] = useSearchParams();
+  const initialSubpage = searchParams.get("subpage");
   const settingsEnterPerfMsRef = useRef<number>(performance.now());
   const globalSettingsSnapshot = useSyncExternalStore(
     subscribeToGlobalSettings,
@@ -187,7 +246,26 @@ export default function SettingsPage() {
     "success" | "error" | null
   >(null);
   const [playingSoundId, setPlayingSoundId] = useState<string | null>(null);
+  const [soundFileStatus, setSoundFileStatus] = useState<
+    Record<string, SoundWaveformStatus>
+  >({});
+  const [renamingSoundId, setRenamingSoundId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renamingSoundId) {
+      // Wait a frame for the input to mount after the dropdown closes
+      requestAnimationFrame(() => {
+        renameInputRef.current?.focus();
+        renameInputRef.current?.select();
+      });
+    }
+  }, [renamingSoundId]);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemeMode());
+  const [activeSubpage, setActiveSubpage] = useState<SettingsSubpage>(
+    isValidSubpage(initialSubpage) ? initialSubpage : "general",
+  );
   const disableGrooveLoadingSectionRequestVersionRef = useRef(0);
   const telemetryEnabledRequestVersionRef = useRef(0);
   const showFpsRequestVersionRef = useRef(0);
@@ -674,23 +752,64 @@ export default function SettingsPage() {
     label: toShortcutDisplayLabel(option),
   }));
 
+  const settingsPageSidebar = useCallback(
+    ({ collapsed }: { collapsed: boolean }) => (
+      <Sidebar collapsed={collapsed}>
+        <SidebarHeader>
+          {collapsed ? (
+            <h2 className="text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Nav
+            </h2>
+          ) : (
+            <h2 className="text-sm font-semibold">Settings</h2>
+          )}
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarMenu>
+            {SETTINGS_SUBPAGES.map((subpage) => (
+              <SidebarMenuButton
+                key={subpage.id}
+                isActive={activeSubpage === subpage.id}
+                collapsed={collapsed}
+                onClick={() => setActiveSubpage(subpage.id)}
+              >
+                <subpage.icon aria-hidden="true" className="size-4 shrink-0" />
+                {!collapsed && <span className="truncate">{subpage.label}</span>}
+              </SidebarMenuButton>
+            ))}
+          </SidebarMenu>
+        </SidebarContent>
+      </Sidebar>
+    ),
+    [activeSubpage],
+  );
+
+  useAppLayout({
+    pageSidebar: settingsPageSidebar,
+  });
+
   return (
     <>
       <div className="space-y-3">
         <div className="space-y-1">
-          <h1 className="text-xl font-semibold text-foreground">Settings</h1>
+          <h1 className="text-xl font-semibold text-foreground">
+            {SETTINGS_SUBPAGES.find((s) => s.id === activeSubpage)?.label ?? "Settings"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Connect a Git repository folder to manage workspace operations and
-            Groove-level settings.
+            {activeSubpage === "general" && "Toggles, keyboard shortcuts, and integrations for Groove."}
+            {activeSubpage === "workspace" && "Configure commands and paths for the active workspace."}
+            {activeSubpage === "personalization" && "Customize the look, feel, and sounds of Groove."}
+            {activeSubpage === "about" && "Information about Groove."}
           </p>
         </div>
 
-        {isLoading && (
+        {isLoading && activeSubpage === "workspace" && (
           <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
             Loading active workspace...
           </p>
         )}
 
+        {activeSubpage === "workspace" && (
         <Collapsible defaultOpen>
           <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
@@ -791,7 +910,463 @@ export default function SettingsPage() {
             </CollapsibleContent>
           </Card>
         </Collapsible>
+        )}
 
+        {activeSubpage === "personalization" && (
+        <>
+        <Collapsible defaultOpen>
+          <Card className="gap-0 py-4">
+            <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
+                  aria-label="Toggle sounds settings"
+                >
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="size-4 text-muted-foreground transition-transform duration-200"
+                  />
+                  <CardTitle className="text-sm">Sounds</CardTitle>
+                </button>
+              </CollapsibleTrigger>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent className="space-y-4">
+                <GrooveSoundSettingsPanel
+                  grooveSoundSettings={
+                    globalSettingsSnapshot.grooveSoundSettings
+                  }
+                  soundLibrary={soundLibrary}
+                  onSoundLibraryChanged={setSoundLibrary}
+                />
+
+                <section className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-medium text-foreground">
+                      Sound library
+                    </h3>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isSoundImporting}
+                      onClick={() => {
+                        setIsSoundImporting(true);
+                        setSoundMessage(null);
+                        setSoundMessageType(null);
+
+                        void (async () => {
+                          try {
+                            const result = await soundLibraryImport();
+                            if (!result.ok || !result.globalSettings) {
+                              setSoundMessageType("error");
+                              setSoundMessage(
+                                result.error ?? "Failed to import sound.",
+                              );
+                              return;
+                            }
+                            setSoundLibrary(result.globalSettings.soundLibrary);
+                            if (result.error) {
+                              setSoundMessageType("error");
+                              setSoundMessage(result.error);
+                            }
+                          } catch {
+                            setSoundMessageType("error");
+                            setSoundMessage("Failed to import sound.");
+                          } finally {
+                            setIsSoundImporting(false);
+                          }
+                        })();
+                      }}
+                    >
+                      {isSoundImporting ? "Importing..." : "Import sound"}
+                    </Button>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    Import audio files (mp3, wav, ogg, flac, m4a, aac, webm) to
+                    use as notification sounds.
+                  </p>
+
+                  {soundLibrary.length === 0 && (
+                    <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                      No sounds imported yet. Import a sound file to get
+                      started.
+                    </p>
+                  )}
+
+                  {soundLibrary.length > 0 && (
+                    <TooltipProvider>
+                      <div className="rounded-lg border bg-card">
+                        <Table>
+                          <TableBody>
+                            {soundLibrary.map((sound) => (
+                              <TableRow key={sound.id}>
+                                <TableCell className="w-[35%]">
+                                  <div className="flex items-center gap-2 px-2 py-1">
+                                    {renamingSoundId === sound.id ? (
+                                      <form
+                                        className="flex min-w-0 flex-1 items-center gap-1"
+                                        onSubmit={(e) => {
+                                          e.preventDefault();
+                                          const trimmed = renameValue.trim();
+                                          if (!trimmed) return;
+                                          setRenamingSoundId(null);
+                                          void (async () => {
+                                            try {
+                                              const result =
+                                                await soundLibraryRename(
+                                                  sound.id,
+                                                  trimmed,
+                                                );
+                                              if (
+                                                result.ok &&
+                                                result.globalSettings
+                                              ) {
+                                                setSoundLibrary(
+                                                  result.globalSettings
+                                                    .soundLibrary,
+                                                );
+                                              }
+                                            } catch {
+                                              setSoundMessageType("error");
+                                              setSoundMessage(
+                                                "Failed to rename sound.",
+                                              );
+                                            }
+                                          })();
+                                        }}
+                                      >
+                                        <Input
+                                          ref={renameInputRef}
+                                          className="h-7 min-w-0 flex-1 text-sm"
+                                          value={renameValue}
+                                          onChange={(e) =>
+                                            setRenameValue(e.target.value)
+                                          }
+                                          onBlur={() =>
+                                            setRenamingSoundId(null)
+                                          }
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Escape") {
+                                              setRenamingSoundId(null);
+                                            }
+                                          }}
+                                        />
+                                        <Button
+                                          type="submit"
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-7 w-7 p-0"
+                                          onMouseDown={(e) =>
+                                            e.preventDefault()
+                                          }
+                                        >
+                                          <Check className="size-3.5" />
+                                        </Button>
+                                      </form>
+                                    ) : (
+                                      <span className="min-w-0 truncate text-sm font-medium text-foreground">
+                                        {sound.name}
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <SoundWaveform
+                                    fileName={sound.fileName}
+                                    isPlaying={playingSoundId === sound.id}
+                                    barCount={60}
+                                    className="h-5 flex-1"
+                                    onStatusChange={(status) =>
+                                      setSoundFileStatus((prev) => ({
+                                        ...prev,
+                                        [sound.id]: status,
+                                      }))
+                                    }
+                                  />
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {(() => {
+                                    const status = soundFileStatus[sound.id];
+                                    const isSoundError = status === "error";
+                                    const isSoundLoading = status === "loading";
+                                    const isPlayDisabled =
+                                      isSoundError || isSoundLoading;
+                                    const playTooltip = isSoundError
+                                      ? "Sound file unavailable or corrupt"
+                                      : isSoundLoading
+                                        ? "Loading sound…"
+                                        : "Play sound";
+
+                                    return (
+                                  <div className="flex items-center justify-end gap-1">
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-8 w-8 p-0"
+                                          aria-label={`More actions for ${sound.name}`}
+                                        >
+                                          <MoreHorizontal className="size-4" />
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end">
+                                        <DropdownMenuItem
+                                          onSelect={() => {
+                                            void soundLibraryOpenDirectory();
+                                          }}
+                                        >
+                                          <FolderOpen className="mr-2 size-4" />
+                                          Open directory
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() => {
+                                            void soundLibraryGetPath(
+                                              sound.id,
+                                            ).then((res) => {
+                                              if (res.ok && res.folderPath) {
+                                                void navigator.clipboard.writeText(
+                                                  res.folderPath,
+                                                );
+                                              }
+                                            });
+                                          }}
+                                        >
+                                          <Copy className="mr-2 size-4" />
+                                          Copy path
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() => {
+                                            void soundLibraryGetPath(
+                                              sound.id,
+                                            ).then((res) => {
+                                              if (res.ok && res.filePath) {
+                                                void navigator.clipboard.writeText(
+                                                  res.filePath,
+                                                );
+                                              }
+                                            });
+                                          }}
+                                        >
+                                          <FileText className="mr-2 size-4" />
+                                          Copy file path
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() => {
+                                            setRenameValue(sound.name);
+                                            setRenamingSoundId(sound.id);
+                                          }}
+                                        >
+                                          <Pencil className="mr-2 size-4" />
+                                          Rename
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="inline-flex">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          disabled={isPlayDisabled}
+                                          className={`h-8 w-8 p-0 ${isPlayDisabled ? "" : SOFT_GREEN_BUTTON_CLASSES}`}
+                                          aria-label={`Play ${sound.name}`}
+                                          onClick={() => {
+                                            setPlayingSoundId(sound.id);
+                                            void playCustomSound(
+                                              sound.fileName,
+                                            ).then((result) => {
+                                              const ms = result.played
+                                                ? Math.max(
+                                                    300,
+                                                    result.duration * 1000,
+                                                  )
+                                                : 300;
+                                              setTimeout(() => {
+                                                setPlayingSoundId((current) =>
+                                                  current === sound.id
+                                                    ? null
+                                                    : current,
+                                                );
+                                              }, ms);
+                                            });
+                                          }}
+                                        >
+                                          <Play
+                                            aria-hidden="true"
+                                            className="size-4"
+                                          />
+                                        </Button>
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        {playTooltip}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          className={`h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`}
+                                          aria-label={`Remove ${sound.name}`}
+                                          onClick={() => {
+                                            void (async () => {
+                                              try {
+                                                const result =
+                                                  await soundLibraryRemove(
+                                                    sound.id,
+                                                  );
+                                                if (
+                                                  !result.ok ||
+                                                  !result.globalSettings
+                                                ) {
+                                                  setSoundMessageType("error");
+                                                  setSoundMessage(
+                                                    result.error ??
+                                                      "Failed to remove sound.",
+                                                  );
+                                                  return;
+                                                }
+                                                setSoundLibrary(
+                                                  result.globalSettings
+                                                    .soundLibrary,
+                                                );
+                                              } catch {
+                                                setSoundMessageType("error");
+                                                setSoundMessage(
+                                                  "Failed to remove sound.",
+                                                );
+                                              }
+                                            })();
+                                          }}
+                                        >
+                                          <X
+                                            aria-hidden="true"
+                                            className="size-4"
+                                          />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        Remove sound
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </div>
+                                    );
+                                  })()}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </TooltipProvider>
+                  )}
+
+                  {soundMessage && soundMessageType === "error" && (
+                    <p className="text-xs text-destructive">{soundMessage}</p>
+                  )}
+                </section>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+
+        <Collapsible defaultOpen>
+          <Card className="gap-0 py-4">
+            <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
+                  aria-label="Toggle appearance settings"
+                >
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="size-4 text-muted-foreground transition-transform duration-200"
+                  />
+                  <CardTitle className="text-sm">Appearance</CardTitle>
+                </button>
+              </CollapsibleTrigger>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Applies across pages and workspaces and is saved on this
+                  device.
+                </p>
+
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {THEME_MODE_OPTIONS.map((option) => {
+                    const isSelected = themeMode === option.value;
+                    const isDark = DARK_THEME_MODES.has(option.value);
+
+                    return (
+                      <label
+                        key={option.value}
+                        data-theme={option.value}
+                        className={`flex cursor-pointer items-start gap-3 rounded-md border border-border bg-background px-3 py-3 text-sm transition-colors hover:border-border/80 ${isDark ? "dark" : ""}`}
+                      >
+                        <input
+                          type="radio"
+                          name="theme-mode"
+                          value={option.value}
+                          checked={isSelected}
+                          onChange={() => {
+                            onThemeModeChange(option.value);
+                          }}
+                          className="peer sr-only"
+                        />
+                        <span
+                          aria-hidden="true"
+                          className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/60 transition-colors peer-checked:border-foreground peer-checked:bg-foreground/10 peer-checked:[&>span]:opacity-100 peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2"
+                        >
+                          <span className="size-2 rounded-full bg-foreground opacity-0 transition-opacity" />
+                        </span>
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div>
+                            <span className="block font-medium text-foreground">
+                              {option.label}
+                            </span>
+                            <span className="block text-xs text-muted-foreground">
+                              {option.description}
+                            </span>
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex h-6 items-center rounded-md bg-primary px-2 text-[11px] font-medium text-primary-foreground">
+                                Primary
+                              </span>
+                              <span className="inline-flex h-6 items-center rounded-md bg-secondary px-2 text-[11px] font-medium text-secondary-foreground">
+                                Chip
+                              </span>
+                            </div>
+
+                            <div className="rounded-md border border-input bg-card px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                              Search branches...
+                            </div>
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
+        </>
+        )}
+
+        {activeSubpage === "general" && (
+        <>
         <Collapsible defaultOpen>
           <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
@@ -919,312 +1494,6 @@ export default function SettingsPage() {
                   workspaceRoot={workspaceRoot}
                 />
                 <ClaudeCodeIntegrationPanel />
-              </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
-
-        <Collapsible defaultOpen>
-          <Card className="gap-0 py-4">
-            <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
-                  aria-label="Toggle sounds settings"
-                >
-                  <ChevronDown
-                    aria-hidden="true"
-                    className="size-4 text-muted-foreground transition-transform duration-200"
-                  />
-                  <CardTitle className="text-sm">Sounds</CardTitle>
-                </button>
-              </CollapsibleTrigger>
-            </CardHeader>
-            <CollapsibleContent>
-              <CardContent className="space-y-4">
-                <GrooveSoundSettingsPanel
-                  grooveSoundSettings={
-                    globalSettingsSnapshot.grooveSoundSettings
-                  }
-                  soundLibrary={soundLibrary}
-                  onSoundLibraryChanged={setSoundLibrary}
-                />
-
-                <section className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-medium text-foreground">
-                      Sound library
-                    </h3>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={isSoundImporting}
-                      onClick={() => {
-                        setIsSoundImporting(true);
-                        setSoundMessage(null);
-                        setSoundMessageType(null);
-
-                        void (async () => {
-                          try {
-                            const result = await soundLibraryImport();
-                            if (!result.ok || !result.globalSettings) {
-                              setSoundMessageType("error");
-                              setSoundMessage(
-                                result.error ?? "Failed to import sound.",
-                              );
-                              return;
-                            }
-                            setSoundLibrary(result.globalSettings.soundLibrary);
-                            if (result.error) {
-                              setSoundMessageType("error");
-                              setSoundMessage(result.error);
-                            }
-                          } catch {
-                            setSoundMessageType("error");
-                            setSoundMessage("Failed to import sound.");
-                          } finally {
-                            setIsSoundImporting(false);
-                          }
-                        })();
-                      }}
-                    >
-                      {isSoundImporting ? "Importing..." : "Import sound"}
-                    </Button>
-                  </div>
-
-                  <p className="text-xs text-muted-foreground">
-                    Import audio files (mp3, wav, ogg, flac, m4a, aac, webm) to
-                    use as notification sounds.
-                  </p>
-
-                  {soundLibrary.length === 0 && (
-                    <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-                      No sounds imported yet. Import a sound file to get
-                      started.
-                    </p>
-                  )}
-
-                  {soundLibrary.length > 0 && (
-                    <TooltipProvider>
-                      <div className="rounded-lg border bg-card">
-                        <Table>
-                          <TableBody>
-                            {soundLibrary.map((sound) => (
-                              <TableRow key={sound.id}>
-                                <TableCell className="w-[35%]">
-                                  <div className="flex items-center gap-2 px-2 py-1">
-                                    <span className="min-w-0 truncate text-sm font-medium text-foreground">
-                                      {sound.name}
-                                    </span>
-                                  </div>
-                                </TableCell>
-                                <TableCell>
-                                  <SoundWaveform
-                                    fileName={sound.fileName}
-                                    isPlaying={playingSoundId === sound.id}
-                                    barCount={60}
-                                    className="h-5 flex-1"
-                                  />
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex items-center justify-end gap-1">
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          size="sm"
-                                          className={`h-8 w-8 p-0 ${SOFT_GREEN_BUTTON_CLASSES}`}
-                                          aria-label={`Play ${sound.name}`}
-                                          onClick={() => {
-                                            setPlayingSoundId(sound.id);
-                                            void playCustomSound(
-                                              sound.fileName,
-                                            ).then((durationSec) => {
-                                              const ms = Math.max(
-                                                300,
-                                                durationSec * 1000,
-                                              );
-                                              setTimeout(() => {
-                                                setPlayingSoundId((current) =>
-                                                  current === sound.id
-                                                    ? null
-                                                    : current,
-                                                );
-                                              }, ms);
-                                            });
-                                          }}
-                                        >
-                                          <Play
-                                            aria-hidden="true"
-                                            className="size-4"
-                                          />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        Play sound
-                                      </TooltipContent>
-                                    </Tooltip>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          size="sm"
-                                          className={`h-8 w-8 p-0 ${SOFT_RED_BUTTON_CLASSES}`}
-                                          aria-label={`Remove ${sound.name}`}
-                                          onClick={() => {
-                                            void (async () => {
-                                              try {
-                                                const result =
-                                                  await soundLibraryRemove(
-                                                    sound.id,
-                                                  );
-                                                if (
-                                                  !result.ok ||
-                                                  !result.globalSettings
-                                                ) {
-                                                  setSoundMessageType("error");
-                                                  setSoundMessage(
-                                                    result.error ??
-                                                      "Failed to remove sound.",
-                                                  );
-                                                  return;
-                                                }
-                                                setSoundLibrary(
-                                                  result.globalSettings
-                                                    .soundLibrary,
-                                                );
-                                              } catch {
-                                                setSoundMessageType("error");
-                                                setSoundMessage(
-                                                  "Failed to remove sound.",
-                                                );
-                                              }
-                                            })();
-                                          }}
-                                        >
-                                          <X
-                                            aria-hidden="true"
-                                            className="size-4"
-                                          />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        Remove sound
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </TooltipProvider>
-                  )}
-
-                  {soundMessage && soundMessageType === "error" && (
-                    <p className="text-xs text-destructive">{soundMessage}</p>
-                  )}
-                </section>
-              </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
-
-        <Collapsible defaultOpen>
-          <Card className="gap-0 py-4">
-            <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
-                  aria-label="Toggle appearance settings"
-                >
-                  <ChevronDown
-                    aria-hidden="true"
-                    className="size-4 text-muted-foreground transition-transform duration-200"
-                  />
-                  <CardTitle className="text-sm">Appearance</CardTitle>
-                </button>
-              </CollapsibleTrigger>
-            </CardHeader>
-            <CollapsibleContent>
-              <CardContent className="space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  Applies across pages and workspaces and is saved on this
-                  device.
-                </p>
-
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  {THEME_MODE_OPTIONS.map((option) => {
-                    const isSelected = themeMode === option.value;
-
-                    return (
-                      <label
-                        key={option.value}
-                        className="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 text-sm text-foreground transition-colors hover:border-border/80"
-                      >
-                        <input
-                          type="radio"
-                          name="theme-mode"
-                          value={option.value}
-                          checked={isSelected}
-                          onChange={() => {
-                            onThemeModeChange(option.value);
-                          }}
-                          className="peer sr-only"
-                        />
-                        <span
-                          aria-hidden="true"
-                          className="mt-0.5 flex size-4 items-center justify-center rounded-full border border-muted-foreground/60 transition-colors peer-checked:border-foreground peer-checked:bg-foreground/10 peer-checked:[&>span]:opacity-100 peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2"
-                        >
-                          <span className="size-2 rounded-full bg-foreground opacity-0 transition-opacity" />
-                        </span>
-                        <div className="space-y-1">
-                          <span className="block font-medium text-foreground">
-                            {option.label}
-                          </span>
-                          <span className="block text-xs text-muted-foreground">
-                            {option.description}
-                          </span>
-
-                          <div
-                            data-theme={option.value}
-                            className="rounded-md border border-border bg-background p-3"
-                          >
-                            <div className="space-y-3">
-                              <div className="flex items-center gap-1.5">
-                                <span className="inline-flex h-6 items-center rounded-md bg-primary px-2 text-[11px] font-medium text-primary-foreground">
-                                  Primary
-                                </span>
-                                <span className="inline-flex h-6 items-center rounded-md bg-secondary px-2 text-[11px] font-medium text-secondary-foreground">
-                                  Chip
-                                </span>
-                              </div>
-
-                              <div className="rounded-md border border-input bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
-                                Search branches...
-                              </div>
-
-                              <div className="rounded-md border border-border bg-card px-2.5 py-2">
-                                <p className="text-[11px] font-medium text-card-foreground">
-                                  Preview card
-                                </p>
-                                <p className="text-[10px] text-muted-foreground">
-                                  Body text and muted helper content.
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
               </CardContent>
             </CollapsibleContent>
           </Card>
@@ -1562,6 +1831,24 @@ export default function SettingsPage() {
             </CollapsibleContent>
           </Card>
         </Collapsible>
+        </>
+        )}
+
+        {activeSubpage === "about" && (
+          <Card className="gap-0 py-4">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm">About Groove</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                Groove is a desktop app for managing Git multi-worktree
+                development. It discovers worktrees, launches terminals and
+                build commands per worktree, monitors runtime processes, and
+                persists workspace settings.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <WorktreeSymlinkPathsModal
           open={isWorktreeSymlinkModalOpen}

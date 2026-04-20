@@ -8,6 +8,7 @@ export const SUPPORTED_TERMINAL_OPTIONS: Array<{
   { value: "ghostty", label: "Ghostty" },
   { value: "warp", label: "Warp" },
   { value: "kitty", label: "Kitty" },
+  { value: "alacritty", label: "Alacritty" },
   { value: "gnome", label: "GNOME Terminal" },
   { value: "xterm", label: "xterm" },
   { value: "none", label: "None" },

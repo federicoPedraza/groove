@@ -447,6 +447,10 @@ struct WorkspaceMeta {
     #[serde(default = "default_opencode_settings")]
     opencode_settings: OpencodeSettings,
     #[serde(default)]
+    onboarding_symlinks_configured: bool,
+    #[serde(default)]
+    onboarding_commands_configured: bool,
+    #[serde(default)]
     worktree_records: HashMap<String, WorktreeRecord>,
     #[serde(default)]
     summaries: Vec<SummaryRecord>,
@@ -627,6 +631,15 @@ struct WorkspaceCommandSettingsPayload {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkspaceMarkOnboardingPayload {
+    #[serde(default)]
+    symlinks_configured: bool,
+    #[serde(default)]
+    commands_configured: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkspaceWorktreeSymlinkPathsPayload {
     #[serde(default)]
     worktree_symlink_paths: Vec<String>,
@@ -686,6 +699,32 @@ struct SoundLibraryRemovePayload {
 #[serde(rename_all = "camelCase")]
 struct SoundLibraryReadPayload {
     file_name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundLibraryRenamePayload {
+    sound_id: String,
+    new_name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundLibraryGetPathPayload {
+    sound_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundLibraryPathResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1550,6 +1589,8 @@ struct DiagnosticsSystemOverview {
     platform: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     hostname: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

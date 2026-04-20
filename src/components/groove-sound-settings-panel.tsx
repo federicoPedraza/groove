@@ -12,7 +12,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/src/components/ui/tooltip";
-import { SoundWaveform } from "@/src/components/ui/sound-waveform";
+import {
+  SoundWaveform,
+  type SoundWaveformStatus,
+} from "@/src/components/ui/sound-waveform";
 import { SOFT_GREEN_BUTTON_CLASSES } from "@/src/components/pages/dashboard/constants";
 import type {
   GrooveSoundSettings,
@@ -77,6 +80,9 @@ export function GrooveSoundSettingsPanel({
   const [isImporting, setIsImporting] = useState(false);
   const [playingHook, setPlayingHook] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [soundStatus, setSoundStatus] = useState<
+    Record<string, SoundWaveformStatus>
+  >({});
   const requestVersionRef = useRef(0);
 
   const syncedSettings =
@@ -231,59 +237,93 @@ export function GrooveSoundSettingsPanel({
                           isPlaying={playingHook === hook.key}
                           barCount={60}
                           className="h-5 flex-1"
+                          onStatusChange={(status) =>
+                            setSoundStatus((prev) => ({
+                              ...prev,
+                              [hook.key]: status,
+                            }))
+                          }
                         />
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className={`h-8 w-8 shrink-0 p-0 ${SOFT_GREEN_BUTTON_CLASSES}`}
-                                aria-label={`Play ${hook.label} sound`}
-                                onClick={() => {
-                                  const selectedSound = hookEntry.soundId
-                                    ? soundLibrary.find(
-                                        (s) => s.id === hookEntry.soundId,
-                                      )
-                                    : null;
-
-                                  setPlayingHook(hook.key);
-
-                                  if (selectedSound) {
-                                    void playCustomSound(
-                                      selectedSound.fileName,
-                                    ).then((durationSec) => {
-                                      const ms = Math.max(
-                                        300,
-                                        durationSec * 1000,
-                                      );
-                                      setTimeout(() => {
-                                        setPlayingHook((current) =>
-                                          current === hook.key ? null : current,
-                                        );
-                                      }, ms);
-                                    });
-                                  } else {
-                                    playNotificationSound();
-                                    setTimeout(() => {
-                                      setPlayingHook((current) =>
-                                        current === hook.key ? null : current,
-                                      );
-                                    }, 300);
-                                  }
-                                }}
-                              >
-                                <Play aria-hidden="true" className="size-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {hookEntry.soundId
+                        {(() => {
+                          const status = soundStatus[hook.key];
+                          const isSoundError =
+                            hookEntry.soundId != null && status === "error";
+                          const isSoundLoading =
+                            hookEntry.soundId != null && status === "loading";
+                          const isDisabled =
+                            isSoundError || isSoundLoading;
+                          const tooltipText = isSoundError
+                            ? "Sound file unavailable or corrupt"
+                            : isSoundLoading
+                              ? "Loading sound…"
+                              : hookEntry.soundId
                                 ? "Play selected sound"
-                                : "Play default sound"}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
+                                : "Play default sound";
+
+                          return (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-flex">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={isDisabled}
+                                      className={`h-8 w-8 shrink-0 p-0 ${isDisabled ? "" : SOFT_GREEN_BUTTON_CLASSES}`}
+                                      aria-label={`Play ${hook.label} sound`}
+                                      onClick={() => {
+                                        const selectedSound = hookEntry.soundId
+                                          ? soundLibrary.find(
+                                              (s) =>
+                                                s.id === hookEntry.soundId,
+                                            )
+                                          : null;
+
+                                        setPlayingHook(hook.key);
+
+                                        if (selectedSound) {
+                                          void playCustomSound(
+                                            selectedSound.fileName,
+                                          ).then((result) => {
+                                            const ms = result.played
+                                              ? Math.max(
+                                                  300,
+                                                  result.duration * 1000,
+                                                )
+                                              : 300;
+                                            setTimeout(() => {
+                                              setPlayingHook((current) =>
+                                                current === hook.key
+                                                  ? null
+                                                  : current,
+                                              );
+                                            }, ms);
+                                          });
+                                        } else {
+                                          playNotificationSound();
+                                          setTimeout(() => {
+                                            setPlayingHook((current) =>
+                                              current === hook.key
+                                                ? null
+                                                : current,
+                                            );
+                                          }, 300);
+                                        }
+                                      }}
+                                    >
+                                      <Play
+                                        aria-hidden="true"
+                                        className="size-4"
+                                      />
+                                    </Button>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>{tooltipText}</TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        })()}
                       </div>
                     </div>
                   )}

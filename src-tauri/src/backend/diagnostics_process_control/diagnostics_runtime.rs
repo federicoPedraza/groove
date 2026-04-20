@@ -149,12 +149,18 @@ fn collect_system_overview() -> DiagnosticsSystemOverview {
     let platform = crate::backend::common::platform_env::Platform::current().to_string();
     let hostname = resolve_hostname();
     let cpu_cores = resolve_cpu_cores();
+    let mut warnings: Vec<String> = Vec::new();
+
     let cpu_usage_percent = read_linux_cpu_usage_percent();
+    if cpu_usage_percent.is_none() {
+        warnings.push(format!("CPU usage: could not read /proc/stat (platform: {platform})"));
+    }
 
     let (ram_total_bytes, ram_used_bytes, ram_usage_percent) =
         if let Some((total, used, usage_percent)) = read_linux_ram_usage() {
             (Some(total), Some(used), Some(usage_percent))
         } else {
+            warnings.push(format!("RAM usage: could not read /proc/meminfo (platform: {platform})"));
             (None, None, None)
         };
 
@@ -162,6 +168,7 @@ fn collect_system_overview() -> DiagnosticsSystemOverview {
         if let Some((total, used, usage_percent)) = read_linux_swap_usage() {
             (Some(total), Some(used), Some(usage_percent))
         } else {
+            warnings.push(format!("Swap usage: could not read /proc/meminfo (platform: {platform})"));
             (None, None, None)
         };
 
@@ -170,6 +177,10 @@ fn collect_system_overview() -> DiagnosticsSystemOverview {
         if let Some((total, used, usage_percent)) = read_linux_disk_usage(&disk_target) {
             (Some(total), Some(used), Some(usage_percent))
         } else {
+            warnings.push(format!(
+                "Disk usage: df failed for path '{}' (platform: {platform})",
+                disk_target.display()
+            ));
             (None, None, None)
         };
 
@@ -187,5 +198,6 @@ fn collect_system_overview() -> DiagnosticsSystemOverview {
         disk_usage_percent,
         platform,
         hostname,
+        warnings,
     }
 }

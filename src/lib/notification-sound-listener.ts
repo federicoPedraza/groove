@@ -65,7 +65,11 @@ export function startNotificationListener(workspaceRoot: string): void {
       if (hookEntry.enabled && hookEntry.soundId) {
         const sound = soundLibrary.find((s) => s.id === hookEntry.soundId);
         if (sound) {
-          void playCustomSound(sound.fileName);
+          void playCustomSound(sound.fileName).then((result) => {
+            if (!result.played) {
+              playNotificationSound();
+            }
+          });
           return;
         }
       }

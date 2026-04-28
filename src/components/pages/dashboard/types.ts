@@ -10,6 +10,7 @@ export type WorkspaceMeta = {
   playGrooveCommand?: string;
   openTerminalAtWorktreeCommand?: string | null;
   runLocalCommand?: string | null;
+  rootDirectory?: string | null;
 };
 
 export type WorktreeRow = WorkspaceRow;

@@ -106,6 +106,7 @@ import {
   subscribeToGlobalSettings,
   workspaceGetActive,
   workspaceUpdateCommandsSettings,
+  workspaceUpdateRootDirectory,
   workspaceUpdateWorktreeSymlinkPaths,
   type WorkspaceCommandSettingsPayload,
   type SoundLibraryEntry,
@@ -227,6 +228,14 @@ export default function SettingsPage() {
   const [worktreeSymlinkPaths, setWorktreeSymlinkPaths] = useState<string[]>(
     [],
   );
+  const [rootDirectoryInput, setRootDirectoryInput] = useState("");
+  const [isRootDirectorySaving, setIsRootDirectorySaving] = useState(false);
+  const [rootDirectoryMessage, setRootDirectoryMessage] = useState<
+    string | null
+  >(null);
+  const [rootDirectoryMessageType, setRootDirectoryMessageType] = useState<
+    "success" | "error" | null
+  >(null);
   const [isWorktreeSymlinkModalOpen, setIsWorktreeSymlinkModalOpen] =
     useState(false);
   const [isWorktreeSymlinkSaving, setIsWorktreeSymlinkSaving] = useState(false);
@@ -302,6 +311,45 @@ export default function SettingsPage() {
     setThemeMode(globalSettingsSnapshot.themeMode);
     setSoundLibrary(globalSettingsSnapshot.soundLibrary);
   }, [globalSettingsSnapshot]);
+
+  const onSaveRootDirectory = useCallback(async () => {
+    if (!workspaceMeta) {
+      setRootDirectoryMessage(
+        "Connect a repository before changing the scope directory.",
+      );
+      setRootDirectoryMessageType("error");
+      return;
+    }
+    setIsRootDirectorySaving(true);
+    setRootDirectoryMessage(null);
+    setRootDirectoryMessageType(null);
+    try {
+      const trimmed = rootDirectoryInput.trim();
+      const result = await workspaceUpdateRootDirectory({
+        rootDirectory: trimmed.length === 0 ? null : trimmed,
+      });
+      if (!result.ok || !result.workspaceMeta) {
+        setRootDirectoryMessage(
+          result.error ?? "Failed to update scope directory.",
+        );
+        setRootDirectoryMessageType("error");
+        return;
+      }
+      setWorkspaceMeta(result.workspaceMeta);
+      setRootDirectoryInput(result.workspaceMeta.rootDirectory ?? "");
+      setRootDirectoryMessage(
+        result.workspaceMeta.rootDirectory
+          ? `Scope directory set to "${result.workspaceMeta.rootDirectory}".`
+          : "Scope directory cleared.",
+      );
+      setRootDirectoryMessageType("success");
+    } catch {
+      setRootDirectoryMessage("Failed to update scope directory.");
+      setRootDirectoryMessageType("error");
+    } finally {
+      setIsRootDirectorySaving(false);
+    }
+  }, [rootDirectoryInput, workspaceMeta]);
 
   const onSaveCommandSettings = useCallback(
     async (payload: WorkspaceCommandSettingsPayload) => {
@@ -440,6 +488,7 @@ export default function SettingsPage() {
           setOpenTerminalAtWorktreeCommand("");
           setRunLocalCommand("");
           setWorktreeSymlinkPaths([]);
+          setRootDirectoryInput("");
           const durationMs = Math.max(0, performance.now() - startedAtMs);
           logSettingsTelemetry("workspace_get_active.settings", {
             duration_ms: Number(durationMs.toFixed(2)),
@@ -463,6 +512,7 @@ export default function SettingsPage() {
         setWorktreeSymlinkPaths(
           result.workspaceMeta.worktreeSymlinkPaths ?? [],
         );
+        setRootDirectoryInput(result.workspaceMeta.rootDirectory ?? "");
         setSaveState("idle");
 
         const durationMs = Math.max(0, performance.now() - startedAtMs);
@@ -829,6 +879,71 @@ export default function SettingsPage() {
             </CardHeader>
             <CollapsibleContent>
               <CardContent className="space-y-3">
+                <section className="space-y-3">
+                  <h3 className="text-sm font-medium text-foreground">
+                    Scope directory
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Optional path (relative to the workspace root) where Groove
+                    should create and look for <code>.worktrees/</code>. Leave
+                    blank to operate at the workspace root. Useful when you
+                    open a monorepo root in Groove but want to scope worktrees
+                    to a sub-app like <code>apps/next</code>.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      value={rootDirectoryInput}
+                      onChange={(event) =>
+                        setRootDirectoryInput(event.target.value)
+                      }
+                      placeholder="apps/next"
+                      disabled={!workspaceMeta || isRootDirectorySaving}
+                      className="max-w-xs"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        void onSaveRootDirectory();
+                      }}
+                      disabled={!workspaceMeta || isRootDirectorySaving}
+                    >
+                      {isRootDirectorySaving ? "Saving..." : "Save"}
+                    </Button>
+                    {workspaceMeta?.rootDirectory && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setRootDirectoryInput("");
+                          void onSaveRootDirectory();
+                        }}
+                        disabled={isRootDirectorySaving}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  {!workspaceMeta && (
+                    <p className="text-xs text-muted-foreground">
+                      Connect a repository to configure the scope directory.
+                    </p>
+                  )}
+                  {rootDirectoryMessage &&
+                    rootDirectoryMessageType === "success" && (
+                      <p className="text-xs text-green-800">
+                        {rootDirectoryMessage}
+                      </p>
+                    )}
+                  {rootDirectoryMessage &&
+                    rootDirectoryMessageType === "error" && (
+                      <p className="text-xs text-destructive">
+                        {rootDirectoryMessage}
+                      </p>
+                    )}
+                </section>
+
                 <section className="space-y-3">
                   <h3 className="text-sm font-medium text-foreground">
                     Commands

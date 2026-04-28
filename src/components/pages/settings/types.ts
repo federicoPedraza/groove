@@ -15,6 +15,7 @@ export type WorkspaceMeta = {
   runLocalCommand?: string | null;
   worktreeSymlinkPaths?: string[];
   opencodeSettings?: OpencodeSettings;
+  rootDirectory?: string | null;
 };
 
 export type SaveState = "idle" | "saving" | "success" | "error";

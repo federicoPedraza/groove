@@ -236,8 +236,16 @@ export default function WorktreeDetailPage() {
           {!hasWorktreesDirectory ? (
             <Card>
               <CardContent className="py-6 text-sm text-muted-foreground">
-                No <code>.worktrees</code> directory found under this workspace
-                root yet.
+                No <code>.worktrees</code> directory found under{" "}
+                {activeWorkspace?.workspaceMeta?.rootDirectory ? (
+                  <>
+                    the scope directory{" "}
+                    <code>{activeWorkspace.workspaceMeta.rootDirectory}</code>
+                  </>
+                ) : (
+                  "this workspace root"
+                )}
+                {" "}yet.
               </CardContent>
             </Card>
           ) : null}

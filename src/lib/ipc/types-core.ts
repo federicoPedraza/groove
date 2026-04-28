@@ -72,6 +72,7 @@ export type WorkspaceMeta = {
   onboardingCommandsConfigured?: boolean;
   worktreeRecords?: Record<string, WorktreeRecord>;
   summaries?: SummaryRecord[];
+  rootDirectory?: string | null;
 };
 
 export type WorkspaceRow = {

@@ -160,9 +160,10 @@ fn build_workspace_context(
     let meta_elapsed = meta_started_at.elapsed();
 
     let scan_started_at = Instant::now();
+    let scan_root = effective_workspace_root(workspace_root, &workspace_meta);
     let (has_worktrees_directory, rows) = match scan_workspace_worktrees(
         app,
-        workspace_root,
+        &scan_root,
         &workspace_meta.worktree_records,
     ) {
         Ok(result) => result,
@@ -299,6 +300,11 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
     });
     let opencode_settings = None;
     let worktree_records = None;
+    let root_directory = obj
+        .get("rootDirectory")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string())
+        .filter(|v| !v.trim().is_empty());
 
     if version.is_none()
         && root_name.is_none()
@@ -315,6 +321,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         && worktree_symlink_paths.is_none()
         && opencode_settings.is_none()
         && worktree_records.is_none()
+        && root_directory.is_none()
     {
         return None;
     }
@@ -335,6 +342,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         worktree_symlink_paths,
         opencode_settings,
         worktree_records,
+        root_directory,
     })
 }
 
@@ -528,38 +536,6 @@ fn validate_workspace_root_path(workspace_root: &str) -> Result<PathBuf, String>
     }
 
     Ok(root)
-}
-
-fn ensure_git_repository_root(workspace_root: &Path) -> Result<(), String> {
-    let git_entry = workspace_root.join(".git");
-    if !git_entry.exists() {
-        return Err(format!(
-            "\"{}\" is not a Git repository. Select the repository root folder (the one containing .git).",
-            workspace_root.display()
-        ));
-    }
-
-    let result = run_capture_command(
-        workspace_root,
-        "git",
-        &["rev-parse", "--is-inside-work-tree"],
-    );
-    if let Some(error) = result.error.clone() {
-        return Err(format!(
-            "Could not validate Git repository at \"{}\": {}",
-            workspace_root.display(),
-            error
-        ));
-    }
-
-    if result.exit_code != Some(0) || result.stdout.trim() != "true" {
-        return Err(format!(
-            "\"{}\" is not a valid Git repository. Select a folder initialized with Git.",
-            workspace_root.display()
-        ));
-    }
-
-    Ok(())
 }
 
 fn active_workspace_root_from_state(app: &AppHandle) -> Result<PathBuf, String> {

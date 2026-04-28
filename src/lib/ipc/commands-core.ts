@@ -264,6 +264,15 @@ export function workspaceUpdateCommandsSettings(
   );
 }
 
+export function workspaceUpdateRootDirectory(payload: {
+  rootDirectory?: string | null;
+}): Promise<WorkspaceTerminalSettingsResponse> {
+  return invokeCommand<WorkspaceTerminalSettingsResponse>(
+    "workspace_update_root_directory",
+    { payload },
+  );
+}
+
 export function workspaceMarkOnboardingConfigured(payload: {
   symlinksConfigured?: boolean;
   commandsConfigured?: boolean;

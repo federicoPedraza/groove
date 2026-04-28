@@ -1,5 +1,9 @@
 fn run_command(binary: &Path, args: &[String], cwd: &Path) -> CommandResult {
-    let output = Command::new(binary).args(args).current_dir(cwd).output();
+    let output = Command::new(binary)
+        .args(args)
+        .current_dir(cwd)
+        .env("GROOVE_REPO_ROOT", cwd)
+        .output();
 
     match output {
         Ok(output) => CommandResult {

@@ -53,6 +53,7 @@ pub(crate) fn run() {
             sound_library_open_directory,
             workspace_update_terminal_settings,
             workspace_update_commands_settings,
+            workspace_update_root_directory,
             workspace_mark_onboarding_configured,
             workspace_update_worktree_symlink_paths,
             workspace_list_symlink_entries,

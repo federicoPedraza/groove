@@ -18,21 +18,6 @@ fn workspace_pick_and_open(app: AppHandle) -> WorkspaceContextResponse {
         };
     };
 
-    if let Err(error) = ensure_git_repository_root(&selected) {
-        return WorkspaceContextResponse {
-            request_id,
-            ok: false,
-            workspace_root: Some(selected.display().to_string()),
-            repository_remote_url: None,
-            workspace_meta: None,
-            workspace_message: None,
-            has_worktrees_directory: None,
-            rows: Vec::new(),
-            cancelled: None,
-            error: Some(error),
-        };
-    }
-
     let response = build_workspace_context(&app, &selected, request_id.clone(), true);
     if response.ok {
         let next_workspace_root = response.workspace_root.as_deref();
@@ -92,21 +77,6 @@ fn workspace_open(app: AppHandle, workspace_root: String) -> WorkspaceContextRes
         return cached;
     }
 
-    if let Err(error) = ensure_git_repository_root(&root) {
-        return WorkspaceContextResponse {
-            request_id,
-            ok: false,
-            workspace_root: None,
-            repository_remote_url: None,
-            workspace_meta: None,
-            workspace_message: None,
-            has_worktrees_directory: None,
-            rows: Vec::new(),
-            cancelled: None,
-            error: Some(error),
-        };
-    }
-
     let response = build_workspace_context(&app, &root, request_id.clone(), true);
     if response.ok {
         let next_workspace_root = response.workspace_root.as_deref();
@@ -154,20 +124,6 @@ fn workspace_get_active(app: AppHandle) -> WorkspaceContextResponse {
                 telemetry_enabled = telemetry_enabled_for_app(&app);
                 if let Some(cached) = try_cached_workspace_context(&app, &root, &request_id) {
                     cached
-                } else if let Err(error) = ensure_git_repository_root(&root) {
-                    let _ = clear_persisted_active_workspace_root(&app);
-                    WorkspaceContextResponse {
-                        request_id,
-                        ok: false,
-                        workspace_root: Some(persisted_root),
-                        repository_remote_url: None,
-                        workspace_meta: None,
-                        workspace_message: None,
-                        has_worktrees_directory: None,
-                        rows: Vec::new(),
-                        cancelled: None,
-                        error: Some(error),
-                    }
                 } else {
                     build_workspace_context(&app, &root, request_id, false)
                 }
@@ -541,10 +497,14 @@ fn workspace_gitignore_sanity_apply(
     let patch_worktree_branch = format!("groove/patch.{version}-{random_suffix:03}");
     let patch_worktree = patch_worktree_branch.replace('/', "_");
 
+    let patch_effective_root = ensure_workspace_meta(&workspace_root)
+        .map(|(meta, _)| effective_workspace_root(&workspace_root, &meta))
+        .unwrap_or_else(|_| workspace_root.clone());
+
     let create_result = run_command(
         &groove_binary_path(&app),
         &["create".to_string(), patch_worktree_branch],
-        &workspace_root,
+        &patch_effective_root,
     );
     if create_result.exit_code != Some(0) || create_result.error.is_some() {
         return WorkspaceGitignoreSanityResponse {
@@ -564,7 +524,7 @@ fn workspace_gitignore_sanity_apply(
         };
     }
 
-    let patch_worktree_path = match resolve_patch_worktree_path(&workspace_root, &patch_worktree) {
+    let patch_worktree_path = match resolve_patch_worktree_path(&patch_effective_root, &patch_worktree) {
         Ok(path) => path,
         Err(error) => {
             return WorkspaceGitignoreSanityResponse {
@@ -1565,6 +1525,119 @@ fn workspace_update_terminal_settings(
     }
 
     invalidate_workspace_context_cache(&app, &workspace_root);
+
+    WorkspaceTerminalSettingsResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        workspace_meta: Some(workspace_meta),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn workspace_update_root_directory(
+    app: AppHandle,
+    payload: WorkspaceRootDirectoryPayload,
+) -> WorkspaceTerminalSettingsResponse {
+    let request_id = request_id();
+
+    let normalized_root_directory = match payload.root_directory.as_deref() {
+        Some(value) => match validate_root_directory_value(value) {
+            Ok(normalized) => normalized,
+            Err(error) => {
+                return WorkspaceTerminalSettingsResponse {
+                    request_id,
+                    ok: false,
+                    workspace_root: None,
+                    workspace_meta: None,
+                    error: Some(error),
+                }
+            }
+        },
+        None => None,
+    };
+
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some("No active workspace selected.".to_string()),
+            }
+        }
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match validate_workspace_root_path(&persisted_root) {
+        Ok(root) => root,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(persisted_root),
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    if let Some(ref relative) = normalized_root_directory {
+        let candidate = workspace_root.join(relative);
+        if !path_is_directory(&candidate) {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                workspace_meta: None,
+                error: Some(format!(
+                    "rootDirectory \"{}\" does not exist under the workspace root.",
+                    relative
+                )),
+            };
+        }
+    }
+
+    let (mut workspace_meta, _) = match ensure_workspace_meta(&workspace_root) {
+        Ok(result) => result,
+        Err(error) => {
+            return WorkspaceTerminalSettingsResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                workspace_meta: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    workspace_meta.root_directory = normalized_root_directory;
+    workspace_meta.updated_at = now_iso();
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    if let Err(error) = write_workspace_meta_file(&workspace_json, &workspace_meta) {
+        return WorkspaceTerminalSettingsResponse {
+            request_id,
+            ok: false,
+            workspace_root: Some(workspace_root.display().to_string()),
+            workspace_meta: None,
+            error: Some(error),
+        };
+    }
+
+    invalidate_workspace_context_cache(&app, &workspace_root);
+    invalidate_groove_list_cache_for_workspace(&app, &workspace_root);
 
     WorkspaceTerminalSettingsResponse {
         request_id,

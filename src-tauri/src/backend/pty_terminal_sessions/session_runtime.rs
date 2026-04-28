@@ -331,6 +331,63 @@ fn resolve_claude_code_bin() -> String {
         .unwrap_or_else(|| "claude".to_string())
 }
 
+fn encode_claude_project_dir_name(worktree_path: &Path) -> String {
+    let raw = worktree_path.display().to_string();
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn resolve_existing_claude_session_id(
+    worktree_path: &Path,
+    expected_session_id: &str,
+) -> Option<String> {
+    let home = dirs_home()?;
+    let project_dir = home
+        .join(".claude")
+        .join("projects")
+        .join(encode_claude_project_dir_name(worktree_path));
+    if !path_is_directory(&project_dir) {
+        return None;
+    }
+
+    let expected_file = project_dir.join(format!("{expected_session_id}.jsonl"));
+    if path_is_file(&expected_file) {
+        return Some(expected_session_id.to_string());
+    }
+
+    let entries = fs::read_dir(&project_dir).ok()?;
+    let mut latest: Option<(std::time::SystemTime, String)> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        match &latest {
+            Some((current_modified, _)) if *current_modified >= modified => {}
+            _ => {
+                latest = Some((modified, stem.to_string()));
+            }
+        }
+    }
+    latest.map(|(_, id)| id)
+}
+
 fn resolve_terminal_worktree_context(
     app: &AppHandle,
     root_name: &Option<String>,
@@ -350,7 +407,10 @@ fn resolve_terminal_worktree_context(
         &known_worktrees,
         workspace_meta,
     )?;
-    let worktree_path = ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees")?;
+    let effective_root = ensure_workspace_meta(&workspace_root)
+        .map(|(meta, _)| effective_workspace_root(&workspace_root, &meta))
+        .unwrap_or_else(|_| workspace_root.clone());
+    let worktree_path = ensure_worktree_in_dir(&effective_root, worktree, ".worktrees")?;
 
     Ok((workspace_root, worktree_path))
 }
@@ -410,7 +470,10 @@ fn open_groove_terminal_session(
             let (worktree_id, has_started) =
                 register_worktree_record(workspace_root, worktree)?;
             let args = if has_started {
-                vec!["--resume".to_string(), worktree_id]
+                match resolve_existing_claude_session_id(worktree_path, &worktree_id) {
+                    Some(session_id) => vec!["--resume".to_string(), session_id],
+                    None => vec!["--session-id".to_string(), Uuid::new_v4().to_string()],
+                }
             } else {
                 vec!["--session-id".to_string(), worktree_id]
             };

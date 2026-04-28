@@ -66,8 +66,8 @@ fn workspace_open_terminal(
         }
     };
 
-    let worktree_path = match ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees") {
-        Ok(path) => path,
+    let workspace_meta = match ensure_workspace_meta(&workspace_root) {
+        Ok((meta, _)) => meta,
         Err(error) => {
             return GrooveCommandResponse {
                 request_id,
@@ -80,8 +80,9 @@ fn workspace_open_terminal(
         }
     };
 
-    let workspace_meta = match ensure_workspace_meta(&workspace_root) {
-        Ok((meta, _)) => meta,
+    let effective_root = effective_workspace_root(&workspace_root, &workspace_meta);
+    let worktree_path = match ensure_worktree_in_dir(&effective_root, worktree, ".worktrees") {
+        Ok(path) => path,
         Err(error) => {
             return GrooveCommandResponse {
                 request_id,
@@ -185,8 +186,9 @@ fn workspace_open_workspace_terminal(
         }
     };
 
+    let workspace_terminal_root = effective_workspace_root(&workspace_root, &workspace_meta);
     let launched_command =
-        match launch_open_terminal_at_worktree_command(&workspace_root, &workspace_meta) {
+        match launch_open_terminal_at_worktree_command(&workspace_terminal_root, &workspace_meta) {
             Ok(command) => command,
             Err(error) => {
                 return GrooveCommandResponse {

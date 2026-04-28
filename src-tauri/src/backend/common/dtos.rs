@@ -140,6 +140,8 @@ struct WorkspaceMetaContext {
     worktree_symlink_paths: Option<Vec<String>>,
     opencode_settings: Option<OpencodeSettings>,
     worktree_records: Option<HashMap<String, WorktreeRecord>>,
+    #[serde(default)]
+    root_directory: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -454,6 +456,8 @@ struct WorkspaceMeta {
     worktree_records: HashMap<String, WorktreeRecord>,
     #[serde(default)]
     summaries: Vec<SummaryRecord>,
+    #[serde(default)]
+    root_directory: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -636,6 +640,13 @@ struct WorkspaceMarkOnboardingPayload {
     symlinks_configured: bool,
     #[serde(default)]
     commands_configured: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceRootDirectoryPayload {
+    #[serde(default)]
+    root_directory: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

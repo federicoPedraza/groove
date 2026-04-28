@@ -1170,6 +1170,55 @@ fn read_worktree_tombstone(
         .cloned())
 }
 
+fn effective_workspace_root(workspace_root: &Path, workspace_meta: &WorkspaceMeta) -> PathBuf {
+    let Some(root_directory) = workspace_meta
+        .root_directory
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    else {
+        return workspace_root.to_path_buf();
+    };
+
+    let candidate = workspace_root.join(root_directory);
+    if path_is_directory(&candidate) {
+        candidate
+    } else {
+        workspace_root.to_path_buf()
+    }
+}
+
+fn validate_root_directory_value(value: &str) -> Result<Option<String>, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let candidate = Path::new(trimmed);
+    if candidate.is_absolute() {
+        return Err("rootDirectory must be a path relative to the workspace root.".to_string());
+    }
+
+    let mut normalized = PathBuf::new();
+    for component in candidate.components() {
+        match component {
+            std::path::Component::Normal(part) => normalized.push(part),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir
+            | std::path::Component::RootDir
+            | std::path::Component::Prefix(_) => {
+                return Err("rootDirectory must not traverse outside the workspace root.".to_string());
+            }
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(normalized.to_string_lossy().replace('\\', "/")))
+}
+
 fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
     let now = now_iso();
     WorkspaceMeta {
@@ -1195,6 +1244,7 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         summaries: Vec::new(),
         onboarding_symlinks_configured: false,
         onboarding_commands_configured: false,
+        root_directory: None,
     }
 }
 

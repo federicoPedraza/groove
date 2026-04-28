@@ -441,8 +441,16 @@ export default function Home() {
           <div className="space-y-3">
             {!hasWorktreesDirectory ? (
               <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-                No <code>.worktrees</code> directory found under this workspace
-                root yet.
+                No <code>.worktrees</code> directory found under{" "}
+                {activeWorkspace?.workspaceMeta?.rootDirectory ? (
+                  <>
+                    the scope directory{" "}
+                    <code>{activeWorkspace.workspaceMeta.rootDirectory}</code>
+                  </>
+                ) : (
+                  "this workspace root"
+                )}
+                {" "}yet.
               </p>
             ) : worktreeRows.length === 0 ? (
               <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">

@@ -158,14 +158,18 @@ fn resolve_workspace_root(
         .flatten()
         .and_then(|value| validate_workspace_root_path(&value).ok())
     {
-        if inspect_candidate_root(
-            &active_workspace_root,
-            required_worktree,
-            known_worktrees,
-            workspace_meta,
-        )
-        .is_some()
-        {
+        let active_effective_root = ensure_workspace_meta(&active_workspace_root)
+            .map(|(meta, _)| effective_workspace_root(&active_workspace_root, &meta))
+            .unwrap_or_else(|_| active_workspace_root.clone());
+        let worktrees_dir = active_effective_root.join(".worktrees");
+        let required_worktree_present = required_worktree
+            .map(|worktree| path_is_directory(&worktrees_dir.join(worktree)))
+            .unwrap_or(true);
+        let known_worktrees_present = known_worktrees
+            .iter()
+            .all(|known| path_is_directory(&worktrees_dir.join(known)));
+
+        if required_worktree_present && known_worktrees_present {
             return Ok(active_workspace_root);
         }
     }

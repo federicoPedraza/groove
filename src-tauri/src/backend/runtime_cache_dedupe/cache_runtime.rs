@@ -79,9 +79,12 @@ fn workspace_context_signature(
     workspace_root: &Path,
 ) -> Result<WorkspaceContextSignature, String> {
     let execution_state_file = worktree_execution_state_file(app)?;
+    let effective_root = ensure_workspace_meta(workspace_root)
+        .map(|(meta, _)| effective_workspace_root(workspace_root, &meta))
+        .unwrap_or_else(|_| workspace_root.to_path_buf());
     Ok(WorkspaceContextSignature {
         workspace_manifest: snapshot_entry(&workspace_root.join(".groove").join("workspace.json")),
-        worktrees_dir: snapshot_entry(&workspace_root.join(".worktrees")),
+        worktrees_dir: snapshot_entry(&effective_root.join(".worktrees")),
         worktree_execution_state_file: snapshot_entry(&execution_state_file),
     })
 }

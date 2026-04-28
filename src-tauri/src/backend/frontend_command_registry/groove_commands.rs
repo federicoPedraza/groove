@@ -1281,13 +1281,19 @@ fn groove_summary_blocking(
             None => summary_effective_root.clone(),
         };
 
-        eprintln!("[groove-summary] running claude --resume {} -p '...' --output-format text", session_id);
+        let resolved_session_id =
+            resolve_existing_claude_session_id(&cwd, session_id).unwrap_or_else(|| session_id.clone());
+
+        eprintln!(
+            "[groove-summary] running claude --resume {} (stored={}) -p '...' --output-format text",
+            resolved_session_id, session_id
+        );
         eprintln!("[groove-summary] claude_bin={} cwd={}", claude_bin, cwd.display());
 
         let output = Command::new(&claude_bin)
             .args([
                 "--resume",
-                session_id,
+                &resolved_session_id,
                 "-p",
                 prompt,
                 "--output-format",

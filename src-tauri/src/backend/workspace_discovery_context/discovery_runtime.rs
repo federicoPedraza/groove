@@ -1,9 +1,10 @@
 fn scan_workspace_worktrees(
     app: &AppHandle,
     workspace_root: &Path,
+    scan_root: &Path,
     worktree_records: &HashMap<String, WorktreeRecord>,
 ) -> Result<(bool, Vec<WorkspaceScanRow>), String> {
-    let worktrees_dir = workspace_root.join(".worktrees");
+    let worktrees_dir = scan_root.join(".worktrees");
     if !path_is_directory(&worktrees_dir) {
         return Ok((false, Vec::new()));
     }
@@ -163,6 +164,7 @@ fn build_workspace_context(
     let scan_root = effective_workspace_root(workspace_root, &workspace_meta);
     let (has_worktrees_directory, rows) = match scan_workspace_worktrees(
         app,
+        workspace_root,
         &scan_root,
         &workspace_meta.worktree_records,
     ) {

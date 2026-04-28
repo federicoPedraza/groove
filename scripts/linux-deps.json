@@ -71,7 +71,7 @@
       "pkg_config": "ayatana-appindicator3-0.1",
       "packages": {
         "apt": "libayatana-appindicator3-dev",
-        "pacman": "libappindicator-gtk3",
+        "pacman": "libayatana-appindicator",
         "dnf": "libappindicator-gtk3-devel",
         "zypper": null
       },
@@ -85,8 +85,8 @@
       "packages": {
         "apt": "libxdo-dev",
         "pacman": "xdotool",
-        "dnf": "xdotool-devel",
-        "zypper": "xdotool-devel"
+        "dnf": "libxdo-devel",
+        "zypper": "libxdo-devel"
       }
     }
   ],

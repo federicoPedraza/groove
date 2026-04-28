@@ -39,6 +39,11 @@ setup_colors
 SETUP_NAME="${SETUP_NAME:-setup}"
 STEP_INDEX=0
 STEP_FAIL=0
+CURRENT_STEP=""
+FAILED_STEP=""
+FAILED_CMD=""
+FAILED_LOG=""
+LAST_CMD_LOG=""
 
 print_header() {
   local title="$1"
@@ -59,6 +64,7 @@ err() {
 
 step() {
   STEP_INDEX=$((STEP_INDEX + 1))
+  CURRENT_STEP="$*"
   printf "\n${C_BOLD}%d) %s${C_RESET}\n" "$STEP_INDEX" "$*"
 }
 
@@ -86,28 +92,49 @@ run_cmd() {
   local label="$1"
   shift
   printf "   • %s ... " "$label"
+  local rc=0
   if [[ "$VERBOSE" == "1" ]]; then
     printf "\n"
-    if "$@"; then
+    "$@" || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
       printf "   ${C_GREEN}DONE${C_RESET}\n"
       return 0
     fi
-    printf "   ${C_RED}FAILED${C_RESET}\n"
-    return 1
+    printf "   ${C_RED}FAILED${C_RESET} (exit=%d)\n" "$rc"
+    FAILED_CMD="$label"
+    return "$rc"
   fi
 
-  if "$@"; then
+  local log
+  log="$(mktemp -t groove-setup.XXXXXX.log)"
+  LAST_CMD_LOG="$log"
+  "$@" >"$log" 2>&1 || rc=$?
+  if [[ "$rc" -eq 0 ]]; then
     printf "${C_GREEN}DONE${C_RESET}\n"
+    rm -f "$log"
+    LAST_CMD_LOG=""
     return 0
   fi
-  printf "${C_RED}FAILED${C_RESET}\n"
-  return 1
+  printf "${C_RED}FAILED${C_RESET} (exit=%d)\n" "$rc"
+  printf "   ${C_DIM}--- last 20 lines of output (full log: %s) ---${C_RESET}\n" "$log"
+  tail -n 20 "$log" | sed 's/^/   │ /'
+  printf "   ${C_DIM}--- end of output ---${C_RESET}\n"
+  FAILED_CMD="$label"
+  FAILED_LOG="$log"
+  return "$rc"
 }
 
 on_error_trap() {
   local line_no="$1"
   STEP_FAIL=1
-  err "setup failed at line ${line_no}."
+  FAILED_STEP="${CURRENT_STEP:-(before first step)}"
+  err "setup failed at line ${line_no} during step: ${FAILED_STEP}"
+  if [[ -n "$FAILED_CMD" ]]; then
+    err "failing command: ${FAILED_CMD}"
+  fi
+  if [[ -n "$FAILED_LOG" && -f "$FAILED_LOG" ]]; then
+    err "full output: ${FAILED_LOG}"
+  fi
   err "scroll up to the failed step and fix it, then re-run this script."
 }
 
@@ -117,5 +144,17 @@ summary() {
     pass "${SETUP_NAME} completed successfully"
   else
     fail_msg "${SETUP_NAME} did not complete"
+    if [[ -n "$FAILED_STEP" ]]; then
+      fail_msg "failed at step: ${FAILED_STEP}"
+    fi
+    if [[ -n "$FAILED_CMD" ]]; then
+      fail_msg "failing command: ${FAILED_CMD}"
+    fi
+    if [[ -n "$FAILED_LOG" && -f "$FAILED_LOG" ]]; then
+      fail_msg "full output: ${FAILED_LOG}"
+      info "re-run with --verbose for live output, or inspect the log above"
+    else
+      info "re-run with --verbose to see live command output"
+    fi
   fi
 }

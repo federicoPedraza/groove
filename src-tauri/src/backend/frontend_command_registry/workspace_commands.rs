@@ -860,6 +860,19 @@ fn global_settings_update(
         });
     }
     if let Some(sound_library) = payload.sound_library {
+        for entry in &sound_library {
+            if let Err(reason) = validate_sound_file_name(&entry.file_name) {
+                return GlobalSettingsResponse {
+                    request_id,
+                    ok: false,
+                    global_settings: Some(global_settings),
+                    error: Some(format!(
+                        "Invalid sound library entry \"{}\": {reason}",
+                        entry.id
+                    )),
+                };
+            }
+        }
         global_settings.sound_library = sound_library;
     }
     if let Some(claude_code_sound_settings) = payload.claude_code_sound_settings {
@@ -900,6 +913,15 @@ fn global_settings_update(
 #[tauri::command]
 fn sound_library_read(app: AppHandle, payload: SoundLibraryReadPayload) -> SoundLibraryReadResponse {
     let request_id = request_id();
+
+    if let Err(reason) = validate_sound_file_name(&payload.file_name) {
+        return SoundLibraryReadResponse {
+            request_id,
+            ok: false,
+            data: None,
+            error: Some(reason),
+        };
+    }
 
     let app_data_dir = match app.path().app_data_dir() {
         Ok(dir) => dir,
@@ -1122,9 +1144,11 @@ fn sound_library_remove(app: AppHandle, payload: SoundLibraryRemovePayload) -> G
         .retain(|entry| entry.id != payload.sound_id);
 
     if let Some(entry) = &removed_entry {
-        if let Ok(app_data_dir) = app.path().app_data_dir() {
-            let sound_file = app_data_dir.join("sounds").join(&entry.file_name);
-            let _ = fs::remove_file(sound_file);
+        if validate_sound_file_name(&entry.file_name).is_ok() {
+            if let Ok(app_data_dir) = app.path().app_data_dir() {
+                let sound_file = app_data_dir.join("sounds").join(&entry.file_name);
+                let _ = fs::remove_file(sound_file);
+            }
         }
     }
 
@@ -1225,6 +1249,17 @@ fn sound_library_rename(app: AppHandle, payload: SoundLibraryRenamePayload) -> G
 
     match entry {
         Some(e) => {
+            if let Err(reason) = validate_sound_file_name(&e.file_name) {
+                return GlobalSettingsResponse {
+                    request_id,
+                    ok: false,
+                    global_settings: None,
+                    error: Some(format!(
+                        "Stored sound file name is unsafe: {reason}"
+                    )),
+                };
+            }
+
             let extension = e
                 .file_name
                 .rsplit_once('.')
@@ -2107,6 +2142,38 @@ fn persist_workspace_meta_update(
     Ok(())
 }
 
+/// Reject a `file_name` that could escape the sounds directory when joined.
+///
+/// Anything containing path separators, traversal segments, NUL/control chars,
+/// or absolute path markers is rejected. The check ensures
+/// `sounds_dir.join(file_name)` stays inside `sounds_dir`.
+fn validate_sound_file_name(file_name: &str) -> Result<(), String> {
+    if file_name.is_empty() {
+        return Err("Sound file name must not be empty.".to_string());
+    }
+    if file_name.len() > 255 {
+        return Err("Sound file name is too long.".to_string());
+    }
+    if file_name
+        .chars()
+        .any(|c| c == '/' || c == '\\' || c == '\0' || c.is_control())
+    {
+        return Err("Sound file name contains forbidden characters.".to_string());
+    }
+    if file_name.starts_with('.') {
+        return Err("Sound file name must not start with a dot.".to_string());
+    }
+    let path = std::path::Path::new(file_name);
+    if path.is_absolute() {
+        return Err("Sound file name must not be an absolute path.".to_string());
+    }
+    let mut components = path.components();
+    match (components.next(), components.next()) {
+        (Some(std::path::Component::Normal(c)), None) if c == file_name => Ok(()),
+        _ => Err("Sound file name must be a single safe path component.".to_string()),
+    }
+}
+
 /// Sanitize a user-provided name into a safe file name base (without extension).
 ///
 /// Rules:
@@ -2189,7 +2256,49 @@ fn sanitize_sound_file_name(name: &str, fallback_id: &str) -> Result<String, Str
 
 #[cfg(test)]
 mod sound_library_tests {
-    use super::sanitize_sound_file_name;
+    use super::{sanitize_sound_file_name, validate_sound_file_name};
+
+    #[test]
+    fn validate_accepts_safe_file_names() {
+        assert!(validate_sound_file_name("my-sound.wav").is_ok());
+        assert!(validate_sound_file_name("a b c.mp3").is_ok());
+        assert!(validate_sound_file_name("音.wav").is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_path_traversal() {
+        assert!(validate_sound_file_name("../etc/passwd").is_err());
+        assert!(validate_sound_file_name("..").is_err());
+        assert!(validate_sound_file_name("../foo.wav").is_err());
+        assert!(validate_sound_file_name("a/b.wav").is_err());
+        assert!(validate_sound_file_name("a\\b.wav").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_absolute_paths() {
+        assert!(validate_sound_file_name("/etc/passwd").is_err());
+        assert!(validate_sound_file_name("/foo.wav").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_dotfiles_and_dot_segments() {
+        assert!(validate_sound_file_name(".hidden").is_err());
+        assert!(validate_sound_file_name(".").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_nul_and_control_chars() {
+        assert!(validate_sound_file_name("a\0b.wav").is_err());
+        assert!(validate_sound_file_name("a\x01b.wav").is_err());
+        assert!(validate_sound_file_name("a\nb.wav").is_err());
+    }
+
+    #[test]
+    fn validate_rejects_empty_and_overlong() {
+        assert!(validate_sound_file_name("").is_err());
+        let overlong: String = "a".repeat(256);
+        assert!(validate_sound_file_name(&overlong).is_err());
+    }
 
     #[test]
     fn normal_name_passes_through() {

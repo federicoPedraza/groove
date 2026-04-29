@@ -86,20 +86,80 @@ jobs:
 
       - name: Install Linux system deps for Tauri checks
         run: |
+          PACKAGES=$(node -e "
+            const d = require('./scripts/linux-deps.json');
+            const libs = d.required_libraries.map(l => l.packages.apt).filter(Boolean);
+            const tools = d.build_toolchains.packages.apt || [];
+            console.log([...tools, ...libs].join(' '));
+          ")
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            wget
+          sudo apt-get install -y $PACKAGES
+
+      - name: Verify system deps
+        run: ./scripts/check-linux-deps
 
       - name: Run Rust check
         run: npm run check:rust
+
+  setup-linux-distros:
+    name: Setup (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu
+            image: ubuntu:24.04
+            pre_install: "apt-get update && apt-get install -y curl"
+          - distro: arch
+            image: archlinux:latest
+            pre_install: "pacman -Sy --noconfirm curl"
+          - distro: fedora
+            image: fedora:41
+            pre_install: "dnf install -y curl"
+    container:
+      image: ${{ matrix.image }}
+
+    steps:
+      - name: Install container prerequisites
+        run: ${{ matrix.pre_install }}
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install system deps via setup script
+        run: |
+          # The setup script calls read_packages_for which needs node + linux-deps.json.
+          # We only test the system dep installation part, not the full setup.
+          node -e "
+            const d = require('./scripts/linux-deps.json');
+            const pm = process.argv[1];
+            const libs = d.required_libraries.map(l => l.packages[pm]).filter(Boolean);
+            const tools = d.build_toolchains.packages[pm] || [];
+            console.log([...tools, ...libs].join('\n'));
+          " "${{ matrix.distro == 'ubuntu' && 'apt' || matrix.distro == 'arch' && 'pacman' || 'dnf' }}" > /tmp/packages.txt
+          cat /tmp/packages.txt
+
+          case "${{ matrix.distro }}" in
+            ubuntu)
+              apt-get update
+              xargs apt-get install -y < /tmp/packages.txt
+              ;;
+            arch)
+              xargs pacman -Syu --needed --noconfirm < /tmp/packages.txt
+              ;;
+            fedora)
+              xargs dnf install -y < /tmp/packages.txt
+              ;;
+          esac
+
+      - name: Verify system deps are present
+        run: ./scripts/check-linux-deps
 
   build:
     name: Build (${{ matrix.os }})

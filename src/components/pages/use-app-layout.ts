@@ -1,17 +1,28 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
 
 import type { PageShellProps } from "@/src/components/pages/page-shell";
 
-export type AppLayoutOptions = Pick<PageShellProps, "pageSidebar" | "noDirectoryOpenState">;
+export type AppLayoutOptions = Pick<
+  PageShellProps,
+  "pageSidebar" | "noDirectoryOpenState"
+>;
 
 export type AppLayoutContextValue = {
   setOptions: (options: AppLayoutOptions) => void;
 };
 
 export const EMPTY_OPTIONS: AppLayoutOptions = {};
-export const AppLayoutContext = createContext<AppLayoutContextValue | null>(null);
+export const AppLayoutContext = createContext<AppLayoutContextValue | null>(
+  null,
+);
 
 export function useAppLayout(options: AppLayoutOptions): void {
   const context = useContext(AppLayoutContext);
@@ -20,17 +31,9 @@ export function useAppLayout(options: AppLayoutOptions): void {
     throw new Error("useAppLayout must be used within AppLayout");
   }
 
-  const {
-    pageSidebar,
-    noDirectoryOpenState,
-  } = options;
+  const { pageSidebar, noDirectoryOpenState } = options;
   const pageSidebarRef = useRef(pageSidebar);
   pageSidebarRef.current = pageSidebar;
-
-  const stablePageSidebar = useCallback(({ collapsed }: { collapsed: boolean }) => {
-    const currentPageSidebar = pageSidebarRef.current;
-    return typeof currentPageSidebar === "function" ? currentPageSidebar({ collapsed }) : currentPageSidebar;
-  }, []);
 
   const {
     isVisible,
@@ -58,12 +61,29 @@ export function useAppLayout(options: AppLayoutOptions): void {
       onSelectDirectory,
       onOpenRecentDirectory,
     };
-  }, [isVisible, isBusy, statusMessage, errorMessage, onSelectDirectory, onOpenRecentDirectory]);
+  }, [
+    isVisible,
+    isBusy,
+    statusMessage,
+    errorMessage,
+    onSelectDirectory,
+    onOpenRecentDirectory,
+  ]);
 
   useEffect(() => {
-    const resolvedPageSidebar = pageSidebarRef.current ? stablePageSidebar : undefined;
-    context.setOptions({ pageSidebar: resolvedPageSidebar, noDirectoryOpenState: stableNoDirectoryOpenState });
-  }, [context, stablePageSidebar, stableNoDirectoryOpenState]);
+    const resolvedPageSidebar = pageSidebar
+      ? ({ collapsed }: { collapsed: boolean }) => {
+          const currentPageSidebar = pageSidebarRef.current;
+          return typeof currentPageSidebar === "function"
+            ? currentPageSidebar({ collapsed })
+            : currentPageSidebar;
+        }
+      : undefined;
+    context.setOptions({
+      pageSidebar: resolvedPageSidebar,
+      noDirectoryOpenState: stableNoDirectoryOpenState,
+    });
+  }, [context, pageSidebar, stableNoDirectoryOpenState]);
 
   useEffect(() => {
     return () => {

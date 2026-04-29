@@ -1,3 +1,5 @@
+import { soundLibraryRead } from "@/src/lib/ipc/commands-features";
+
 let audioContext: AudioContext | null = null;
 
 function getAudioContext(): AudioContext {
@@ -5,6 +7,60 @@ function getAudioContext(): AudioContext {
     audioContext = new AudioContext();
   }
   return audioContext;
+}
+
+/** Shared AudioContext for waveform analysis — avoids browser limit on concurrent contexts. */
+export function getSharedAudioContext(): AudioContext {
+  return getAudioContext();
+}
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+export type PlaySoundResult = {
+  played: boolean;
+  duration: number;
+  error?: string;
+};
+
+/** Plays a custom sound file. Returns whether it actually played and the duration. */
+export async function playCustomSound(
+  fileName: string,
+): Promise<PlaySoundResult> {
+  try {
+    const result = await soundLibraryRead(fileName);
+    if (!result.ok || !result.data) {
+      return {
+        played: false,
+        duration: 0,
+        error: result.error ?? "Sound file not found",
+      };
+    }
+
+    const arrayBuffer = base64ToArrayBuffer(result.data);
+    const ctx = getAudioContext();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    const source = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    source.buffer = audioBuffer;
+    gain.gain.value = 0.5;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(0);
+    return { played: true, duration: audioBuffer.duration };
+  } catch (e) {
+    return {
+      played: false,
+      duration: 0,
+      error: e instanceof Error ? e.message : "Failed to play sound",
+    };
+  }
 }
 
 export function playNotificationSound(): void {

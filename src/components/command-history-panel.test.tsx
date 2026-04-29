@@ -9,7 +9,6 @@ const {
   clearCommandHistoryMock,
   formatCommandRelativeTimeMock,
   getCommandMetadataMock,
-  setIsCommandHistoryPanelOpenMock,
 } = vi.hoisted(() => ({
   subscribeToCommandHistoryMock: vi.fn(() => () => {}),
   getCommandHistorySnapshotMock: vi.fn((): CommandExecutionEntry[] => []),
@@ -20,7 +19,6 @@ const {
     description: `Description for ${command}`,
     icon: vi.fn(),
   })),
-  setIsCommandHistoryPanelOpenMock: vi.fn(),
 }));
 
 vi.mock("@/src/lib/command-history", () => ({
@@ -34,19 +32,20 @@ vi.mock("@/src/lib/command-metadata", () => ({
   getCommandMetadata: getCommandMetadataMock,
 }));
 
-vi.mock("@/src/lib/command-history-panel-state", () => ({
-  getIsCommandHistoryPanelOpen: vi.fn(() => false),
-  setIsCommandHistoryPanelOpen: setIsCommandHistoryPanelOpenMock,
+vi.mock("@/src/components/collapsed-toast", () => ({
+  CollapsedToast: () => null,
 }));
 
 vi.mock("@/src/lib/utils", () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(" "),
 }));
 
-const { CommandHistoryPanel } = await import("@/src/components/command-history-panel");
+const { CommandHistoryPanel } =
+  await import("@/src/components/command-history-panel");
 
 function makeEntry(
-  overrides: Partial<CommandExecutionEntry> & Pick<CommandExecutionEntry, "id" | "command" | "state">,
+  overrides: Partial<CommandExecutionEntry> &
+    Pick<CommandExecutionEntry, "id" | "command" | "state">,
 ): CommandExecutionEntry {
   return {
     startedAt: Date.now() - 5000,
@@ -64,7 +63,9 @@ describe("CommandHistoryPanel", () => {
   it("renders trigger button with version", () => {
     render(<CommandHistoryPanel />);
 
-    expect(screen.getByRole("button", { name: "Command history" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Command history" }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeInTheDocument();
   });
 
@@ -80,16 +81,10 @@ describe("CommandHistoryPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Command history" }));
 
-    expect(screen.getByRole("dialog", { name: "Command history" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "Command history" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Terminal Log")).toBeInTheDocument();
-  });
-
-  it("sets command history panel open state via setIsCommandHistoryPanelOpen", () => {
-    render(<CommandHistoryPanel />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
-
-    expect(setIsCommandHistoryPanelOpenMock).toHaveBeenCalledWith(true);
   });
 
   it("closes panel when trigger is clicked again", () => {
@@ -113,7 +108,12 @@ describe("CommandHistoryPanel", () => {
   it("renders completed entries in the panel", () => {
     const entries: CommandExecutionEntry[] = [
       makeEntry({ id: "1", command: "groove_restore", state: "success" }),
-      makeEntry({ id: "2", command: "groove_new", state: "error", failureDetail: "Something went wrong" }),
+      makeEntry({
+        id: "2",
+        command: "groove_new",
+        state: "error",
+        failureDetail: "Something went wrong",
+      }),
     ];
     getCommandHistorySnapshotMock.mockReturnValue(entries);
 
@@ -171,7 +171,9 @@ describe("CommandHistoryPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Command history" }));
 
-    expect(screen.getByRole("button", { name: "Clear history" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Clear history" }),
+    ).toBeDisabled();
   });
 
   it("switches to raw mode and shows command names instead of titles", () => {
@@ -210,7 +212,12 @@ describe("CommandHistoryPanel", () => {
 
   it("shows failure detail for error entries", () => {
     const entries: CommandExecutionEntry[] = [
-      makeEntry({ id: "1", command: "cmd1", state: "error", failureDetail: "Disk full" }),
+      makeEntry({
+        id: "1",
+        command: "cmd1",
+        state: "error",
+        failureDetail: "Disk full",
+      }),
     ];
     getCommandHistorySnapshotMock.mockReturnValue(entries);
 
@@ -236,7 +243,13 @@ describe("CommandHistoryPanel", () => {
 
   it("shows running count when there are running entries", () => {
     const entries: CommandExecutionEntry[] = [
-      { id: "1", command: "cmd1", state: "running", startedAt: Date.now(), completedAt: null },
+      {
+        id: "1",
+        command: "cmd1",
+        state: "running",
+        startedAt: Date.now(),
+        completedAt: null,
+      },
     ];
     getCommandHistorySnapshotMock.mockReturnValue(entries);
 
@@ -262,7 +275,13 @@ describe("CommandHistoryPanel", () => {
 
   it("filters out non-completed entries from display list", () => {
     const entries: CommandExecutionEntry[] = [
-      { id: "1", command: "running_cmd", state: "running", startedAt: Date.now(), completedAt: null },
+      {
+        id: "1",
+        command: "running_cmd",
+        state: "running",
+        startedAt: Date.now(),
+        completedAt: null,
+      },
       makeEntry({ id: "2", command: "done_cmd", state: "success" }),
     ];
     getCommandHistorySnapshotMock.mockReturnValue(entries);
@@ -303,8 +322,14 @@ describe("CommandHistoryPanel", () => {
   });
 
   it("limits displayed entries to 20", () => {
-    const entries: CommandExecutionEntry[] = Array.from({ length: 25 }, (_, i) =>
-      makeEntry({ id: String(i), command: `cmd_${String(i)}`, state: "success" }),
+    const entries: CommandExecutionEntry[] = Array.from(
+      { length: 25 },
+      (_, i) =>
+        makeEntry({
+          id: String(i),
+          command: `cmd_${String(i)}`,
+          state: "success",
+        }),
     );
     getCommandHistorySnapshotMock.mockReturnValue(entries);
 

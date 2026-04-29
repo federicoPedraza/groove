@@ -1,4 +1,7 @@
-import { DEFAULT_OPENCODE_SETTINGS_DIRECTORY, type OpencodeSettings } from "@/src/lib/ipc";
+import {
+  DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
+  type OpencodeSettings,
+} from "@/src/lib/ipc";
 
 export type OpencodeConfigScope = "workspace" | "global";
 
@@ -30,24 +33,37 @@ function normalizeImportedSettings(value: unknown): OpencodeSettings | null {
     return null;
   }
 
-  if (defaultModel !== undefined && defaultModel !== null && typeof defaultModel !== "string") {
+  if (
+    defaultModel !== undefined &&
+    defaultModel !== null &&
+    typeof defaultModel !== "string"
+  ) {
     return null;
   }
-  if (settingsDirectory !== undefined && settingsDirectory !== null && typeof settingsDirectory !== "string") {
+  if (
+    settingsDirectory !== undefined &&
+    settingsDirectory !== null &&
+    typeof settingsDirectory !== "string"
+  ) {
     return null;
   }
 
   return {
     enabled,
-    defaultModel: typeof defaultModel === "string" ? defaultModel.trim() || null : null,
+    defaultModel:
+      typeof defaultModel === "string" ? defaultModel.trim() || null : null,
     settingsDirectory:
-      typeof settingsDirectory === "string" && settingsDirectory.trim().length > 0
+      typeof settingsDirectory === "string" &&
+      settingsDirectory.trim().length > 0
         ? settingsDirectory.trim()
         : DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
   };
 }
 
-export function buildOpencodeConfigArtifact(scope: OpencodeConfigScope, settings: OpencodeSettings): OpencodeConfigArtifact {
+export function buildOpencodeConfigArtifact(
+  scope: OpencodeConfigScope,
+  settings: OpencodeSettings,
+): OpencodeConfigArtifact {
   return {
     schema: "groove-opencode-config",
     version: 1,
@@ -61,7 +77,10 @@ export function buildOpencodeConfigArtifact(scope: OpencodeConfigScope, settings
   };
 }
 
-export function parseImportedOpencodeSettings(rawJson: string, expectedScope: OpencodeConfigScope): ParseImportResult {
+export function parseImportedOpencodeSettings(
+  rawJson: string,
+  expectedScope: OpencodeConfigScope,
+): ParseImportResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawJson);
@@ -92,7 +111,8 @@ export function parseImportedOpencodeSettings(rawJson: string, expectedScope: Op
   if (!normalized) {
     return {
       ok: false,
-      error: "Import file must include Opencode settings with a boolean enabled value.",
+      error:
+        "Import file must include Opencode settings with a boolean enabled value.",
     };
   }
 

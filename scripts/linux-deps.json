@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Single source of truth for Tauri v2 Linux system dependencies. All setup scripts, CI workflows, and tests read from this file. When adding a new dependency: 1) add it here with all distro variants, 2) run `npm test` — tests will verify consistency.",
+
+  "required_libraries": [
+    {
+      "name": "webkit2gtk",
+      "description": "WebKit rendering engine for GTK (Tauri webview)",
+      "runtime_so": "libwebkit2gtk-4.1.so",
+      "pkg_config": "webkit2gtk-4.1",
+      "packages": {
+        "apt": "libwebkit2gtk-4.1-dev",
+        "pacman": "webkit2gtk-4.1",
+        "dnf": "webkit2gtk4.1-devel",
+        "zypper": "webkit2gtk3-soup2-devel"
+      }
+    },
+    {
+      "name": "javascriptcore",
+      "description": "JavaScriptCore engine for GTK (required by webkit2gtk)",
+      "runtime_so": "libjavascriptcoregtk-4.1.so",
+      "pkg_config": "javascriptcoregtk-4.1",
+      "packages": {
+        "apt": "libjavascriptcoregtk-4.1-dev",
+        "pacman": null,
+        "dnf": "javascriptcoregtk4.1-devel",
+        "zypper": "typelib-1_0-JavaScriptCore-4_1"
+      },
+      "notes": "On Arch, included transitively via webkit2gtk-4.1"
+    },
+    {
+      "name": "libsoup3",
+      "description": "HTTP client/server library (required by webkit2gtk)",
+      "runtime_so": "libsoup-3.0.so",
+      "pkg_config": "libsoup-3.0",
+      "packages": {
+        "apt": "libsoup-3.0-dev",
+        "pacman": "libsoup3",
+        "dnf": "libsoup3-devel",
+        "zypper": "libsoup-devel"
+      }
+    },
+    {
+      "name": "openssl",
+      "description": "TLS/crypto library",
+      "runtime_so": "libssl.so",
+      "pkg_config": "openssl",
+      "packages": {
+        "apt": "libssl-dev",
+        "pacman": "openssl",
+        "dnf": "openssl-devel",
+        "zypper": "libopenssl-devel"
+      }
+    },
+    {
+      "name": "librsvg",
+      "description": "SVG rendering library",
+      "runtime_so": "librsvg-2.so",
+      "pkg_config": "librsvg-2.0",
+      "packages": {
+        "apt": "librsvg2-dev",
+        "pacman": "librsvg",
+        "dnf": "librsvg2-devel",
+        "zypper": "librsvg-devel"
+      }
+    },
+    {
+      "name": "appindicator",
+      "description": "System tray indicator support",
+      "runtime_so": "libayatana-appindicator3.so",
+      "pkg_config": "ayatana-appindicator3-0.1",
+      "packages": {
+        "apt": "libayatana-appindicator3-dev",
+        "pacman": "libayatana-appindicator",
+        "dnf": "libappindicator-gtk3-devel",
+        "zypper": null
+      },
+      "notes": "On openSUSE, may not be available — tray icon will be disabled"
+    },
+    {
+      "name": "xdotool",
+      "description": "X11 window automation (libxdo)",
+      "runtime_so": "libxdo.so",
+      "pkg_config": "libxdo",
+      "packages": {
+        "apt": "libxdo-dev",
+        "pacman": "xdotool",
+        "dnf": "libxdo-devel",
+        "zypper": "libxdo-devel"
+      }
+    }
+  ],
+
+  "build_toolchains": {
+    "description": "Build tools needed in addition to the libraries above",
+    "packages": {
+      "apt": ["build-essential", "curl", "file", "wget"],
+      "pacman": ["base-devel", "curl", "file", "gtk3", "wget"],
+      "dnf": ["gcc-c++", "curl", "file", "gtk3-devel", "wget"],
+      "zypper": ["gcc-c++", "curl", "file", "gtk3-devel", "wget"]
+    }
+  },
+
+  "supported_package_managers": ["apt", "pacman", "dnf", "zypper"]
+}

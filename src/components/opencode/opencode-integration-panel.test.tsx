@@ -16,7 +16,11 @@ vi.mock("@/src/lib/ipc", () => ({
 }));
 
 vi.mock("@/src/components/opencode/opencode-settings-modal", () => ({
-  OpencodeSettingsModal: ({ open, onOpenChange, onSettingsSaved }: {
+  OpencodeSettingsModal: ({
+    open,
+    onOpenChange,
+    onSettingsSaved,
+  }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onSettingsSaved: (message: string) => void;
@@ -24,12 +28,15 @@ vi.mock("@/src/components/opencode/opencode-settings-modal", () => ({
     open ? (
       <div data-testid="settings-modal">
         <button onClick={() => onOpenChange(false)}>Close Modal</button>
-        <button onClick={() => onSettingsSaved("Settings saved!")}>Save Settings</button>
+        <button onClick={() => onSettingsSaved("Settings saved!")}>
+          Save Settings
+        </button>
       </div>
     ) : null,
 }));
 
-const { OpencodeIntegrationPanel } = await import("@/src/components/opencode/opencode-integration-panel");
+const { OpencodeIntegrationPanel } =
+  await import("@/src/components/opencode/opencode-integration-panel");
 
 function makeSuccessResponse() {
   return {
@@ -61,7 +68,9 @@ describe("OpencodeIntegrationPanel", () => {
 
     expect(screen.getByText("Opencode")).toBeInTheDocument();
     expect(
-      screen.getByText("Workspace/global Opencode configuration stored in Groove settings."),
+      screen.getByText(
+        "Workspace/global Opencode configuration stored in Groove settings.",
+      ),
     ).toBeInTheDocument();
 
     await waitFor(() => {
@@ -84,8 +93,12 @@ describe("OpencodeIntegrationPanel", () => {
       expect(opencodeIntegrationStatusMock).toHaveBeenCalled();
     });
 
-    expect(screen.getByRole("button", { name: /refresh/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /settings/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /refresh/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /settings/i }),
+    ).toBeInTheDocument();
   });
 
   it("refreshes status when refresh button is clicked", async () => {
@@ -123,7 +136,9 @@ describe("OpencodeIntegrationPanel", () => {
     render(<OpencodeIntegrationPanel title="Opencode" workspaceRoot="/repo" />);
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to load Opencode status.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to load Opencode status."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -133,7 +148,9 @@ describe("OpencodeIntegrationPanel", () => {
     render(<OpencodeIntegrationPanel title="Opencode" workspaceRoot="/repo" />);
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to load Opencode status.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to load Opencode status."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -229,7 +246,9 @@ describe("OpencodeIntegrationPanel", () => {
       expect(opencodeIntegrationStatusMock).toHaveBeenCalledTimes(1);
     });
 
-    rerender(<OpencodeIntegrationPanel title="Opencode" workspaceRoot="/repo-b" />);
+    rerender(
+      <OpencodeIntegrationPanel title="Opencode" workspaceRoot="/repo-b" />,
+    );
 
     await waitFor(() => {
       expect(opencodeIntegrationStatusMock).toHaveBeenCalledTimes(2);

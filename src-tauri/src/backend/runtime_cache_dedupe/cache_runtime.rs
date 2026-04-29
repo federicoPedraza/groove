@@ -20,23 +20,13 @@ fn snapshot_entry(path: &Path) -> SnapshotEntry {
 }
 
 fn snapshot_runtime_pids_by_worktree(
-    workspace_root: &Path,
+    _workspace_root: &Path,
     known_worktrees: &[String],
 ) -> HashMap<String, Option<i32>> {
-    let Ok((snapshot_rows, _warning)) = list_process_snapshot_rows() else {
-        return HashMap::new();
-    };
-
-    let mut runtime_by_worktree = HashMap::new();
-    for worktree in known_worktrees {
-        let worktree_path = workspace_root.join(".worktrees").join(worktree);
-        runtime_by_worktree.insert(
-            worktree.clone(),
-            resolve_opencode_pid_for_worktree(&snapshot_rows, &worktree_path),
-        );
-    }
-
-    runtime_by_worktree
+    known_worktrees
+        .iter()
+        .map(|worktree| (worktree.clone(), None))
+        .collect()
 }
 
 fn log_backend_timing(telemetry_enabled: bool, event: &str, elapsed: Duration, details: &str) {
@@ -89,9 +79,12 @@ fn workspace_context_signature(
     workspace_root: &Path,
 ) -> Result<WorkspaceContextSignature, String> {
     let execution_state_file = worktree_execution_state_file(app)?;
+    let effective_root = ensure_workspace_meta(workspace_root)
+        .map(|(meta, _)| effective_workspace_root(workspace_root, &meta))
+        .unwrap_or_else(|_| workspace_root.to_path_buf());
     Ok(WorkspaceContextSignature {
         workspace_manifest: snapshot_entry(&workspace_root.join(".groove").join("workspace.json")),
-        worktrees_dir: snapshot_entry(&workspace_root.join(".worktrees")),
+        worktrees_dir: snapshot_entry(&effective_root.join(".worktrees")),
         worktree_execution_state_file: snapshot_entry(&execution_state_file),
     })
 }

@@ -21,6 +21,17 @@ pub(crate) fn run() {
 
             let _ = ensure_global_settings(&app.handle());
 
+            // Ensure TERM is set so PTY sessions render correctly.
+            // GUI-launched apps (AppImage, desktop entry) often lack TERM.
+            let term_ok = std::env::var("TERM")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty() && v != "dumb" && v != "unknown")
+                .is_some();
+            if !term_ok {
+                std::env::set_var("TERM", "xterm-256color");
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -34,8 +45,16 @@ pub(crate) fn run() {
             workspace_gitignore_sanity_apply,
             global_settings_get,
             global_settings_update,
+            sound_library_read,
+            sound_library_import,
+            sound_library_remove,
+            sound_library_rename,
+            sound_library_get_path,
+            sound_library_open_directory,
             workspace_update_terminal_settings,
             workspace_update_commands_settings,
+            workspace_update_root_directory,
+            workspace_mark_onboarding_configured,
             workspace_update_worktree_symlink_paths,
             workspace_list_symlink_entries,
             workspace_open_terminal,
@@ -46,6 +65,8 @@ pub(crate) fn run() {
             groove_terminal_close,
             groove_terminal_get_session,
             groove_terminal_list_sessions,
+            groove_terminal_check_activity,
+            groove_terminal_active_worktrees,
             git_auth_status,
             git_status,
             git_current_branch,
@@ -72,10 +93,8 @@ pub(crate) fn run() {
             groove_summary,
             groove_bin_status,
             groove_bin_repair,
-            diagnostics_list_opencode_instances,
             diagnostics_stop_process,
-            diagnostics_stop_all_opencode_instances,
-            diagnostics_kill_all_node_and_opencode_instances,
+            diagnostics_kill_all_node_instances,
             diagnostics_list_worktree_node_apps,
             diagnostics_clean_all_dev_servers,
             diagnostics_get_msot_consuming_programs,

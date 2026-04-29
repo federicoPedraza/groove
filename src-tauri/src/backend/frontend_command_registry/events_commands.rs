@@ -36,22 +36,26 @@ fn workspace_events(
         }
     };
 
+    let events_effective_root = ensure_workspace_meta(&workspace_root)
+        .map(|(meta, _)| effective_workspace_root(&workspace_root, &meta))
+        .unwrap_or_else(|_| workspace_root.clone());
+
     let poll_targets = {
         let mut targets = vec![
-            workspace_root.join(".worktrees"),
+            events_effective_root.join(".worktrees"),
             workspace_root.join(".groove"),
             workspace_root.join(".groove").join("workspace.json"),
         ];
 
         for worktree in &known_worktrees {
             targets.push(
-                workspace_root
+                events_effective_root
                     .join(".worktrees")
                     .join(worktree)
                     .join(".groove"),
             );
             targets.push(
-                workspace_root
+                events_effective_root
                     .join(".worktrees")
                     .join(worktree)
                     .join(".groove")

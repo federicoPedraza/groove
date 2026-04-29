@@ -4,7 +4,9 @@ import { describeWorkspaceContextError } from "@/src/lib/utils/workspace/context
 
 import type { WorkspaceContextResponse } from "@/src/lib/ipc";
 
-function makeResponse(overrides: Partial<WorkspaceContextResponse> = {}): WorkspaceContextResponse {
+function makeResponse(
+  overrides: Partial<WorkspaceContextResponse> = {},
+): WorkspaceContextResponse {
   return {
     ok: false,
     rows: [],
@@ -14,7 +16,9 @@ function makeResponse(overrides: Partial<WorkspaceContextResponse> = {}): Worksp
 
 describe("describeWorkspaceContextError", () => {
   it("returns error when present and non-empty", () => {
-    const result = describeWorkspaceContextError(makeResponse({ error: "Something broke" }));
+    const result = describeWorkspaceContextError(
+      makeResponse({ error: "Something broke" }),
+    );
     expect(result).toBe("Something broke");
   });
 
@@ -29,12 +33,17 @@ describe("describeWorkspaceContextError", () => {
   });
 
   it("returns default fallback when error is whitespace", () => {
-    const result = describeWorkspaceContextError(makeResponse({ error: "   " }));
+    const result = describeWorkspaceContextError(
+      makeResponse({ error: "   " }),
+    );
     expect(result).toBe("Failed to load workspace context.");
   });
 
   it("returns custom fallback when error is empty and fallback is provided", () => {
-    const result = describeWorkspaceContextError(makeResponse(), "Custom fallback");
+    const result = describeWorkspaceContextError(
+      makeResponse(),
+      "Custom fallback",
+    );
     expect(result).toBe("Custom fallback");
   });
 });

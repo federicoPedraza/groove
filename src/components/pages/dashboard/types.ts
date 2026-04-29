@@ -1,45 +1,20 @@
-import type { WorkspaceRow } from "@/src/lib/ipc";
+import type { DefaultTerminal, WorkspaceRow } from "@/src/lib/ipc";
 
 export type WorkspaceMeta = {
   version: number;
   rootName: string;
   createdAt: string;
   updatedAt: string;
-  defaultTerminal?: "auto" | "ghostty" | "warp" | "kitty" | "gnome" | "xterm" | "none" | "custom";
+  defaultTerminal?: DefaultTerminal;
   terminalCustomCommand?: string | null;
   playGrooveCommand?: string;
   openTerminalAtWorktreeCommand?: string | null;
   runLocalCommand?: string | null;
+  rootDirectory?: string | null;
 };
 
 export type WorktreeRow = WorkspaceRow;
 export type WorktreeStatus = WorkspaceRow["status"];
-export type OpencodeState = "running" | "not-running" | "unknown";
-
-export type RuntimeStateRow = {
-  branch: string;
-  worktree: string;
-  opencodeState: OpencodeState;
-  opencodeInstanceId?: string;
-  logState: "latest" | "broken-latest" | "none" | "unknown";
-  logTarget?: string;
-  opencodeActivityState?: "thinking" | "idle" | "finished" | "error" | "unknown";
-  opencodeActivityDetail?: {
-    reason?: string;
-    ageS?: number;
-    marker?: string;
-    log?: string;
-  };
-};
-
-export type RuntimeListApiResponse = {
-  requestId?: string;
-  ok: boolean;
-  rows: Record<string, RuntimeStateRow>;
-  stdout: string;
-  stderr: string;
-  error?: string;
-};
 
 export type RestoreApiResponse = {
   requestId?: string;

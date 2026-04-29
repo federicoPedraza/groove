@@ -24,7 +24,9 @@ export { UI_TELEMETRY_PREFIX };
 
 export function summarizeArgValue(value: unknown): string {
   if (typeof value === "string") {
-    return value.length > 40 ? `string(len=${value.length})` : JSON.stringify(value);
+    return value.length > 40
+      ? `string(len=${value.length})`
+      : JSON.stringify(value);
   }
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
@@ -44,23 +46,32 @@ export function summarizeArgValue(value: unknown): string {
   return typeof value;
 }
 
-export function summarizeInvokeArgs(args?: Record<string, unknown>): string | undefined {
+export function summarizeInvokeArgs(
+  args?: Record<string, unknown>,
+): string | undefined {
   if (!args || Object.keys(args).length === 0) {
     return undefined;
   }
 
-  const blockedKeyPattern = /(token|secret|password|credential|cookie|session|api.?key|auth)/i;
+  const blockedKeyPattern =
+    /(token|secret|password|credential|cookie|session|api.?key|auth)/i;
   const segments: string[] = [];
 
   for (const [key, value] of Object.entries(args)) {
     if (blockedKeyPattern.test(key)) {
       continue;
     }
-    if (key === "payload" && value && typeof value === "object" && !Array.isArray(value)) {
+    if (
+      key === "payload" &&
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value)
+    ) {
       const payloadKeys = Object.keys(value as Record<string, unknown>)
         .filter((payloadKey) => !blockedKeyPattern.test(payloadKey))
         .slice(0, 5);
-      const payloadSummary = payloadKeys.length > 0 ? payloadKeys.join(",") : "redacted-or-empty";
+      const payloadSummary =
+        payloadKeys.length > 0 ? payloadKeys.join(",") : "redacted-or-empty";
       segments.push(`payload{${payloadSummary}}`);
       continue;
     }
@@ -75,10 +86,14 @@ export function summarizeInvokeArgs(args?: Record<string, unknown>): string | un
   }
 
   const summary = segments.join(" ");
-  return summary.length > MAX_ARGS_SUMMARY_LENGTH ? `${summary.slice(0, MAX_ARGS_SUMMARY_LENGTH)}...` : summary;
+  return summary.length > MAX_ARGS_SUMMARY_LENGTH
+    ? `${summary.slice(0, MAX_ARGS_SUMMARY_LENGTH)}...`
+    : summary;
 }
 
-export function resolveTelemetryOutcome(result: unknown): "ok" | "error" | "success" {
+export function resolveTelemetryOutcome(
+  result: unknown,
+): "ok" | "error" | "success" {
   if (result && typeof result === "object" && "ok" in result) {
     const maybeOk = (result as { ok?: unknown }).ok;
     if (typeof maybeOk === "boolean") {
@@ -115,8 +130,13 @@ function getPercentileMs(samples: number[], percentile: number): number {
   return lower + (upper - lower) * ratio;
 }
 
-export function recordIpcTelemetryDuration(command: string, durationMs: number): void {
-  const safeDurationMs = Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0;
+export function recordIpcTelemetryDuration(
+  command: string,
+  durationMs: number,
+): void {
+  const safeDurationMs = Number.isFinite(durationMs)
+    ? Math.max(0, durationMs)
+    : 0;
   const existing = ipcTelemetryAggregates.get(command);
   if (!existing) {
     ipcTelemetryAggregates.set(command, {
@@ -146,7 +166,8 @@ export function recordIpcTelemetryDuration(command: string, durationMs: number):
 export function getIpcTelemetrySummary(): IpcTelemetrySummaryRow[] {
   return [...ipcTelemetryAggregates.entries()]
     .map(([command, aggregate]) => {
-      const avgMs = aggregate.count === 0 ? 0 : aggregate.sumMs / aggregate.count;
+      const avgMs =
+        aggregate.count === 0 ? 0 : aggregate.sumMs / aggregate.count;
       return {
         command,
         count: aggregate.count,
@@ -156,7 +177,12 @@ export function getIpcTelemetrySummary(): IpcTelemetrySummaryRow[] {
         max_ms: roundTelemetryMs(aggregate.maxMs),
       };
     })
-    .sort((a, b) => b.p95_ms - a.p95_ms || b.count - a.count || a.command.localeCompare(b.command));
+    .sort(
+      (a, b) =>
+        b.p95_ms - a.p95_ms ||
+        b.count - a.count ||
+        a.command.localeCompare(b.command),
+    );
 }
 
 export function printIpcTelemetrySummary(): IpcTelemetrySummaryRow[] {

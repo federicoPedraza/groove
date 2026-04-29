@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 
 import type { GlobalSettings, WorkspaceContextResponse } from "@/src/lib/ipc";
@@ -13,6 +19,19 @@ const defaultGlobalSettings: GlobalSettings = {
   keyboardShortcutLeader: "Space",
   keyboardLeaderBindings: {},
   opencodeSettings: { enabled: false, settingsDirectory: "" },
+  soundLibrary: [],
+  claudeCodeSoundSettings: {
+    notification: { enabled: false, soundId: null },
+    stop: { enabled: false, soundId: null },
+  },
+  grooveSoundSettings: {
+    play: { enabled: false, soundId: null },
+    pause: { enabled: false, soundId: null },
+    summaryStart: { enabled: false, soundId: null },
+    summaryEnd: { enabled: false, soundId: null },
+    emergency: { enabled: false, soundId: null },
+    remove: { enabled: false, soundId: null },
+  },
 };
 
 const {
@@ -40,6 +59,19 @@ const globalSettingsSnapshotRef = vi.hoisted(() => ({
     keyboardShortcutLeader: "Space",
     keyboardLeaderBindings: {} as Record<string, string>,
     opencodeSettings: { enabled: false, settingsDirectory: "" },
+    soundLibrary: [] as Array<{ id: string; name: string; fileName: string }>,
+    claudeCodeSoundSettings: {
+      notification: { enabled: false, soundId: null as string | null },
+      stop: { enabled: false, soundId: null as string | null },
+    },
+    grooveSoundSettings: {
+      play: { enabled: false, soundId: null as string | null },
+      pause: { enabled: false, soundId: null as string | null },
+      summaryStart: { enabled: false, soundId: null as string | null },
+      summaryEnd: { enabled: false, soundId: null as string | null },
+      emergency: { enabled: false, soundId: null as string | null },
+      remove: { enabled: false, soundId: null as string | null },
+    },
   },
 }));
 
@@ -55,9 +87,16 @@ vi.mock("@/src/lib/ipc", () => ({
   }),
   globalSettingsGet: globalSettingsGetMock,
   globalSettingsUpdate: globalSettingsUpdateMock,
+  soundLibraryImport: vi.fn(),
+  soundLibraryRemove: vi.fn(),
   workspaceGetActive: workspaceGetActiveMock,
   workspaceUpdateCommandsSettings: workspaceUpdateCommandsSettingsMock,
   workspaceUpdateWorktreeSymlinkPaths: workspaceUpdateWorktreeSymlinkPathsMock,
+}));
+
+vi.mock("@/src/lib/utils/sound", () => ({
+  playCustomSound: vi.fn(),
+  playNotificationSound: vi.fn(),
 }));
 
 vi.mock("@/src/lib/theme-constants", () => ({
@@ -69,10 +108,14 @@ vi.mock("@/src/lib/theme-constants", () => ({
 
 vi.mock("@/src/lib/theme", () => ({
   applyThemeToDom: vi.fn(),
+  DARK_THEME_MODES: new Set(["dark"]),
 }));
 
 vi.mock("@/src/lib/shortcuts", () => ({
-  DEFAULT_KEYBOARD_LEADER_BINDINGS: { openActionLauncher: "k", openWorktreeDetailsLauncher: "p" },
+  DEFAULT_KEYBOARD_LEADER_BINDINGS: {
+    openActionLauncher: "k",
+    openWorktreeDetailsLauncher: "p",
+  },
   DEFAULT_KEYBOARD_SHORTCUT_LEADER: "Space",
   OPEN_ACTION_LAUNCHER_COMMAND_ID: "openActionLauncher",
   OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID: "openWorktreeDetailsLauncher",
@@ -91,7 +134,9 @@ vi.mock("@/src/components/pages/settings/commands-settings-form", () => ({
     onSave: (payload: Record<string, string>) => Promise<{ ok: boolean }>;
   }) => (
     <div data-testid="commands-settings-form">
-      {disabled && <span data-testid="commands-disabled">{disabledMessage}</span>}
+      {disabled && (
+        <span data-testid="commands-disabled">{disabledMessage}</span>
+      )}
       <button
         type="button"
         data-testid="save-commands-btn"
@@ -116,6 +161,14 @@ vi.mock("@/src/components/pages/settings/worktree-symlink-paths-modal", () => ({
 
 vi.mock("@/src/components/opencode/opencode-integration-panel", () => ({
   OpencodeIntegrationPanel: () => <div data-testid="opencode-panel" />,
+}));
+
+vi.mock("@/src/components/claudecode/claudecode-integration-panel", () => ({
+  ClaudeCodeIntegrationPanel: () => <div data-testid="claudecode-panel" />,
+}));
+
+vi.mock("@/src/components/ui/sound-waveform", () => ({
+  SoundWaveform: () => <div data-testid="sound-waveform" />,
 }));
 
 vi.mock("@/src/components/ui/search-dropdown", () => ({
@@ -147,14 +200,26 @@ vi.mock("@/src/components/ui/search-dropdown", () => ({
   ),
 }));
 
+let mockSearchParams = new URLSearchParams();
+vi.mock("react-router-dom", () => ({
+  useSearchParams: vi.fn(() => [mockSearchParams, vi.fn()]),
+}));
+
+vi.mock("@/src/components/pages/use-app-layout", () => ({
+  useAppLayout: vi.fn(),
+}));
+
 vi.mock("@/src/lib/utils/workspace/context", () => ({
-  describeWorkspaceContextError: vi.fn((_result: unknown, fallback: string) => fallback),
+  describeWorkspaceContextError: vi.fn(
+    (_result: unknown, fallback: string) => fallback,
+  ),
 }));
 
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.resetModules();
+    mockSearchParams = new URLSearchParams();
     globalSettingsGetMock.mockResolvedValue({
       ok: true,
       globalSettings: { ...defaultGlobalSettings },
@@ -220,11 +285,12 @@ describe("SettingsPage", () => {
   it("renders settings page with title", async () => {
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Settings")).toBeInTheDocument();
+      expect(screen.getByText("General")).toBeInTheDocument();
     });
   });
 
   it("shows loading state initially", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     // Make workspaceGetActive hang to see loading
     workspaceGetActiveMock.mockReturnValue(new Promise(() => {}));
     const mod = await import("@/src/app/settings/page");
@@ -234,13 +300,17 @@ describe("SettingsPage", () => {
   });
 
   it("renders workspace settings section", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Toggle workspace settings/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /Toggle workspace settings/ }),
+      ).toBeInTheDocument();
     });
   });
 
   it("renders commands settings form", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByTestId("commands-settings-form")).toBeInTheDocument();
@@ -248,6 +318,7 @@ describe("SettingsPage", () => {
   });
 
   it("disables commands form when no workspace meta", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: undefined,
@@ -260,6 +331,7 @@ describe("SettingsPage", () => {
   });
 
   it("saves command settings via onSave callback", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByTestId("save-commands-btn")).not.toBeDisabled();
@@ -274,6 +346,7 @@ describe("SettingsPage", () => {
   });
 
   it("handles save command settings failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceUpdateCommandsSettingsMock.mockResolvedValue({
       ok: false,
       error: "Save failed",
@@ -292,6 +365,7 @@ describe("SettingsPage", () => {
   });
 
   it("handles save command settings exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceUpdateCommandsSettingsMock.mockRejectedValue(new Error("Net"));
     await renderPage();
     await waitFor(() => {
@@ -307,34 +381,49 @@ describe("SettingsPage", () => {
   });
 
   it("renders keyboard shortcuts section", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
-    expect(screen.getByRole("button", { name: /Toggle keyboard shortcuts/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Toggle keyboard shortcuts/ }),
+    ).toBeInTheDocument();
   });
 
   it("renders appearance section with theme options", async () => {
+    mockSearchParams = new URLSearchParams("subpage=personalization");
     await renderPage();
-    expect(screen.getByRole("button", { name: /Toggle appearance settings/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Toggle appearance settings/ }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Light")).toBeInTheDocument();
     expect(screen.getByText("Dark")).toBeInTheDocument();
   });
 
   it("renders Groove settings section", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
-    expect(screen.getByRole("button", { name: /Toggle Groove settings/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Toggle Groove settings/ }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Enable telemetry")).toBeInTheDocument();
     expect(screen.getByText("Disable monkey")).toBeInTheDocument();
     expect(screen.getByText("Show FPS")).toBeInTheDocument();
     expect(screen.getByText("Trigger periodic re-renders")).toBeInTheDocument();
-    expect(screen.getByText("Always show diagnostics sidebar")).toBeInTheDocument();
+    expect(
+      screen.getByText("Always show diagnostics sidebar"),
+    ).toBeInTheDocument();
   });
 
   it("renders integrations section", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
-    expect(screen.getByRole("button", { name: /Toggle integrations/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Toggle integrations/ }),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("opencode-panel")).toBeInTheDocument();
   });
 
   it("renders worktree symlink paths", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByText("node_modules")).toBeInTheDocument();
@@ -342,6 +431,7 @@ describe("SettingsPage", () => {
   });
 
   it("shows no configured paths when empty", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: "/test",
@@ -361,6 +451,7 @@ describe("SettingsPage", () => {
   });
 
   it("handles theme change", async () => {
+    mockSearchParams = new URLSearchParams("subpage=personalization");
     const { applyThemeToDom } = await import("@/src/lib/theme");
     await renderPage();
 
@@ -377,6 +468,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts theme on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=personalization");
     const { applyThemeToDom } = await import("@/src/lib/theme");
     await renderPage();
 
@@ -397,6 +489,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts theme on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=personalization");
     const { applyThemeToDom } = await import("@/src/lib/theme");
     await renderPage();
 
@@ -422,7 +515,9 @@ describe("SettingsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Failed to load the active workspace context.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to load the active workspace context."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -430,7 +525,9 @@ describe("SettingsPage", () => {
     workspaceGetActiveMock.mockRejectedValue(new Error("Net"));
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Failed to load the active workspace context.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to load the active workspace context."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -438,11 +535,14 @@ describe("SettingsPage", () => {
     globalSettingsGetMock.mockRejectedValue(new Error("Net"));
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Failed to load global settings.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to load global settings."),
+      ).toBeInTheDocument();
     });
   });
 
   it("handles workspace with no meta", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: undefined,
@@ -455,11 +555,13 @@ describe("SettingsPage", () => {
   });
 
   it("renders symlink modal", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     await renderPage();
     expect(screen.getByTestId("symlink-modal")).toBeInTheDocument();
   });
 
   it("shows connect repository message when no workspace meta for commands", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: undefined,
@@ -467,11 +569,16 @@ describe("SettingsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Connect a repository to edit workspace command settings.")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Connect a repository to edit workspace command settings.",
+        ),
+      ).toBeInTheDocument();
     });
   });
 
   it("handles save command settings when no workspace meta returns error", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: undefined,
@@ -485,15 +592,21 @@ describe("SettingsPage", () => {
   });
 
   it("changes keyboard shortcut leader key", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByTestId("dropdown-Keyboard shortcut leader key")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("dropdown-Keyboard shortcut leader key"),
+      ).toBeInTheDocument();
     });
 
     await act(async () => {
-      fireEvent.change(screen.getByTestId("dropdown-Keyboard shortcut leader key"), {
-        target: { value: "k" },
-      });
+      fireEvent.change(
+        screen.getByTestId("dropdown-Keyboard shortcut leader key"),
+        {
+          target: { value: "k" },
+        },
+      );
       await vi.advanceTimersByTimeAsync(0);
     });
 
@@ -503,14 +616,21 @@ describe("SettingsPage", () => {
   });
 
   it("reverts keyboard leader on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
-    globalSettingsUpdateMock.mockResolvedValue({ ok: false, error: "Leader save failed" });
+    globalSettingsUpdateMock.mockResolvedValue({
+      ok: false,
+      error: "Leader save failed",
+    });
 
     await act(async () => {
-      fireEvent.change(screen.getByTestId("dropdown-Keyboard shortcut leader key"), {
-        target: { value: "j" },
-      });
+      fireEvent.change(
+        screen.getByTestId("dropdown-Keyboard shortcut leader key"),
+        {
+          target: { value: "j" },
+        },
+      );
       await vi.advanceTimersByTimeAsync(0);
     });
 
@@ -520,14 +640,18 @@ describe("SettingsPage", () => {
   });
 
   it("reverts keyboard leader on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
 
     await act(async () => {
-      fireEvent.change(screen.getByTestId("dropdown-Keyboard shortcut leader key"), {
-        target: { value: "j" },
-      });
+      fireEvent.change(
+        screen.getByTestId("dropdown-Keyboard shortcut leader key"),
+        {
+          target: { value: "j" },
+        },
+      );
       await vi.advanceTimersByTimeAsync(0);
     });
 
@@ -539,9 +663,12 @@ describe("SettingsPage", () => {
   });
 
   it("changes open actions key binding", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByTestId("dropdown-Open actions key")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("dropdown-Open actions key"),
+      ).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -553,15 +680,21 @@ describe("SettingsPage", () => {
 
     expect(globalSettingsUpdateMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        keyboardLeaderBindings: expect.objectContaining({ openActionLauncher: "p" }),
+        keyboardLeaderBindings: expect.objectContaining({
+          openActionLauncher: "p",
+        }),
       }),
     );
   });
 
   it("reverts open actions binding on failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
-    globalSettingsUpdateMock.mockResolvedValue({ ok: false, error: "Binding failed" });
+    globalSettingsUpdateMock.mockResolvedValue({
+      ok: false,
+      error: "Binding failed",
+    });
 
     await act(async () => {
       fireEvent.change(screen.getByTestId("dropdown-Open actions key"), {
@@ -574,6 +707,7 @@ describe("SettingsPage", () => {
   });
 
   it("reverts open actions binding on exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
@@ -589,34 +723,49 @@ describe("SettingsPage", () => {
   });
 
   it("changes open worktree details key binding", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByTestId("dropdown-Open worktree details key")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("dropdown-Open worktree details key"),
+      ).toBeInTheDocument();
     });
 
     await act(async () => {
-      fireEvent.change(screen.getByTestId("dropdown-Open worktree details key"), {
-        target: { value: "k" },
-      });
+      fireEvent.change(
+        screen.getByTestId("dropdown-Open worktree details key"),
+        {
+          target: { value: "k" },
+        },
+      );
       await vi.advanceTimersByTimeAsync(0);
     });
 
     expect(globalSettingsUpdateMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        keyboardLeaderBindings: expect.objectContaining({ openWorktreeDetailsLauncher: "k" }),
+        keyboardLeaderBindings: expect.objectContaining({
+          openWorktreeDetailsLauncher: "k",
+        }),
       }),
     );
   });
 
   it("reverts open worktree details binding on failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
-    globalSettingsUpdateMock.mockResolvedValue({ ok: false, error: "Binding failed" });
+    globalSettingsUpdateMock.mockResolvedValue({
+      ok: false,
+      error: "Binding failed",
+    });
 
     await act(async () => {
-      fireEvent.change(screen.getByTestId("dropdown-Open worktree details key"), {
-        target: { value: "j" },
-      });
+      fireEvent.change(
+        screen.getByTestId("dropdown-Open worktree details key"),
+        {
+          target: { value: "j" },
+        },
+      );
       await vi.advanceTimersByTimeAsync(0);
     });
 
@@ -624,14 +773,18 @@ describe("SettingsPage", () => {
   });
 
   it("reverts open worktree details binding on exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
 
     await act(async () => {
-      fireEvent.change(screen.getByTestId("dropdown-Open worktree details key"), {
-        target: { value: "j" },
-      });
+      fireEvent.change(
+        screen.getByTestId("dropdown-Open worktree details key"),
+        {
+          target: { value: "j" },
+        },
+      );
       await vi.advanceTimersByTimeAsync(0);
     });
 
@@ -639,33 +792,43 @@ describe("SettingsPage", () => {
   });
 
   it("renders keyboard shortcuts description text", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
-    expect(screen.getByText(/Customize leader-based shortcuts/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Customize leader-based shortcuts/),
+    ).toBeInTheDocument();
   });
 
   it("renders leader key label", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     expect(screen.getByText("Leader key")).toBeInTheDocument();
   });
 
   it("renders open actions key label", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     expect(screen.getByText("Open actions key")).toBeInTheDocument();
   });
 
   it("renders open worktree details key label", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     expect(screen.getByText("Open worktree details key")).toBeInTheDocument();
   });
 
   it("handles globalSettingsGet failure showing error message", async () => {
-    globalSettingsGetMock.mockResolvedValue({ ok: false, error: "Global get failed" });
+    globalSettingsGetMock.mockResolvedValue({
+      ok: false,
+      error: "Global get failed",
+    });
     await renderPage();
     // Should not crash, settings still render
-    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("General")).toBeInTheDocument();
   });
 
   it("shows worktree symlink paths from meta", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: "/test",
@@ -686,14 +849,19 @@ describe("SettingsPage", () => {
   });
 
   it("toggles telemetry checkbox and calls globalSettingsUpdate", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByText("Enable telemetry")).toBeInTheDocument();
     });
 
     // Find the telemetry checkbox (it's in the label with "Enable telemetry")
-    const telemetryLabel = screen.getByText("Enable telemetry").closest("label");
-    const checkbox = telemetryLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const telemetryLabel = screen
+      .getByText("Enable telemetry")
+      .closest("label");
+    const checkbox = telemetryLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -706,12 +874,20 @@ describe("SettingsPage", () => {
   });
 
   it("reverts telemetry on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
-    globalSettingsUpdateMock.mockResolvedValue({ ok: false, error: "Telemetry failed" });
+    globalSettingsUpdateMock.mockResolvedValue({
+      ok: false,
+      error: "Telemetry failed",
+    });
 
-    const telemetryLabel = screen.getByText("Enable telemetry").closest("label");
-    const checkbox = telemetryLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const telemetryLabel = screen
+      .getByText("Enable telemetry")
+      .closest("label");
+    const checkbox = telemetryLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -726,13 +902,16 @@ describe("SettingsPage", () => {
   });
 
   it("toggles disable monkey checkbox and calls globalSettingsUpdate", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByText("Disable monkey")).toBeInTheDocument();
     });
 
     const monkeyLabel = screen.getByText("Disable monkey").closest("label");
-    const checkbox = monkeyLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const checkbox = monkeyLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -745,13 +924,16 @@ describe("SettingsPage", () => {
   });
 
   it("toggles show FPS checkbox and calls globalSettingsUpdate", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
       expect(screen.getByText("Show FPS")).toBeInTheDocument();
     });
 
     const fpsLabel = screen.getByText("Show FPS").closest("label");
-    const checkbox = fpsLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const checkbox = fpsLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -764,13 +946,20 @@ describe("SettingsPage", () => {
   });
 
   it("toggles periodic re-render checkbox and calls globalSettingsUpdate", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Trigger periodic re-renders")).toBeInTheDocument();
+      expect(
+        screen.getByText("Trigger periodic re-renders"),
+      ).toBeInTheDocument();
     });
 
-    const reRenderLabel = screen.getByText("Trigger periodic re-renders").closest("label");
-    const checkbox = reRenderLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const reRenderLabel = screen
+      .getByText("Trigger periodic re-renders")
+      .closest("label");
+    const checkbox = reRenderLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -783,13 +972,20 @@ describe("SettingsPage", () => {
   });
 
   it("toggles always show diagnostics sidebar and calls globalSettingsUpdate", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Always show diagnostics sidebar")).toBeInTheDocument();
+      expect(
+        screen.getByText("Always show diagnostics sidebar"),
+      ).toBeInTheDocument();
     });
 
-    const diagnosticsLabel = screen.getByText("Always show diagnostics sidebar").closest("label");
-    const checkbox = diagnosticsLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const diagnosticsLabel = screen
+      .getByText("Always show diagnostics sidebar")
+      .closest("label");
+    const checkbox = diagnosticsLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -802,12 +998,17 @@ describe("SettingsPage", () => {
   });
 
   it("shows error message when global settings update fails for telemetry", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
 
-    const telemetryLabel = screen.getByText("Enable telemetry").closest("label");
-    const checkbox = telemetryLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const telemetryLabel = screen
+      .getByText("Enable telemetry")
+      .closest("label");
+    const checkbox = telemetryLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -815,11 +1016,14 @@ describe("SettingsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to update telemetry settings.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to update telemetry settings."),
+      ).toBeInTheDocument();
     });
   });
 
   it("displays error message in error banner", async () => {
+    mockSearchParams = new URLSearchParams("subpage=personalization");
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
     await renderPage();
 
@@ -830,17 +1034,27 @@ describe("SettingsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to update theme mode.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to update theme mode."),
+      ).toBeInTheDocument();
     });
   });
 
   it("reverts diagnostics sidebar on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
-    globalSettingsUpdateMock.mockResolvedValue({ ok: false, error: "Diagnostics update failed" });
+    globalSettingsUpdateMock.mockResolvedValue({
+      ok: false,
+      error: "Diagnostics update failed",
+    });
 
-    const diagnosticsLabel = screen.getByText("Always show diagnostics sidebar").closest("label");
-    const checkbox = diagnosticsLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const diagnosticsLabel = screen
+      .getByText("Always show diagnostics sidebar")
+      .closest("label");
+    const checkbox = diagnosticsLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -855,12 +1069,17 @@ describe("SettingsPage", () => {
   });
 
   it("reverts diagnostics sidebar on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
 
-    const diagnosticsLabel = screen.getByText("Always show diagnostics sidebar").closest("label");
-    const checkbox = diagnosticsLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const diagnosticsLabel = screen
+      .getByText("Always show diagnostics sidebar")
+      .closest("label");
+    const checkbox = diagnosticsLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -868,17 +1087,25 @@ describe("SettingsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to update diagnostics sidebar visibility.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to update diagnostics sidebar visibility."),
+      ).toBeInTheDocument();
     });
   });
 
   it("reverts disable monkey on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
-    globalSettingsUpdateMock.mockResolvedValue({ ok: false, error: "Monkey update failed" });
+    globalSettingsUpdateMock.mockResolvedValue({
+      ok: false,
+      error: "Monkey update failed",
+    });
 
     const monkeyLabel = screen.getByText("Disable monkey").closest("label");
-    const checkbox = monkeyLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const checkbox = monkeyLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -893,12 +1120,15 @@ describe("SettingsPage", () => {
   });
 
   it("reverts disable monkey on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
 
     const monkeyLabel = screen.getByText("Disable monkey").closest("label");
-    const checkbox = monkeyLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const checkbox = monkeyLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -906,17 +1136,25 @@ describe("SettingsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to update Groove loading section visibility.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to update Groove loading section visibility."),
+      ).toBeInTheDocument();
     });
   });
 
   it("reverts show FPS on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
-    globalSettingsUpdateMock.mockResolvedValue({ ok: false, error: "FPS update failed" });
+    globalSettingsUpdateMock.mockResolvedValue({
+      ok: false,
+      error: "FPS update failed",
+    });
 
     const fpsLabel = screen.getByText("Show FPS").closest("label");
-    const checkbox = fpsLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const checkbox = fpsLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -931,12 +1169,15 @@ describe("SettingsPage", () => {
   });
 
   it("reverts show FPS on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
 
     const fpsLabel = screen.getByText("Show FPS").closest("label");
-    const checkbox = fpsLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const checkbox = fpsLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -944,17 +1185,27 @@ describe("SettingsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to update FPS settings.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to update FPS settings."),
+      ).toBeInTheDocument();
     });
   });
 
   it("reverts periodic re-render on update failure", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
-    globalSettingsUpdateMock.mockResolvedValue({ ok: false, error: "Periodic rerender failed" });
+    globalSettingsUpdateMock.mockResolvedValue({
+      ok: false,
+      error: "Periodic rerender failed",
+    });
 
-    const reRenderLabel = screen.getByText("Trigger periodic re-renders").closest("label");
-    const checkbox = reRenderLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const reRenderLabel = screen
+      .getByText("Trigger periodic re-renders")
+      .closest("label");
+    const checkbox = reRenderLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -969,12 +1220,17 @@ describe("SettingsPage", () => {
   });
 
   it("reverts periodic re-render on update exception", async () => {
+    mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
 
-    const reRenderLabel = screen.getByText("Trigger periodic re-renders").closest("label");
-    const checkbox = reRenderLabel!.querySelector("[role='checkbox']") as HTMLElement;
+    const reRenderLabel = screen
+      .getByText("Trigger periodic re-renders")
+      .closest("label");
+    const checkbox = reRenderLabel!.querySelector(
+      "[role='checkbox']",
+    ) as HTMLElement;
 
     await act(async () => {
       fireEvent.click(checkbox);
@@ -982,11 +1238,16 @@ describe("SettingsPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to update periodic re-render trigger settings.")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Failed to update periodic re-render trigger settings.",
+        ),
+      ).toBeInTheDocument();
     });
   });
 
   it("shows connect repository message for symlinks when no workspace meta", async () => {
+    mockSearchParams = new URLSearchParams("subpage=workspace");
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: undefined,
@@ -994,7 +1255,9 @@ describe("SettingsPage", () => {
     });
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Connect a repository to edit this list.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Connect a repository to edit this list."),
+      ).toBeInTheDocument();
     });
   });
 });

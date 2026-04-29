@@ -8,7 +8,8 @@ import { useShortcutRegistration } from "@/src/components/shortcuts/use-shortcut
 vi.mock("@/src/components/shortcuts/shortcut-registry-context", () => ({
   KeyboardShortcutsContext: {
     Provider: ({ children }: { children: ReactNode }) => children,
-    Consumer: ({ children }: { children: (value: null) => ReactNode }) => children(null),
+    Consumer: ({ children }: { children: (value: null) => ReactNode }) =>
+      children(null),
   },
 }));
 
@@ -24,17 +25,20 @@ vi.mock("react", async () => {
 describe("useShortcutRegistration", () => {
   it("does nothing when context is null (no provider)", () => {
     const registration = {
-      actionables: [{ id: "test", type: "button" as const, label: "Test", run: () => {} }],
+      actionables: [
+        { id: "test", type: "button" as const, label: "Test", run: () => {} },
+      ],
     };
 
     // Should not throw when rendered without a KeyboardShortcutsProvider
-    const { unmount } = renderHook(() => useShortcutRegistration(registration), {
-      wrapper: ({ children }: { children: ReactNode }) => (
-        <MemoryRouter initialEntries={["/"]}>
-          {children}
-        </MemoryRouter>
-      ),
-    });
+    const { unmount } = renderHook(
+      () => useShortcutRegistration(registration),
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <MemoryRouter initialEntries={["/"]}>{children}</MemoryRouter>
+        ),
+      },
+    );
 
     // If the early return guard works, no error is thrown
     unmount();

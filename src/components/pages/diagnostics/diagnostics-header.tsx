@@ -2,7 +2,12 @@ import { BrushCleaning, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/src/components/ui/button";
 import { SOFT_RED_BUTTON_CLASSES } from "@/src/components/pages/diagnostics/constants";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/src/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/src/components/ui/tooltip";
 
 type DiagnosticsHeaderProps = {
   isLoadingMostConsumingPrograms: boolean;
@@ -17,14 +22,19 @@ export function DiagnosticsHeader({
   onLoadMostConsumingPrograms,
   onCleanAll,
 }: DiagnosticsHeaderProps) {
-  const cleanAllLabel = isCleaningAllDevServers ? "Cleaning all processes" : "Clean all processes";
+  const cleanAllLabel = isCleaningAllDevServers
+    ? "Cleaning all processes"
+    : "Clean all processes";
 
   return (
     <header className="rounded-lg border bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Diagnostics</h1>
-          <p className="text-sm text-muted-foreground">Inspect and stop local processes that can interfere with Groove workflows.</p>
+          <p className="text-sm text-muted-foreground">
+            Inspect and stop local processes that can interfere with Groove
+            workflows.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -34,7 +44,11 @@ export function DiagnosticsHeader({
             onClick={onLoadMostConsumingPrograms}
             disabled={isLoadingMostConsumingPrograms}
           >
-            {isLoadingMostConsumingPrograms ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RefreshCw aria-hidden="true" className="size-4" />}
+            {isLoadingMostConsumingPrograms ? (
+              <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw aria-hidden="true" className="size-4" />
+            )}
             <span>Load top processes</span>
           </Button>
           <TooltipProvider>
@@ -49,7 +63,14 @@ export function DiagnosticsHeader({
                   disabled={isCleaningAllDevServers}
                   aria-label={cleanAllLabel}
                 >
-                  {isCleaningAllDevServers ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <BrushCleaning aria-hidden="true" className="size-4" />}
+                  {isCleaningAllDevServers ? (
+                    <Loader2
+                      aria-hidden="true"
+                      className="size-4 animate-spin"
+                    />
+                  ) : (
+                    <BrushCleaning aria-hidden="true" className="size-4" />
+                  )}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{cleanAllLabel}</TooltipContent>

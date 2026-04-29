@@ -5,13 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppNavigation } from "@/src/components/app-navigation";
 
 const {
-  grooveListMock,
+  grooveTerminalActiveWorktreesMock,
   isGrooveLoadingSectionDisabledMock,
   isTelemetryEnabledMock,
   subscribeToGlobalSettingsMock,
   workspaceGetActiveMock,
 } = vi.hoisted(() => ({
-  grooveListMock: vi.fn(),
+  grooveTerminalActiveWorktreesMock: vi.fn(),
   isGrooveLoadingSectionDisabledMock: vi.fn(() => false),
   isTelemetryEnabledMock: vi.fn(() => false),
   subscribeToGlobalSettingsMock: vi.fn((onStoreChange: () => void) => {
@@ -22,7 +22,7 @@ const {
 }));
 
 vi.mock("@/src/lib/ipc", () => ({
-  grooveList: grooveListMock,
+  grooveTerminalActiveWorktrees: grooveTerminalActiveWorktreesMock,
   isGrooveLoadingSectionDisabled: isGrooveLoadingSectionDisabledMock,
   isShowFpsEnabled: vi.fn(() => false),
   isTelemetryEnabled: isTelemetryEnabledMock,
@@ -52,7 +52,7 @@ function renderNav(
 
 describe("AppNavigation", () => {
   beforeEach(() => {
-    grooveListMock.mockReset();
+    grooveTerminalActiveWorktreesMock.mockReset();
     subscribeToGlobalSettingsMock.mockClear();
     workspaceGetActiveMock.mockReset();
     isGrooveLoadingSectionDisabledMock.mockReturnValue(false);
@@ -65,7 +65,7 @@ describe("AppNavigation", () => {
         rootName: "groove",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-02T00:00:00.000Z",
-        },
+      },
       rows: [
         {
           worktree: "feature-alpha",
@@ -75,13 +75,9 @@ describe("AppNavigation", () => {
         },
       ],
     });
-    grooveListMock.mockResolvedValue({
+    grooveTerminalActiveWorktreesMock.mockResolvedValue({
       ok: true,
-      rows: {
-        "feature-alpha": { opencodeState: "running" },
-      },
-      stdout: "",
-      stderr: "",
+      worktrees: ["feature-alpha"],
     });
   });
 
@@ -293,7 +289,8 @@ describe("AppNavigation", () => {
     fireEvent.click(screen.getAllByText("Dashboard")[0]);
     // Should NOT log navigation start since we are already on "/"
     const navigationStartCalls = consoleSpy.mock.calls.filter(
-      (call) => typeof call[0] === "string" && call[0].includes("navigation.start"),
+      (call) =>
+        typeof call[0] === "string" && call[0].includes("navigation.start"),
     );
     expect(navigationStartCalls.length).toBe(0);
     consoleSpy.mockRestore();
@@ -309,12 +306,21 @@ describe("AppNavigation", () => {
   it("handles empty workspace rows from grooveList", async () => {
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
-      workspaceMeta: { version: 1, rootName: "groove", createdAt: "", updatedAt: "" },
+      workspaceMeta: {
+        version: 1,
+        rootName: "groove",
+        createdAt: "",
+        updatedAt: "",
+      },
       rows: [
-        { worktree: "feat-1", path: "/repo/.worktrees/feat-1", status: "running" },
+        {
+          worktree: "feat-1",
+          path: "/repo/.worktrees/feat-1",
+          status: "running",
+        },
       ],
     });
-    grooveListMock.mockResolvedValue({ ok: false });
+    grooveTerminalActiveWorktreesMock.mockResolvedValue({ ok: false });
     renderNav();
     await waitFor(() => {
       expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);
@@ -330,7 +336,8 @@ describe("AppNavigation", () => {
     });
     fireEvent.click(screen.getAllByText("Settings")[0]);
     const navigationStartCalls = consoleSpy.mock.calls.filter(
-      (call) => typeof call[0] === "string" && call[0].includes("navigation.start"),
+      (call) =>
+        typeof call[0] === "string" && call[0].includes("navigation.start"),
     );
     expect(navigationStartCalls.length).toBe(0);
     consoleSpy.mockRestore();
@@ -343,7 +350,9 @@ describe("AppNavigation", () => {
       expect(screen.getByText("GROOVE")).toBeTruthy();
     });
     // The mascot sprite should not be rendered
-    const spriteContainers = document.querySelectorAll(".groove-loading-sprite");
+    const spriteContainers = document.querySelectorAll(
+      ".groove-loading-sprite",
+    );
     expect(spriteContainers.length).toBe(0);
   });
 
@@ -419,7 +428,10 @@ describe("AppNavigation", () => {
       },
       rows: [],
     });
-    grooveListMock.mockResolvedValue({ ok: true, rows: {} });
+    grooveTerminalActiveWorktreesMock.mockResolvedValue({
+      ok: true,
+      worktrees: [],
+    });
 
     // Clear the module-level cache to force a fresh fetch
     renderNav({ hasOpenWorkspace: false });
@@ -466,7 +478,10 @@ describe("AppNavigation", () => {
   });
 
   it("does not crash when grooveList returns non-ok during worktree fetch", async () => {
-    grooveListMock.mockResolvedValue({ ok: false, error: "failed" });
+    grooveTerminalActiveWorktreesMock.mockResolvedValue({
+      ok: false,
+      error: "failed",
+    });
     renderNav();
     await waitFor(() => {
       expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);
@@ -478,12 +493,24 @@ describe("AppNavigation", () => {
   it("normalizes workspace rows from an object shape", async () => {
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
-      workspaceMeta: { version: 1, rootName: "groove", createdAt: "", updatedAt: "" },
+      workspaceMeta: {
+        version: 1,
+        rootName: "groove",
+        createdAt: "",
+        updatedAt: "",
+      },
       rows: {
-        0: { worktree: "obj-wt", path: "/repo/.worktrees/obj-wt", status: "running" },
+        0: {
+          worktree: "obj-wt",
+          path: "/repo/.worktrees/obj-wt",
+          status: "running",
+        },
       },
     });
-    grooveListMock.mockResolvedValue({ ok: true, rows: {} });
+    grooveTerminalActiveWorktreesMock.mockResolvedValue({
+      ok: true,
+      worktrees: [],
+    });
     renderNav();
     await waitFor(() => {
       expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);

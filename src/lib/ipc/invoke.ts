@@ -3,15 +3,24 @@ import { invoke } from "@tauri-apps/api/core";
 import { trackCommandExecution } from "@/src/lib/command-history";
 
 import type { CommandIntent } from "./types-core";
-import { isTelemetryEnabled, syncGlobalSettingsFromResult, updateBlockingInvokeCount } from "./global-settings";
-import { recordIpcTelemetryDuration, summarizeInvokeArgs, resolveTelemetryOutcome, UI_TELEMETRY_PREFIX } from "./telemetry";
+import {
+  isTelemetryEnabled,
+  syncGlobalSettingsFromResult,
+  updateBlockingInvokeCount,
+} from "./global-settings";
+import {
+  recordIpcTelemetryDuration,
+  summarizeInvokeArgs,
+  resolveTelemetryOutcome,
+  UI_TELEMETRY_PREFIX,
+} from "./telemetry";
 
 type InvokeCommandOptions = {
   intent?: CommandIntent;
 };
 
 const UNTRACKED_COMMANDS = new Set<string>([
-  "groove_list",
+  "groove_terminal_active_worktrees",
   "workspace_events",
   "workspace_get_active",
   "workspace_term_sanity_check",
@@ -56,7 +65,10 @@ const UNTRACKED_COMMANDS = new Set<string>([
 const NON_DEDUPED_COMMANDS = new Set<string>(["groove_terminal_write"]);
 
 let inflightInvokeCount = 0;
-const inflightInvokes = new Map<string, { promise: Promise<unknown>; joinedCalls: number }>();
+const inflightInvokes = new Map<
+  string,
+  { promise: Promise<unknown>; joinedCalls: number }
+>();
 
 function serializeInvokeArg(value: unknown): string {
   if (value === undefined) {
@@ -65,7 +77,11 @@ function serializeInvokeArg(value: unknown): string {
   if (value === null) {
     return "null";
   }
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
@@ -80,11 +96,18 @@ function serializeInvokeArg(value: unknown): string {
   return JSON.stringify(String(value));
 }
 
-function getInvokeDedupeKey(command: string, args?: Record<string, unknown>): string {
+function getInvokeDedupeKey(
+  command: string,
+  args?: Record<string, unknown>,
+): string {
   return `${command}:${serializeInvokeArg(args ?? null)}`;
 }
 
-export async function invokeCommand<T>(command: string, args?: Record<string, unknown>, options?: InvokeCommandOptions): Promise<T> {
+export async function invokeCommand<T>(
+  command: string,
+  args?: Record<string, unknown>,
+  options?: InvokeCommandOptions,
+): Promise<T> {
   const startedAtMs = globalThis.performance?.now() ?? Date.now();
   const argsSummary = summarizeInvokeArgs(args);
   const shouldDedupe = !NON_DEDUPED_COMMANDS.has(command);
@@ -101,7 +124,10 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
 
     try {
       const result = (await existingInvoke.promise) as T;
-      const durationMs = Math.max(0, (globalThis.performance?.now() ?? Date.now()) - startedAtMs);
+      const durationMs = Math.max(
+        0,
+        (globalThis.performance?.now() ?? Date.now()) - startedAtMs,
+      );
       const outcome = resolveTelemetryOutcome(result);
       syncGlobalSettingsFromResult(command, result);
 
@@ -120,7 +146,10 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
 
       return result;
     } catch (error: unknown) {
-      const durationMs = Math.max(0, (globalThis.performance?.now() ?? Date.now()) - startedAtMs);
+      const durationMs = Math.max(
+        0,
+        (globalThis.performance?.now() ?? Date.now()) - startedAtMs,
+      );
       if (isTelemetryEnabled()) {
         recordIpcTelemetryDuration(command, durationMs);
         console.info(`${UI_TELEMETRY_PREFIX} ipc.invoke`, {
@@ -162,7 +191,10 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
   try {
     const result = await trackedInvokePromise;
 
-    const durationMs = Math.max(0, (globalThis.performance?.now() ?? Date.now()) - startedAtMs);
+    const durationMs = Math.max(
+      0,
+      (globalThis.performance?.now() ?? Date.now()) - startedAtMs,
+    );
     const outcome = resolveTelemetryOutcome(result);
     syncGlobalSettingsFromResult(command, result);
 
@@ -173,7 +205,9 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
         duration_ms: Number(durationMs.toFixed(2)),
         outcome,
         inflight: inflightAtStart,
-        deduped_joiners: dedupeKey ? (inflightInvokes.get(dedupeKey)?.joinedCalls ?? 0) : 0,
+        deduped_joiners: dedupeKey
+          ? (inflightInvokes.get(dedupeKey)?.joinedCalls ?? 0)
+          : 0,
         command_intent: commandIntent,
         ...(argsSummary ? { args_summary: argsSummary } : {}),
       });
@@ -181,7 +215,10 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
 
     return result;
   } catch (error: unknown) {
-    const durationMs = Math.max(0, (globalThis.performance?.now() ?? Date.now()) - startedAtMs);
+    const durationMs = Math.max(
+      0,
+      (globalThis.performance?.now() ?? Date.now()) - startedAtMs,
+    );
     if (isTelemetryEnabled()) {
       recordIpcTelemetryDuration(command, durationMs);
       console.info(`${UI_TELEMETRY_PREFIX} ipc.invoke`, {
@@ -189,7 +226,9 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
         duration_ms: Number(durationMs.toFixed(2)),
         outcome: "throw",
         inflight: inflightAtStart,
-        deduped_joiners: dedupeKey ? (inflightInvokes.get(dedupeKey)?.joinedCalls ?? 0) : 0,
+        deduped_joiners: dedupeKey
+          ? (inflightInvokes.get(dedupeKey)?.joinedCalls ?? 0)
+          : 0,
         command_intent: commandIntent,
         ...(argsSummary ? { args_summary: argsSummary } : {}),
       });

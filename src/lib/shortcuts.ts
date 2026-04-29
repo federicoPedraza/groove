@@ -1,5 +1,6 @@
 export const OPEN_ACTION_LAUNCHER_COMMAND_ID = "openActionLauncher";
-export const OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID = "openWorktreeDetailsLauncher";
+export const OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID =
+  "openWorktreeDetailsLauncher";
 export const DEFAULT_KEYBOARD_SHORTCUT_LEADER = "Space";
 
 export const DEFAULT_KEYBOARD_LEADER_BINDINGS: Record<string, string> = {
@@ -49,18 +50,25 @@ export function normalizeKeyboardLeaderBindings(
       continue;
     }
 
-    normalized[commandId] = normalizeShortcutKey(shortcutKey, defaults[commandId]);
+    normalized[commandId] = normalizeShortcutKey(
+      shortcutKey,
+      defaults[commandId],
+    );
   }
 
   const hasWorktreeDetailsBinding = Object.prototype.hasOwnProperty.call(
     candidateBindings,
     OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID,
   );
-  const hasActionLauncherBinding = Object.prototype.hasOwnProperty.call(candidateBindings, OPEN_ACTION_LAUNCHER_COMMAND_ID);
+  const hasActionLauncherBinding = Object.prototype.hasOwnProperty.call(
+    candidateBindings,
+    OPEN_ACTION_LAUNCHER_COMMAND_ID,
+  );
   if (hasActionLauncherBinding && !hasWorktreeDetailsBinding) {
     const actionLauncherBinding = normalized[OPEN_ACTION_LAUNCHER_COMMAND_ID];
     if (actionLauncherBinding === LEGACY_OPEN_ACTION_LAUNCHER_DEFAULT_KEY) {
-      normalized[OPEN_ACTION_LAUNCHER_COMMAND_ID] = defaults[OPEN_ACTION_LAUNCHER_COMMAND_ID];
+      normalized[OPEN_ACTION_LAUNCHER_COMMAND_ID] =
+        defaults[OPEN_ACTION_LAUNCHER_COMMAND_ID];
     }
   }
 

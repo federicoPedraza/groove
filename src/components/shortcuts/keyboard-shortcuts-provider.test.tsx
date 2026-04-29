@@ -39,6 +39,19 @@ const {
       defaultModel: null,
       settingsDirectory: "~/.config/opencode",
     },
+    soundLibrary: [],
+    claudeCodeSoundSettings: {
+      notification: { enabled: false, soundId: null },
+      stop: { enabled: false, soundId: null },
+    },
+    grooveSoundSettings: {
+      play: { enabled: false, soundId: null },
+      pause: { enabled: false, soundId: null },
+      summaryStart: { enabled: false, soundId: null },
+      summaryEnd: { enabled: false, soundId: null },
+      emergency: { enabled: false, soundId: null },
+      remove: { enabled: false, soundId: null },
+    },
   } as GlobalSettings,
   subscribeToGlobalSettingsMock: vi.fn((onStoreChange: () => void) => {
     void onStoreChange;
@@ -59,8 +72,22 @@ vi.mock("@/src/lib/ipc", () => ({
 
 function ShortcutFixture() {
   useShortcutRegistration({
-    actionables: [{ id: "general-action", type: "button", label: "Refresh worktrees", run: () => {} }],
-    worktreeDetailActionables: [{ id: "worktree-detail-action", type: "button", label: "Open details", run: () => {} }],
+    actionables: [
+      {
+        id: "general-action",
+        type: "button",
+        label: "Refresh worktrees",
+        run: () => {},
+      },
+    ],
+    worktreeDetailActionables: [
+      {
+        id: "worktree-detail-action",
+        type: "button",
+        label: "Open details",
+        run: () => {},
+      },
+    ],
   });
 
   return null;
@@ -75,10 +102,24 @@ function ExplicitRegistrationFixture() {
     }
 
     context.register("registration-dashboard", "/", {
-      worktreeDetailActionables: [{ id: "dashboard-worktree-list", type: "button", label: "Dashboard worktree list", run: () => {} }],
+      worktreeDetailActionables: [
+        {
+          id: "dashboard-worktree-list",
+          type: "button",
+          label: "Dashboard worktree list",
+          run: () => {},
+        },
+      ],
     });
     context.register("registration-detail", "/worktrees/alpha", {
-      worktreeDetailActionables: [{ id: "detail-worktree-action", type: "button", label: "Detail-only action", run: () => {} }],
+      worktreeDetailActionables: [
+        {
+          id: "detail-worktree-action",
+          type: "button",
+          label: "Detail-only action",
+          run: () => {},
+        },
+      ],
     });
 
     return () => {
@@ -96,10 +137,16 @@ describe("KeyboardShortcutsProvider launcher modes", () => {
   });
 
   beforeEach(() => {
-    getGlobalSettingsSnapshotMock.mockImplementation(() => globalSettingsSnapshot);
+    getGlobalSettingsSnapshotMock.mockImplementation(
+      () => globalSettingsSnapshot,
+    );
     vi.spyOn(document, "hasFocus").mockReturnValue(true);
-    workspaceGetActiveMock.mockResolvedValue({ ok: false, rows: [] } satisfies WorkspaceContextResponse);
-    globalSettingsSnapshot.keyboardShortcutLeader = DEFAULT_KEYBOARD_SHORTCUT_LEADER;
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: false,
+      rows: [],
+    } satisfies WorkspaceContextResponse);
+    globalSettingsSnapshot.keyboardShortcutLeader =
+      DEFAULT_KEYBOARD_SHORTCUT_LEADER;
     globalSettingsSnapshot.keyboardLeaderBindings = {
       [OPEN_ACTION_LAUNCHER_COMMAND_ID]: "k",
       [OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID]: "p",
@@ -287,8 +334,18 @@ describe("KeyboardShortcutsProvider launcher modes", () => {
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       rows: [
-        { worktree: "active-tree", branchGuess: "main", path: "/repo/.worktrees/active-tree", status: "ready" },
-        { worktree: "deleted-tree", branchGuess: "old", path: "/repo/.worktrees/deleted-tree", status: "deleted" },
+        {
+          worktree: "active-tree",
+          branchGuess: "main",
+          path: "/repo/.worktrees/active-tree",
+          status: "ready",
+        },
+        {
+          worktree: "deleted-tree",
+          branchGuess: "old",
+          path: "/repo/.worktrees/deleted-tree",
+          status: "deleted",
+        },
       ],
     } satisfies WorkspaceContextResponse);
 
@@ -387,7 +444,9 @@ describe("KeyboardShortcutsProvider launcher modes", () => {
   });
 
   it("handles listener setup error during workspace listeners", async () => {
-    listenWorkspaceReadyMock.mockRejectedValue(new Error("listener setup failed"));
+    listenWorkspaceReadyMock.mockRejectedValue(
+      new Error("listener setup failed"),
+    );
 
     render(
       <MemoryRouter initialEntries={["/settings"]}>

@@ -24,8 +24,13 @@ export type ShortcutRegistryEntry = {
 };
 
 export type KeyboardShortcutsContextValue = {
-  register: (registrationId: string, pathname: string, registration: ShortcutRegistration) => void;
+  register: (
+    registrationId: string,
+    pathname: string,
+    registration: ShortcutRegistration,
+  ) => void;
   unregister: (registrationId: string) => void;
 };
 
-export const KeyboardShortcutsContext = createContext<KeyboardShortcutsContextValue | null>(null);
+export const KeyboardShortcutsContext =
+  createContext<KeyboardShortcutsContextValue | null>(null);

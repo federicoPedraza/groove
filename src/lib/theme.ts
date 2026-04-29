@@ -1,6 +1,15 @@
-import { DEFAULT_THEME_MODE, THEME_STORAGE_KEY, type ThemeMode } from "@/src/lib/theme-constants";
+import {
+  DEFAULT_THEME_MODE,
+  THEME_STORAGE_KEY,
+  type ThemeMode,
+} from "@/src/lib/theme-constants";
 
-const DARK_THEME_MODES: ReadonlySet<ThemeMode> = new Set(["lava", "earth", "dark", "dark-groove"]);
+export const DARK_THEME_MODES: ReadonlySet<ThemeMode> = new Set([
+  "lava",
+  "earth",
+  "dark",
+  "dark-groove",
+]);
 
 function isThemeMode(value: string): value is ThemeMode {
   return (
@@ -8,6 +17,7 @@ function isThemeMode(value: string): value is ThemeMode {
     value === "groove" ||
     value === "ice" ||
     value === "gum" ||
+    value === "cappuccino" ||
     value === "lava" ||
     value === "earth" ||
     value === "wind" ||

@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { applyThemeToDom, persistTheme, resolveStoredTheme, setTheme } from "@/src/lib/theme";
+import {
+  applyThemeToDom,
+  persistTheme,
+  resolveStoredTheme,
+  setTheme,
+} from "@/src/lib/theme";
 
 const THEME_STORAGE_KEY = "groove.theme-mode";
 const DEFAULT_THEME_MODE = "groove";
@@ -30,7 +35,17 @@ describe("resolveStoredTheme", () => {
   });
 
   it("recognises every valid ThemeMode", () => {
-    const validModes = ["light", "groove", "ice", "gum", "lava", "earth", "wind", "dark-groove", "dark"] as const;
+    const validModes = [
+      "light",
+      "groove",
+      "ice",
+      "gum",
+      "lava",
+      "earth",
+      "wind",
+      "dark-groove",
+      "dark",
+    ] as const;
     for (const mode of validModes) {
       window.localStorage.setItem(THEME_STORAGE_KEY, mode);
       expect(resolveStoredTheme()).toBe(mode);
@@ -38,9 +53,11 @@ describe("resolveStoredTheme", () => {
   });
 
   it("returns default when localStorage.getItem throws", () => {
-    const getItemSpy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("denied");
-    });
+    const getItemSpy = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("denied");
+      });
     expect(resolveStoredTheme()).toBe(DEFAULT_THEME_MODE);
     getItemSpy.mockRestore();
   });
@@ -71,7 +88,13 @@ describe("applyThemeToDom", () => {
   });
 
   it("does not add 'dark' for non-dark themes", () => {
-    for (const lightMode of ["light", "groove", "ice", "gum", "wind"] as const) {
+    for (const lightMode of [
+      "light",
+      "groove",
+      "ice",
+      "gum",
+      "wind",
+    ] as const) {
       document.documentElement.classList.remove("dark");
       applyThemeToDom(lightMode);
       expect(document.documentElement.classList.contains("dark")).toBe(false);
@@ -90,9 +113,11 @@ describe("persistTheme", () => {
   });
 
   it("does not throw when localStorage.setItem throws", () => {
-    const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("quota");
-    });
+    const setItemSpy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("quota");
+      });
     expect(() => persistTheme("gum")).not.toThrow();
     setItemSpy.mockRestore();
   });

@@ -28,6 +28,7 @@ describe("SUPPORTED_TERMINAL_OPTIONS", () => {
     expect(values).toContain("ghostty");
     expect(values).toContain("warp");
     expect(values).toContain("kitty");
+    expect(values).toContain("alacritty");
     expect(values).toContain("gnome");
     expect(values).toContain("xterm");
     expect(values).toContain("none");

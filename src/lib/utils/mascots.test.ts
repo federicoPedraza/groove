@@ -21,13 +21,19 @@ describe("getMascotColorClassNames", () => {
   it("joins light and dark text class names", () => {
     const color = WORKTREE_MASCOT_COLOR_PALETTE[0];
     const result = getMascotColorClassNames(color);
-    expect(result).toBe(`${color.textClassName.light} ${color.textClassName.dark}`);
+    expect(result).toBe(
+      `${color.textClassName.light} ${color.textClassName.dark}`,
+    );
   });
 });
 
 describe("getMascotSpriteForMode", () => {
-  const dkMascot = MASCOT_DEFINITIONS.find((m) => m.id === DEFAULT_MASCOT_ID) as MascotDefinition;
-  const noRunningMascot = MASCOT_DEFINITIONS.find((m) => !m.sprites.running) as MascotDefinition;
+  const dkMascot = MASCOT_DEFINITIONS.find(
+    (m) => m.id === DEFAULT_MASCOT_ID,
+  ) as MascotDefinition;
+  const noRunningMascot = MASCOT_DEFINITIONS.find(
+    (m) => !m.sprites.running,
+  ) as MascotDefinition;
 
   it("returns running sprite when mode is running and sprite exists", () => {
     const result = getMascotSpriteForMode(dkMascot, "running");

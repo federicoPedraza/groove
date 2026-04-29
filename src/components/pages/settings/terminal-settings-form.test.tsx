@@ -14,7 +14,9 @@ describe("TerminalSettingsForm", () => {
     onSave = vi.fn();
   });
 
-  function renderForm(overrides: Partial<Parameters<typeof TerminalSettingsForm>[0]> = {}) {
+  function renderForm(
+    overrides: Partial<Parameters<typeof TerminalSettingsForm>[0]> = {},
+  ) {
     return render(
       <TerminalSettingsForm
         defaultTerminal="auto"
@@ -32,7 +34,9 @@ describe("TerminalSettingsForm", () => {
   it("renders the terminal label and dropdown trigger", () => {
     renderForm();
 
-    expect(screen.getByText("Terminal for Open Terminal and testing actions")).toBeInTheDocument();
+    expect(
+      screen.getByText("Terminal for Open Terminal and testing actions"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Auto (recommended)")).toBeInTheDocument();
   });
 
@@ -100,7 +104,11 @@ describe("TerminalSettingsForm", () => {
   });
 
   it("shows Select terminal when no matching option is found", () => {
-    renderForm({ defaultTerminal: "unknown_terminal" as Parameters<typeof TerminalSettingsForm>[0]["defaultTerminal"] });
+    renderForm({
+      defaultTerminal: "unknown_terminal" as Parameters<
+        typeof TerminalSettingsForm
+      >[0]["defaultTerminal"],
+    });
 
     expect(screen.getByText("Select terminal")).toBeInTheDocument();
   });
@@ -108,7 +116,9 @@ describe("TerminalSettingsForm", () => {
   it("renders custom command helper text", () => {
     renderForm();
 
-    expect(screen.getByText(/Used when terminal is set to Custom command/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Used when terminal is set to Custom command/),
+    ).toBeInTheDocument();
   });
 
   it("disables custom command input when saveState is saving", () => {
@@ -132,7 +142,10 @@ describe("TerminalSettingsForm", () => {
   });
 
   it("shows correct label for each supported terminal", () => {
-    const terminalLabels: Array<{ value: Parameters<typeof TerminalSettingsForm>[0]["defaultTerminal"]; label: string }> = [
+    const terminalLabels: Array<{
+      value: Parameters<typeof TerminalSettingsForm>[0]["defaultTerminal"];
+      label: string;
+    }> = [
       { value: "auto", label: "Auto (recommended)" },
       { value: "ghostty", label: "Ghostty" },
       { value: "warp", label: "Warp" },
@@ -151,7 +164,10 @@ describe("TerminalSettingsForm", () => {
   });
 
   it("renders the custom command value", () => {
-    renderForm({ defaultTerminal: "custom", terminalCustomCommand: "alacritty" });
+    renderForm({
+      defaultTerminal: "custom",
+      terminalCustomCommand: "alacritty",
+    });
 
     const customInput = screen.getByLabelText("Custom command fallback");
     expect(customInput).toHaveValue("alacritty");

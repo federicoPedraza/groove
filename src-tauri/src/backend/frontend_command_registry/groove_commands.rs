@@ -94,6 +94,10 @@ fn groove_list_blocking(
     };
     let resolve_elapsed = total_started_at.elapsed();
 
+    let list_effective_root = ensure_workspace_meta(&workspace_root)
+        .map(|(meta, _)| effective_workspace_root(&workspace_root, &meta))
+        .unwrap_or_else(|_| workspace_root.clone());
+
     let cache_key = groove_list_cache_key(
         &workspace_root,
         &known_worktrees,
@@ -229,7 +233,7 @@ fn groove_list_blocking(
     let mut response = if groove_list_native_enabled() {
         let native_started_at = Instant::now();
         match collect_groove_list_rows_native(
-            &workspace_root,
+            &list_effective_root,
             &known_worktrees,
             &dir,
             previous_native_cache.as_ref(),
@@ -255,7 +259,7 @@ fn groove_list_blocking(
                 native_error = Some(error);
                 collector = "shell".to_string();
                 let (result, rows, shell_exec_elapsed, shell_parse_elapsed) =
-                    collect_groove_list_via_shell(&app, &workspace_root, &known_worktrees, &dir);
+                    collect_groove_list_via_shell(&app, &list_effective_root, &known_worktrees, &dir);
                 exec_elapsed = shell_exec_elapsed;
                 parse_elapsed = shell_parse_elapsed;
 
@@ -766,13 +770,16 @@ fn groove_restore(
         .clone()
         .or(inferred_worktree_dir)
         .unwrap_or_else(|| ".worktrees".to_string());
+    let effective_root = ensure_workspace_meta(&workspace_root)
+        .map(|(meta, _)| effective_workspace_root(&workspace_root, &meta))
+        .unwrap_or_else(|_| workspace_root.clone());
     let worktree_candidates = worktree_path_token_candidates(&worktree);
     let mut expected_worktree_path = resolve_worktree_path_for_candidates(
-        &workspace_root,
+        &effective_root,
         &worktree_dir,
         &worktree_candidates,
     )
-    .unwrap_or_else(|| workspace_root.join(&worktree_dir).join(&worktree_candidates[0]));
+    .unwrap_or_else(|| effective_root.join(&worktree_dir).join(&worktree_candidates[0]));
     log_play_telemetry(
         telemetry_enabled,
         "groove_restore.resolve_worktree",
@@ -810,7 +817,7 @@ fn groove_restore(
             create_args.push(worktree_dir.clone());
         }
 
-        let recreate_result = run_command(&groove_binary_path(&app), &create_args, &workspace_root);
+        let recreate_result = run_command(&groove_binary_path(&app), &create_args, &effective_root);
         if recreate_result.exit_code != Some(0) || recreate_result.error.is_some() {
             log_play_telemetry(
                 telemetry_enabled,
@@ -840,7 +847,7 @@ fn groove_restore(
         }
 
         expected_worktree_path = resolve_worktree_path_for_candidates(
-            &workspace_root,
+            &effective_root,
             &worktree_dir,
             &worktree_candidates,
         )
@@ -864,7 +871,7 @@ fn groove_restore(
     let mut ensure_errors = Vec::new();
     let ensured_worktree_path = worktree_candidates
         .iter()
-        .find_map(|candidate| match ensure_worktree_in_dir(&workspace_root, candidate, &worktree_dir)
+        .find_map(|candidate| match ensure_worktree_in_dir(&effective_root, candidate, &worktree_dir)
         {
             Ok(path) => Some(path),
             Err(error) => {
@@ -1047,7 +1054,7 @@ fn groove_restore(
             args.push("--opencode-log-file".to_string());
             args.push(log_file);
         }
-        run_command(&groove_binary_path(&app), &args, &workspace_root)
+        run_command(&groove_binary_path(&app), &args, &effective_root)
     };
     let ok = result.exit_code == Some(0) && result.error.is_none();
     if ok {
@@ -1247,9 +1254,12 @@ fn groove_summary_blocking(
 
     // Build a reverse map from session ID to worktree name
     let workspace_json = workspace_root.join(".groove").join("workspace.json");
-    let id_to_worktree: HashMap<String, String> = if let Ok(meta) =
-        read_workspace_meta_file(&workspace_json)
-    {
+    let parsed_meta_for_summary = read_workspace_meta_file(&workspace_json).ok();
+    let summary_effective_root = parsed_meta_for_summary
+        .as_ref()
+        .map(|meta| effective_workspace_root(&workspace_root, meta))
+        .unwrap_or_else(|| workspace_root.clone());
+    let id_to_worktree: HashMap<String, String> = if let Some(meta) = parsed_meta_for_summary {
         meta.worktree_records
             .iter()
             .map(|(name, record)| (record.id.clone(), name.clone()))
@@ -1265,19 +1275,25 @@ fn groove_summary_blocking(
         let worktree_name = id_to_worktree.get(session_id);
         let cwd = match worktree_name {
             Some(name) => {
-                let wt_path = workspace_root.join(".worktrees").join(name);
-                if wt_path.is_dir() { wt_path } else { workspace_root.clone() }
+                let wt_path = summary_effective_root.join(".worktrees").join(name);
+                if wt_path.is_dir() { wt_path } else { summary_effective_root.clone() }
             }
-            None => workspace_root.clone(),
+            None => summary_effective_root.clone(),
         };
 
-        eprintln!("[groove-summary] running claude --resume {} -p '...' --output-format text", session_id);
+        let resolved_session_id =
+            resolve_existing_claude_session_id(&cwd, session_id).unwrap_or_else(|| session_id.clone());
+
+        eprintln!(
+            "[groove-summary] running claude --resume {} (stored={}) -p '...' --output-format text",
+            resolved_session_id, session_id
+        );
         eprintln!("[groove-summary] claude_bin={} cwd={}", claude_bin, cwd.display());
 
         let output = Command::new(&claude_bin)
             .args([
                 "--resume",
-                session_id,
+                &resolved_session_id,
                 "-p",
                 prompt,
                 "--output-format",
@@ -1552,6 +1568,9 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
     };
 
     let worktree_dir = dir.clone().unwrap_or_else(|| ".worktrees".to_string());
+    let effective_root = ensure_workspace_meta(&workspace_root)
+        .map(|(meta, _)| effective_workspace_root(&workspace_root, &meta))
+        .unwrap_or_else(|_| workspace_root.clone());
 
     let mut args = vec!["create".to_string(), branch.to_string()];
     if let Some(base) = base {
@@ -1563,7 +1582,7 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
         args.push(dir);
     }
 
-    let mut result = run_command(&groove_binary_path(&app), &args, &workspace_root);
+    let mut result = run_command(&groove_binary_path(&app), &args, &effective_root);
     let ok = result.exit_code == Some(0) && result.error.is_none();
     if ok {
         let stamped_worktree = branch.replace('/', "_");
@@ -1590,7 +1609,7 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
             };
         }
 
-        if let Ok(worktree_path) = ensure_worktree_in_dir(&workspace_root, &stamped_worktree, &worktree_dir) {
+        if let Ok(worktree_path) = ensure_worktree_in_dir(&effective_root, &stamped_worktree, &worktree_dir) {
             let symlink_warnings = apply_configured_worktree_symlinks(&workspace_root, &worktree_path);
             if !symlink_warnings.is_empty() {
                 if !result.stderr.trim().is_empty() {
@@ -1724,8 +1743,11 @@ fn groove_rm(
     };
 
     let worktree_dir = dir.clone().unwrap_or_else(|| ".worktrees".to_string());
+    let effective_root = ensure_workspace_meta(&workspace_root)
+        .map(|(meta, _)| effective_workspace_root(&workspace_root, &meta))
+        .unwrap_or_else(|_| workspace_root.clone());
     let target_path =
-        match ensure_worktree_in_dir(&workspace_root, &resolution_worktree, &worktree_dir) {
+        match ensure_worktree_in_dir(&effective_root, &resolution_worktree, &worktree_dir) {
             Ok(path) => path,
             Err(error) => {
                 if is_worktree_missing_error_message(&error) {
@@ -1792,7 +1814,7 @@ fn groove_rm(
         (groove_binary_path(&app), args)
     };
 
-    let mut result = run_command(&binary, &args, &workspace_root);
+    let mut result = run_command(&binary, &args, &effective_root);
     let mut ok = result.exit_code == Some(0) && result.error.is_none();
     let mut handled_as_stale = false;
     if !ok
@@ -1898,19 +1920,16 @@ fn groove_stop(app: AppHandle, payload: GrooveStopPayload) -> GrooveStopResponse
         }
     };
 
-    let dir = match validate_optional_relative_path(&payload.dir, "dir") {
-        Ok(value) => value,
-        Err(error) => {
-            return GrooveStopResponse {
-                request_id,
-                ok: false,
-                already_stopped: None,
-                pid: None,
-                source: None,
-                error: Some(error),
-            }
-        }
-    };
+    if let Err(error) = validate_optional_relative_path(&payload.dir, "dir") {
+        return GrooveStopResponse {
+            request_id,
+            ok: false,
+            already_stopped: None,
+            pid: None,
+            source: None,
+            error: Some(error),
+        };
+    }
 
     let workspace_root = match resolve_workspace_root(
         &app,
@@ -1954,40 +1973,6 @@ fn groove_stop(app: AppHandle, payload: GrooveStopPayload) -> GrooveStopResponse
                     pid: None,
                     source: None,
                     error: Some(error),
-                }
-            }
-        }
-    }
-
-    if pid.is_none() {
-        let mut args = vec!["list".to_string()];
-        if let Some(dir) = dir.clone() {
-            args.push("--dir".to_string());
-            args.push(dir);
-        }
-
-        let result = run_command(&groove_binary_path(&app), &args, &workspace_root);
-        if result.exit_code != Some(0) || result.error.is_some() {
-            return GrooveStopResponse {
-                request_id,
-                ok: false,
-                already_stopped: None,
-                pid: None,
-                source: None,
-                error: result.error.or_else(|| {
-                    Some("Unable to resolve opencode PID from groove list.".to_string())
-                }),
-            };
-        }
-
-        let rows = parse_groove_list_output(&result.stdout, &known_worktrees);
-        if let Some(row) = rows.get(worktree) {
-            if row.opencode_state == "running" {
-                if let Some(instance_id) = row.opencode_instance_id.as_deref() {
-                    if let Ok(parsed) = parse_pid(instance_id) {
-                        pid = Some(parsed);
-                        source = Some("runtime".to_string());
-                    }
                 }
             }
         }

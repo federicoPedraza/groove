@@ -21,7 +21,12 @@ type DashboardModalsProps = {
   setCreateBase: (value: string) => void;
   onRunCutGrooveAction: (row: WorktreeRow, force?: boolean) => void;
   onCloseCurrentWorkspace: () => void;
-  onRunCreateWorktreeAction: (options?: { branchOverride?: string; baseOverride?: string }) => void;
+  onRunCreateWorktreeAction: (options?: {
+    branchOverride?: string;
+    baseOverride?: string;
+  }) => void;
+  onboardingIncomplete?: boolean;
+  onNavigateToDiagnostics?: () => void;
 };
 
 export function DashboardModals({
@@ -44,6 +49,8 @@ export function DashboardModals({
   onRunCutGrooveAction,
   onCloseCurrentWorkspace,
   onRunCreateWorktreeAction,
+  onboardingIncomplete,
+  onNavigateToDiagnostics,
 }: DashboardModalsProps) {
   const isForgetDeletedWorktree = cutConfirmRow?.status === "deleted";
 
@@ -56,7 +63,11 @@ export function DashboardModals({
             setCutConfirmRow(null);
           }
         }}
-        title={isForgetDeletedWorktree ? "Forget this deleted worktree forever?" : "Cut this groove?"}
+        title={
+          isForgetDeletedWorktree
+            ? "Forget this deleted worktree forever?"
+            : "Cut this groove?"
+        }
         description={
           cutConfirmRow
             ? isForgetDeletedWorktree
@@ -133,6 +144,8 @@ export function DashboardModals({
         branch={createBranch}
         base={createBase}
         loading={isCreatePending}
+        onboardingIncomplete={onboardingIncomplete}
+        onNavigateToDiagnostics={onNavigateToDiagnostics}
         onOpenChange={(open) => {
           setIsCreateModalOpen(open);
           if (!open && !isCreatePending) {

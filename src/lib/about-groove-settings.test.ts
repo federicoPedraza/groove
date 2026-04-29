@@ -34,9 +34,11 @@ describe("isAlwaysShowDiagnosticsSidebarEnabled", () => {
   });
 
   it("returns false when localStorage throws", () => {
-    const getItemSpy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("denied");
-    });
+    const getItemSpy = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("denied");
+      });
     expect(isAlwaysShowDiagnosticsSidebarEnabled()).toBe(false);
     getItemSpy.mockRestore();
   });
@@ -75,9 +77,11 @@ describe("setAlwaysShowDiagnosticsSidebarEnabled", () => {
     const listener = vi.fn();
     window.addEventListener(CUSTOM_EVENT_NAME, listener);
 
-    const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("quota");
-    });
+    const setItemSpy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("quota");
+      });
 
     expect(() => setAlwaysShowDiagnosticsSidebarEnabled(true)).not.toThrow();
     expect(listener).not.toHaveBeenCalled();
@@ -96,9 +100,7 @@ describe("subscribeToAboutGrooveSettings", () => {
     const callback = vi.fn();
     const unsubscribe = subscribeToAboutGrooveSettings(callback);
 
-    window.dispatchEvent(
-      new StorageEvent("storage", { key: STORAGE_KEY }),
-    );
+    window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
     expect(callback).toHaveBeenCalledTimes(1);
 
     unsubscribe();
@@ -108,9 +110,7 @@ describe("subscribeToAboutGrooveSettings", () => {
     const callback = vi.fn();
     const unsubscribe = subscribeToAboutGrooveSettings(callback);
 
-    window.dispatchEvent(
-      new StorageEvent("storage", { key: "other-key" }),
-    );
+    window.dispatchEvent(new StorageEvent("storage", { key: "other-key" }));
     expect(callback).not.toHaveBeenCalled();
 
     unsubscribe();
@@ -131,9 +131,7 @@ describe("subscribeToAboutGrooveSettings", () => {
     const unsubscribe = subscribeToAboutGrooveSettings(callback);
     unsubscribe();
 
-    window.dispatchEvent(
-      new StorageEvent("storage", { key: STORAGE_KEY }),
-    );
+    window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
     window.dispatchEvent(new CustomEvent(CUSTOM_EVENT_NAME));
 
     expect(callback).not.toHaveBeenCalled();

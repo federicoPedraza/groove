@@ -56,14 +56,21 @@ export function beginCommandExecution(command: string): string {
   sequence += 1;
   const now = Date.now();
 
-  entries = [{ id, command, startedAt: now, completedAt: null, state: "running" }, ...entries];
+  entries = [
+    { id, command, startedAt: now, completedAt: null, state: "running" },
+    ...entries,
+  ];
   trimInternal();
   emitChange();
 
   return id;
 }
 
-export function completeCommandExecution(id: string, state: "success" | "error", failureDetail?: string): void {
+export function completeCommandExecution(
+  id: string,
+  state: "success" | "error",
+  failureDetail?: string,
+): void {
   const now = Date.now();
   let changed = false;
 
@@ -86,7 +93,10 @@ export function completeCommandExecution(id: string, state: "success" | "error",
   }
 }
 
-export async function trackCommandExecution<T>(command: string, run: () => Promise<T>): Promise<T> {
+export async function trackCommandExecution<T>(
+  command: string,
+  run: () => Promise<T>,
+): Promise<T> {
   const id = beginCommandExecution(command);
   try {
     const result = await run();
@@ -99,7 +109,10 @@ export async function trackCommandExecution<T>(command: string, run: () => Promi
   }
 }
 
-function inferResultOutcome(result: unknown): { state: "success" | "error"; failureDetail?: string } {
+function inferResultOutcome(result: unknown): {
+  state: "success" | "error";
+  failureDetail?: string;
+} {
   if (!result || typeof result !== "object" || !("ok" in result)) {
     return { state: "success" };
   }
@@ -148,7 +161,9 @@ function extractFailureDetail(value: unknown): string | undefined {
   }
 
   if (Array.isArray(candidate.errors)) {
-    const normalized = normalizeFailureDetail(candidate.errors.filter((entry) => typeof entry === "string").join("\n"));
+    const normalized = normalizeFailureDetail(
+      candidate.errors.filter((entry) => typeof entry === "string").join("\n"),
+    );
     if (normalized) {
       return normalized;
     }
@@ -173,7 +188,10 @@ function normalizeFailureDetail(detail: unknown): string | undefined {
     : trimmed;
 }
 
-export function formatCommandRelativeTime(entry: CommandExecutionEntry, now: number): string {
+export function formatCommandRelativeTime(
+  entry: CommandExecutionEntry,
+  now: number,
+): string {
   if (entry.completedAt === null) {
     return "running";
   }

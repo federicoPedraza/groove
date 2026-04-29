@@ -10,8 +10,14 @@ export function parseLastExecutedAt(value: string | undefined): Date | null {
 
 export function getRelativeAgeGroupLabel(timestamp: Date, now: Date): string {
   const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const valueStart = new Date(timestamp.getFullYear(), timestamp.getMonth(), timestamp.getDate());
-  const dayDiff = Math.floor((nowStart.getTime() - valueStart.getTime()) / 86_400_000);
+  const valueStart = new Date(
+    timestamp.getFullYear(),
+    timestamp.getMonth(),
+    timestamp.getDate(),
+  );
+  const dayDiff = Math.floor(
+    (nowStart.getTime() - valueStart.getTime()) / 86_400_000,
+  );
 
   if (dayDiff <= 0) {
     return "Today";
@@ -19,11 +25,16 @@ export function getRelativeAgeGroupLabel(timestamp: Date, now: Date): string {
   if (dayDiff === 1) {
     return "Yesterday";
   }
-  if (now.getFullYear() === timestamp.getFullYear() && now.getMonth() === timestamp.getMonth()) {
+  if (
+    now.getFullYear() === timestamp.getFullYear() &&
+    now.getMonth() === timestamp.getMonth()
+  ) {
     return `${String(dayDiff)} days ago`;
   }
 
-  const monthDiff = (now.getFullYear() - timestamp.getFullYear()) * 12 + (now.getMonth() - timestamp.getMonth());
+  const monthDiff =
+    (now.getFullYear() - timestamp.getFullYear()) * 12 +
+    (now.getMonth() - timestamp.getMonth());
   if (monthDiff > 0 && now.getFullYear() === timestamp.getFullYear()) {
     return `${String(monthDiff)} months ago`;
   }
@@ -44,7 +55,9 @@ export type GroupedWorktreeItem =
       key: string;
     };
 
-export function buildGroupedWorktreeItems(rows: WorkspaceRow[]): GroupedWorktreeItem[] {
+export function buildGroupedWorktreeItems(
+  rows: WorkspaceRow[],
+): GroupedWorktreeItem[] {
   const activeRows = rows.filter((row) => row.status !== "deleted");
   const deletedRows = rows.filter((row) => row.status === "deleted");
 
@@ -70,7 +83,9 @@ export function buildGroupedWorktreeItems(rows: WorkspaceRow[]): GroupedWorktree
 
   for (const row of sortedRows) {
     const rowDate = parseLastExecutedAt(row.lastExecutedAt);
-    const groupLabel = rowDate ? getRelativeAgeGroupLabel(rowDate, now) : "No activity yet";
+    const groupLabel = rowDate
+      ? getRelativeAgeGroupLabel(rowDate, now)
+      : "No activity yet";
     if (groupLabel !== activeGroup) {
       activeGroup = groupLabel;
       items.push({

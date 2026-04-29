@@ -3,10 +3,20 @@
 import { useMemo, useState } from "react";
 import { Outlet } from "react-router-dom";
 
-import { PageShell, type PageShellProps } from "@/src/components/pages/page-shell";
-import { AppLayoutContext, EMPTY_OPTIONS, type AppLayoutContextValue } from "@/src/components/pages/use-app-layout";
+import {
+  PageShell,
+  type PageShellProps,
+} from "@/src/components/pages/page-shell";
+import {
+  AppLayoutContext,
+  EMPTY_OPTIONS,
+  type AppLayoutContextValue,
+} from "@/src/components/pages/use-app-layout";
 
-type AppLayoutOptions = Pick<PageShellProps, "pageSidebar" | "noDirectoryOpenState">;
+type AppLayoutOptions = Pick<
+  PageShellProps,
+  "pageSidebar" | "noDirectoryOpenState"
+>;
 
 export function AppLayout() {
   const [options, setOptions] = useState<AppLayoutOptions>(EMPTY_OPTIONS);
@@ -20,7 +30,10 @@ export function AppLayout() {
 
   return (
     <AppLayoutContext.Provider value={contextValue}>
-      <PageShell pageSidebar={options.pageSidebar} noDirectoryOpenState={options.noDirectoryOpenState}>
+      <PageShell
+        pageSidebar={options.pageSidebar}
+        noDirectoryOpenState={options.noDirectoryOpenState}
+      >
         <Outlet />
       </PageShell>
     </AppLayoutContext.Provider>

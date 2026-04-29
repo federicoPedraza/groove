@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildOpencodeConfigArtifact, parseImportedOpencodeSettings } from "@/src/lib/opencode-config-artifact";
+import {
+  buildOpencodeConfigArtifact,
+  parseImportedOpencodeSettings,
+} from "@/src/lib/opencode-config-artifact";
 
 describe("opencode config artifact", () => {
   it("builds an export artifact with expected schema", () => {
@@ -70,7 +73,10 @@ describe("opencode config artifact", () => {
   });
 
   it("rejects non-object JSON payloads", () => {
-    const result = parseImportedOpencodeSettings(JSON.stringify("just a string"), "workspace");
+    const result = parseImportedOpencodeSettings(
+      JSON.stringify("just a string"),
+      "workspace",
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain("JSON object");

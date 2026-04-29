@@ -1,10 +1,22 @@
 import { useState, useEffect } from "react";
 
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Scroll } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Scroll,
+} from "lucide-react";
 import Markdown from "react-markdown";
 
 import { Button } from "@/src/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/src/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/src/components/ui/dialog";
 import type { SummaryRecord } from "@/src/lib/ipc";
 
 type SummaryViewerModalProps = {
@@ -22,7 +34,9 @@ function CopyInlineButton({ text }: { text: string }) {
   const handleCopy = () => {
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
-      setTimeout(() => { setCopied(false); }, 2000);
+      setTimeout(() => {
+        setCopied(false);
+      }, 2000);
     });
   };
 
@@ -35,12 +49,23 @@ function CopyInlineButton({ text }: { text: string }) {
       onClick={handleCopy}
       aria-label="Copy to clipboard"
     >
-      {copied ? <Check aria-hidden="true" className="size-3 text-emerald-700" /> : <Copy aria-hidden="true" className="size-3" />}
+      {copied ? (
+        <Check aria-hidden="true" className="size-3 text-emerald-700" />
+      ) : (
+        <Copy aria-hidden="true" className="size-3" />
+      )}
     </Button>
   );
 }
 
-export function SummaryViewerModal({ summaries, initialIndex, open, onClose, onCreateNewSummary, isCreatePending = false }: SummaryViewerModalProps) {
+export function SummaryViewerModal({
+  summaries,
+  initialIndex,
+  open,
+  onClose,
+  onCreateNewSummary,
+  isCreatePending = false,
+}: SummaryViewerModalProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [contentExpanded, setContentExpanded] = useState(false);
 
@@ -64,7 +89,12 @@ export function SummaryViewerModal({ summaries, initialIndex, open, onClose, onC
     : "";
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
       <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="mb-1">Summary</DialogTitle>
@@ -78,7 +108,9 @@ export function SummaryViewerModal({ summaries, initialIndex, open, onClose, onC
                   size="sm"
                   className="h-5 w-5 p-0"
                   disabled={!hasPrevious}
-                  onClick={() => { setCurrentIndex((i) => i - 1); }}
+                  onClick={() => {
+                    setCurrentIndex((i) => i - 1);
+                  }}
                   aria-label="Previous summary"
                 >
                   <ChevronLeft aria-hidden="true" className="size-3" />
@@ -92,7 +124,9 @@ export function SummaryViewerModal({ summaries, initialIndex, open, onClose, onC
                   size="sm"
                   className="h-5 w-5 p-0"
                   disabled={!hasNext}
-                  onClick={() => { setCurrentIndex((i) => i + 1); }}
+                  onClick={() => {
+                    setCurrentIndex((i) => i + 1);
+                  }}
                   aria-label="Next summary"
                 >
                   <ChevronRight aria-hidden="true" className="size-3" />
@@ -109,7 +143,9 @@ export function SummaryViewerModal({ summaries, initialIndex, open, onClose, onC
               <CopyInlineButton text={summary.oneLiner} />
             </>
           ) : (
-            <span className="min-w-0 flex-1 italic text-muted-foreground">No one liner provided.</span>
+            <span className="min-w-0 flex-1 italic text-muted-foreground">
+              No one liner provided.
+            </span>
           )}
         </div>
 
@@ -117,9 +153,14 @@ export function SummaryViewerModal({ summaries, initialIndex, open, onClose, onC
           <button
             type="button"
             className="flex w-full items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-            onClick={() => { setContentExpanded((v) => !v); }}
+            onClick={() => {
+              setContentExpanded((v) => !v);
+            }}
           >
-            <ChevronDown aria-hidden="true" className={`size-3 transition-transform duration-200 ${contentExpanded ? "rotate-0" : "-rotate-90"}`} />
+            <ChevronDown
+              aria-hidden="true"
+              className={`size-3 transition-transform duration-200 ${contentExpanded ? "rotate-0" : "-rotate-90"}`}
+            />
             Content
           </button>
           {contentExpanded ? (

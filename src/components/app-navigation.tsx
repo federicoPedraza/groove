@@ -1,8 +1,25 @@
 "use client";
 
 import { Link, useLocation } from "react-router-dom";
-import { ActivitySquare, CircleHelp, GitBranch, LayoutDashboard, PanelLeft, Settings, TreePalm, TriangleAlert } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  Activity,
+  CircleHelp,
+  Network,
+  PanelLeft,
+  Settings,
+  TreeDeciduous,
+  Trees,
+  TriangleAlert,
+} from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 import {
   Collapsible,
@@ -26,6 +43,10 @@ import {
 } from "@/src/components/ui/tooltip";
 import { cn } from "@/src/lib/utils";
 import {
+  getNotifiedWorktreesSnapshot,
+  subscribeToNotifiedWorktrees,
+} from "@/src/lib/utils/notified-worktrees";
+import {
   DEFAULT_MASCOT_ID,
   getMascotColorClassNames,
   getDefaultMascotAssignment,
@@ -36,7 +57,7 @@ import {
   type MascotDefinition,
 } from "@/src/lib/utils/mascots";
 import {
-  grooveList,
+  grooveTerminalActiveWorktrees,
   isGrooveLoadingSectionDisabled,
   isShowFpsEnabled,
   isTelemetryEnabled,
@@ -60,11 +81,15 @@ type NavigationStartMarker = {
 };
 
 function setNavigationStartMarker(marker: NavigationStartMarker): void {
-  (window as Window & { [NAVIGATION_START_MARKER_KEY]?: NavigationStartMarker })[NAVIGATION_START_MARKER_KEY] = marker;
+  (
+    window as Window & { [NAVIGATION_START_MARKER_KEY]?: NavigationStartMarker }
+  )[NAVIGATION_START_MARKER_KEY] = marker;
 }
 
 function clearNavigationStartMarker(): void {
-  delete (window as Window & { [NAVIGATION_START_MARKER_KEY]?: NavigationStartMarker })[NAVIGATION_START_MARKER_KEY];
+  delete (
+    window as Window & { [NAVIGATION_START_MARKER_KEY]?: NavigationStartMarker }
+  )[NAVIGATION_START_MARKER_KEY];
 }
 
 type AppNavigationProps = {
@@ -86,46 +111,15 @@ const IDLE_SPRITE_ANIMATION_DURATION_MS = 5_333.3333;
 const FALLING_FIRST_FRAME_HOLD_MS = 1_000;
 const FALLING_FRAME_STEP_DURATION_MS = 100;
 const FALLING_FRAME_SEQUENCE = [
-  1,
-  2,
-  3,
-  4,
-  5,
-  6,
-  7,
-  8,
-  9,
-  10,
-  11,
-  12,
-  13,
-  14,
-  15,
-  16,
-  17,
-  17,
-  14,
-  17,
-  14,
-  17,
-  14,
-  17,
-  14,
-  17,
-  14,
-  17,
-  14,
-  17,
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 17, 14, 17, 14, 17,
+  14, 17, 14, 17, 14, 17, 14, 17,
 ] as const;
-const FALLING_SPRITE_ANIMATION_DURATION_MS = FALLING_FIRST_FRAME_HOLD_MS +
-  (FALLING_FRAME_SEQUENCE.length * FALLING_FRAME_STEP_DURATION_MS);
+const FALLING_SPRITE_ANIMATION_DURATION_MS =
+  FALLING_FIRST_FRAME_HOLD_MS +
+  FALLING_FRAME_SEQUENCE.length * FALLING_FRAME_STEP_DURATION_MS;
 const IDLE_CLICK_COUNT_FOR_FALLING = 5;
 
 type GrooveSpriteMode = "idle" | "falling";
-
-type RuntimeStatusRow = {
-  opencodeState: "running" | "not-running" | "unknown";
-};
 
 let cachedNavigationWorktrees: WorkspaceRow[] = [];
 let hasCachedNavigationWorktrees = false;
@@ -149,17 +143,6 @@ function normalizeWorkspaceRows(value: unknown): WorkspaceRow[] {
   }
 
   return [];
-}
-
-function toRuntimeStatusRow(value: unknown): RuntimeStatusRow | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-
-  const opencodeState = (value as { opencodeState?: unknown }).opencodeState;
-  return opencodeState === "running" || opencodeState === "not-running" || opencodeState === "unknown"
-    ? { opencodeState }
-    : undefined;
 }
 
 function getIdleFrameIndex(
@@ -194,7 +177,10 @@ function getFallingFrameIndex(elapsedMs: number): number {
   }
 
   const sequenceIndex = Math.min(
-    Math.floor((elapsedMs - FALLING_FIRST_FRAME_HOLD_MS) / FALLING_FRAME_STEP_DURATION_MS),
+    Math.floor(
+      (elapsedMs - FALLING_FIRST_FRAME_HOLD_MS) /
+        FALLING_FRAME_STEP_DURATION_MS,
+    ),
     FALLING_FRAME_SEQUENCE.length - 1,
   );
   return FALLING_FRAME_SEQUENCE[sequenceIndex];
@@ -208,21 +194,29 @@ function getIsGrooveLoadingSectionDisabledSnapshot(): boolean {
   return isGrooveLoadingSectionDisabled();
 }
 
-function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, shouldShowFrameIndex }: GrooveLoadingSpriteProps) {
+function GrooveLoadingSprite({
+  mascot,
+  mascotColorClassName,
+  isCompact = false,
+  shouldShowFrameIndex,
+}: GrooveLoadingSpriteProps) {
   const [, setIdleClickCount] = useState(0);
   const [isPlayingFalling, setIsPlayingFalling] = useState(false);
   const spriteMode: GrooveSpriteMode = isPlayingFalling ? "falling" : "idle";
   const sprite = getMascotSpriteForMode(mascot, spriteMode);
   const animationDurationMs =
     spriteMode === "falling"
-        ? FALLING_SPRITE_ANIMATION_DURATION_MS
-        : IDLE_SPRITE_ANIMATION_DURATION_MS / (sprite.animationSpeedMultiplier ?? 1);
+      ? FALLING_SPRITE_ANIMATION_DURATION_MS
+      : IDLE_SPRITE_ANIMATION_DURATION_MS /
+        (sprite.animationSpeedMultiplier ?? 1);
   const frameStepCount = Math.max(sprite.frameCount, 1);
   const spriteFrameWidthPx = sprite.frameWidthPx;
-  const spriteRenderedHeightPx = sprite.renderedHeightPx ?? sprite.frameHeightPx;
+  const spriteRenderedHeightPx =
+    sprite.renderedHeightPx ?? sprite.frameHeightPx;
   const spriteRenderScale = isCompact ? 1 : (sprite.renderScale ?? 1);
   const spriteRenderedWidthPx = spriteFrameWidthPx * spriteRenderScale;
-  const spriteRenderedScaledHeightPx = spriteRenderedHeightPx * spriteRenderScale;
+  const spriteRenderedScaledHeightPx =
+    spriteRenderedHeightPx * spriteRenderScale;
   const [frameIndex, setFrameIndex] = useState(0);
   const shouldRenderFrameIndex = shouldShowFrameIndex && !isCompact;
   const canPlayFallingEasterEgg = mascot.id === DEFAULT_MASCOT_ID;
@@ -264,23 +258,40 @@ function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, 
 
     let frameIntervalId: number | null = null;
     const startedAtMs = performance.now();
-    const frameStepDurationMs = spriteMode === "falling"
-      ? FALLING_FRAME_STEP_DURATION_MS
-      : animationDurationMs / frameStepCount;
+    const frameStepDurationMs =
+      spriteMode === "falling"
+        ? FALLING_FRAME_STEP_DURATION_MS
+        : animationDurationMs / frameStepCount;
 
     const updateFrameIndex = () => {
       const elapsedMs = performance.now() - startedAtMs;
       const nextFrameIndex =
         spriteMode === "falling"
-            ? getFallingFrameIndex(elapsedMs)
-            : getIdleFrameIndex(elapsedMs, animationDurationMs, frameStepCount, idleAnimationMode);
-      setFrameIndex((previousFrameIndex) => (previousFrameIndex === nextFrameIndex ? previousFrameIndex : nextFrameIndex));
+          ? getFallingFrameIndex(elapsedMs)
+          : getIdleFrameIndex(
+              elapsedMs,
+              animationDurationMs,
+              frameStepCount,
+              idleAnimationMode,
+            );
+      setFrameIndex((previousFrameIndex) =>
+        previousFrameIndex === nextFrameIndex
+          ? previousFrameIndex
+          : nextFrameIndex,
+      );
     };
 
-    const firstTickDelayMs = Math.max(0, frameStepDurationMs - ((performance.now() - startedAtMs) % frameStepDurationMs));
+    const firstTickDelayMs = Math.max(
+      0,
+      frameStepDurationMs -
+        ((performance.now() - startedAtMs) % frameStepDurationMs),
+    );
     const frameTimeoutId = window.setTimeout(() => {
       updateFrameIndex();
-      frameIntervalId = window.setInterval(updateFrameIndex, frameStepDurationMs);
+      frameIntervalId = window.setInterval(
+        updateFrameIndex,
+        frameStepDurationMs,
+      );
     }, firstTickDelayMs);
 
     return () => {
@@ -295,14 +306,22 @@ function GrooveLoadingSprite({ mascot, mascotColorClassName, isCompact = false, 
     <div
       className={cn("relative overflow-hidden", isCompact && "h-8 w-8")}
       onClick={handleSpriteClick}
-      style={isCompact ? undefined : { height: `${String(spriteRenderedScaledHeightPx)}px`, width: `${String(spriteRenderedWidthPx)}px` }}
+      style={
+        isCompact
+          ? undefined
+          : {
+              height: `${String(spriteRenderedScaledHeightPx)}px`,
+              width: `${String(spriteRenderedWidthPx)}px`,
+            }
+      }
     >
       <div
         aria-hidden="true"
         className={cn(
           "groove-loading-sprite",
           mascotColorClassName,
-          isCompact && "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 scale-[0.3333]",
+          isCompact &&
+            "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 scale-[0.3333]",
         )}
         style={{
           width: `${String(spriteRenderedWidthPx)}px`,
@@ -340,13 +359,19 @@ function getDecodedWorktreeFromPathname(pathname: string): string | null {
   }
 }
 
-function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOpen, onHelpClick, pageSidebar }: AppNavigationProps) {
+function AppNavigation({
+  hasOpenWorkspace,
+  hasDiagnosticsSanityWarning,
+  isHelpOpen,
+  onHelpClick,
+  pageSidebar,
+}: AppNavigationProps) {
   const { pathname } = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [navigationWorktrees, setNavigationWorktrees] = useState<WorkspaceRow[]>(() =>
-    hasCachedNavigationWorktrees ? cachedNavigationWorktrees : [],
-  );
+  const [navigationWorktrees, setNavigationWorktrees] = useState<
+    WorkspaceRow[]
+  >(() => (hasCachedNavigationWorktrees ? cachedNavigationWorktrees : []));
   const shouldShowFps = useSyncExternalStore(
     subscribeToGlobalSettings,
     getIsShowFpsEnabledSnapshot,
@@ -359,13 +384,19 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   );
 
   const isHomeActive = pathname === "/";
-  const isWorktreesActive = pathname === "/worktrees" || pathname.startsWith("/worktrees/");
+  const isWorktreesActive =
+    pathname === "/worktrees" || pathname.startsWith("/worktrees/");
   const isDiagnosticsActive = pathname === "/diagnostics";
   const isSettingsActive = pathname === "/settings";
   const isHelpActive = isHelpOpen;
   const homeLabel = hasOpenWorkspace ? "Dashboard" : "Home";
   const appNameLabel = "GROOVE";
   const hasActiveNavigationWorktrees = navigationWorktrees.length > 0;
+  const notifiedWorktrees = useSyncExternalStore(
+    subscribeToNotifiedWorktrees,
+    getNotifiedWorktreesSnapshot,
+    getNotifiedWorktreesSnapshot,
+  );
   const navigationWorktreeItems = useMemo(() => {
     return navigationWorktrees.map((workspaceRow) => ({
       workspaceRow,
@@ -379,7 +410,11 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
       return null;
     }
 
-    return navigationWorktrees.find((workspaceRow) => workspaceRow.worktree === worktreeFromRoute) ?? null;
+    return (
+      navigationWorktrees.find(
+        (workspaceRow) => workspaceRow.worktree === worktreeFromRoute,
+      ) ?? null
+    );
   }, [navigationWorktrees, pathname]);
   const mascotDisplay = useMemo(() => {
     if (!inspectedWorktree) {
@@ -389,7 +424,9 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
       };
     }
 
-    const mascotAssignment = getWorktreeMascotAssignment(inspectedWorktree.worktree);
+    const mascotAssignment = getWorktreeMascotAssignment(
+      inspectedWorktree.worktree,
+    );
     return {
       mascot: mascotAssignment.mascot,
       mascotColorClassName: getMascotColorClassNames(mascotAssignment.color),
@@ -410,7 +447,9 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
         return;
       }
 
-      const workspaceRows = normalizeWorkspaceRows((workspaceResult as { rows?: unknown }).rows);
+      const workspaceRows = normalizeWorkspaceRows(
+        (workspaceResult as { rows?: unknown }).rows,
+      );
       if (workspaceRows.length === 0) {
         setNavigationWorktrees([]);
         cachedNavigationWorktrees = [];
@@ -422,22 +461,21 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
         .filter((workspaceRow) => workspaceRow.status !== "deleted")
         .map((workspaceRow) => workspaceRow.worktree);
 
-      const runtimeResult = await grooveList({
+      const runtimeResult = await grooveTerminalActiveWorktrees({
         rootName: workspaceResult.workspaceMeta?.rootName,
         knownWorktrees,
         workspaceMeta: workspaceResult.workspaceMeta,
-      }, {
-        intent: "background",
       });
 
-      const runtimeRowsByWorktree = runtimeResult.ok && runtimeResult.rows && typeof runtimeResult.rows === "object"
-        ? Object.entries(runtimeResult.rows).reduce<Record<string, RuntimeStatusRow | undefined>>((rowsByWorktree, [worktree, row]) => {
-          rowsByWorktree[worktree] = toRuntimeStatusRow(row);
-          return rowsByWorktree;
-        }, {})
-        : {};
+      const activeWorktreeSet =
+        runtimeResult.ok && Array.isArray(runtimeResult.worktrees)
+          ? new Set(runtimeResult.worktrees)
+          : new Set<string>();
 
-      const activeRows = getActiveWorktreeRows(workspaceRows, runtimeRowsByWorktree);
+      const activeRows = getActiveWorktreeRows(
+        workspaceRows,
+        activeWorktreeSet,
+      );
       setNavigationWorktrees(activeRows);
       cachedNavigationWorktrees = activeRows;
       hasCachedNavigationWorktrees = true;
@@ -449,7 +487,9 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   }, [hasOpenWorkspace]);
 
   useEffect(() => {
-    syncActiveWorktreeMascotAssignments(navigationWorktrees.map((workspaceRow) => workspaceRow.worktree));
+    syncActiveWorktreeMascotAssignments(
+      navigationWorktrees.map((workspaceRow) => workspaceRow.worktree),
+    );
   }, [navigationWorktrees]);
 
   const refreshNavigationWorktreesRef = useRef(refreshNavigationWorktrees);
@@ -489,17 +529,18 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
 
     void (async () => {
       try {
-        const [unlistenReady, unlistenChange, unlistenTerminalLifecycle] = await Promise.all([
-          listenWorkspaceReady(() => {
-            void refreshNavigationWorktreesRef.current();
-          }),
-          listenWorkspaceChange(() => {
-            void refreshNavigationWorktreesRef.current();
-          }),
-          listenGrooveTerminalLifecycle(() => {
-            void refreshNavigationWorktreesRef.current();
-          }),
-        ]);
+        const [unlistenReady, unlistenChange, unlistenTerminalLifecycle] =
+          await Promise.all([
+            listenWorkspaceReady(() => {
+              void refreshNavigationWorktreesRef.current();
+            }),
+            listenWorkspaceChange(() => {
+              void refreshNavigationWorktreesRef.current();
+            }),
+            listenGrooveTerminalLifecycle(() => {
+              void refreshNavigationWorktreesRef.current();
+            }),
+          ]);
 
         if (isClosed) {
           unlistenReady();
@@ -508,8 +549,11 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
           return;
         }
 
-        unlistenHandlers.push(unlistenReady, unlistenChange, unlistenTerminalLifecycle);
-
+        unlistenHandlers.push(
+          unlistenReady,
+          unlistenChange,
+          unlistenTerminalLifecycle,
+        );
       } catch {
         cleanupListeners();
       }
@@ -547,7 +591,9 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
   );
 
   const resolvedPageSidebar =
-    typeof pageSidebar === "function" ? pageSidebar({ collapsed: isSidebarCollapsed }) : pageSidebar;
+    typeof pageSidebar === "function"
+      ? pageSidebar({ collapsed: isSidebarCollapsed })
+      : pageSidebar;
 
   return (
     <>
@@ -562,26 +608,42 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                       <div
                         className={cn(
                           "flex shrink-0 items-center justify-center overflow-hidden rounded-sm border",
-                          isSidebarCollapsed ? "h-12 w-12" : "h-[128px] w-[144px]",
+                          isSidebarCollapsed
+                            ? "h-12 w-12"
+                            : "h-[128px] w-[144px]",
                         )}
                       >
                         <GrooveLoadingSprite
                           mascot={mascotDisplay.mascot}
-                          mascotColorClassName={mascotDisplay.mascotColorClassName}
+                          mascotColorClassName={
+                            mascotDisplay.mascotColorClassName
+                          }
                           isCompact={isSidebarCollapsed}
                           shouldShowFrameIndex={shouldShowFps}
                         />
                       </div>
                     </TooltipTrigger>
-                    <TooltipContent side="right">{mascotDisplay.mascot.name}</TooltipContent>
+                    <TooltipContent side="right">
+                      {mascotDisplay.mascot.name}
+                    </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
             )}
-            <div className={cn("flex items-center justify-between gap-2", !shouldHideGrooveLoadingSection && "mt-4")}>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-2",
+                !shouldHideGrooveLoadingSection && "mt-4",
+              )}
+            >
               {!isSidebarCollapsed && (
                 <div className="px-2">
-                  <span className="block max-w-[10rem] truncate text-sm font-bold text-foreground" title={appNameLabel}>{appNameLabel}</span>
+                  <span
+                    className="block max-w-[10rem] truncate text-sm font-bold text-foreground"
+                    title={appNameLabel}
+                  >
+                    {appNameLabel}
+                  </span>
                 </div>
               )}
               <SidebarCollapseButton
@@ -605,35 +667,54 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                         recordNavigationStart("/worktrees");
                       }}
                     >
-                      <GitBranch aria-hidden="true" className="size-4 shrink-0" />
+                      <Trees aria-hidden="true" className="size-4 shrink-0" />
                       {!isSidebarCollapsed && <span>Worktrees</span>}
                     </Link>
                     {!isSidebarCollapsed ? (
                       <div className="ml-2 grid gap-1 border-l border-border/70 pl-2">
-                        {navigationWorktreeItems.map(({ workspaceRow, displayLabel, titleLabel }) => {
-                          const worktreeRoute = `/worktrees/${encodeURIComponent(workspaceRow.worktree)}`;
-                          const mascotAssignment = getWorktreeMascotAssignment(workspaceRow.worktree);
-                          const worktreeColorClassName = getMascotColorClassNames(mascotAssignment.color);
+                        {navigationWorktreeItems.map(
+                          ({ workspaceRow, displayLabel, titleLabel }) => {
+                            const worktreeRoute = `/worktrees/${encodeURIComponent(workspaceRow.worktree)}`;
+                            const mascotAssignment =
+                              getWorktreeMascotAssignment(
+                                workspaceRow.worktree,
+                              );
+                            const worktreeColorClassName =
+                              getMascotColorClassNames(mascotAssignment.color);
 
-                          return (
-                            <Link
-                              key={workspaceRow.path}
-                              to={worktreeRoute}
-                              className={sidebarMenuButtonClassName({
-                                isActive: pathname === worktreeRoute,
-                                collapsed: false,
-                                className: "h-8 text-xs",
-                              })}
-                              onClick={() => {
-                                recordNavigationStart(worktreeRoute);
-                              }}
-                              title={titleLabel}
-                            >
-                              <TreePalm aria-hidden="true" className={cn("size-3.5 shrink-0", worktreeColorClassName)} />
-                              <span className="truncate">{displayLabel}</span>
-                            </Link>
-                          );
-                        })}
+                            return (
+                              <Link
+                                key={workspaceRow.path}
+                                to={worktreeRoute}
+                                className={sidebarMenuButtonClassName({
+                                  isActive: pathname === worktreeRoute,
+                                  collapsed: false,
+                                  className: "h-8 text-xs",
+                                })}
+                                onClick={() => {
+                                  recordNavigationStart(worktreeRoute);
+                                }}
+                                title={titleLabel}
+                              >
+                                <span className="relative shrink-0">
+                                  <TreeDeciduous
+                                    aria-hidden="true"
+                                    className={cn(
+                                      "size-3.5 shrink-0",
+                                      worktreeColorClassName,
+                                    )}
+                                  />
+                                  {notifiedWorktrees.has(
+                                    workspaceRow.worktree,
+                                  ) && (
+                                    <span className="absolute -right-1 -top-1 size-2 rounded-full bg-red-500" />
+                                  )}
+                                </span>
+                                <span className="truncate">{displayLabel}</span>
+                              </Link>
+                            );
+                          },
+                        )}
                       </div>
                     ) : null}
                   </>
@@ -648,7 +729,7 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                     recordNavigationStart("/");
                   }}
                 >
-                  <LayoutDashboard aria-hidden="true" className="size-4 shrink-0" />
+                  <Network aria-hidden="true" className="size-4 shrink-0" />
                   {!isSidebarCollapsed && <span>{homeLabel}</span>}
                 </Link>
                 {hasOpenWorkspace && (
@@ -665,11 +746,13 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                       recordNavigationStart("/diagnostics");
                     }}
                   >
-                    <ActivitySquare
+                    <Activity
                       aria-hidden="true"
                       className={cn(
                         "size-4 shrink-0",
-                        hasDiagnosticsSanityWarning && isSidebarCollapsed && "text-amber-600",
+                        hasDiagnosticsSanityWarning &&
+                          isSidebarCollapsed &&
+                          "text-amber-600",
                       )}
                     />
                     {!isSidebarCollapsed && <span>Diagnostics</span>}
@@ -677,10 +760,15 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className="ml-auto inline-flex text-amber-600">
-                            <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+                            <TriangleAlert
+                              aria-hidden="true"
+                              className="size-3.5 shrink-0"
+                            />
                           </span>
                         </TooltipTrigger>
-                        <TooltipContent>A sanity check has failed</TooltipContent>
+                        <TooltipContent>
+                          A sanity check has failed
+                        </TooltipContent>
                       </Tooltip>
                     ) : null}
                   </Link>
@@ -709,7 +797,10 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                     collapsed={isSidebarCollapsed}
                     onClick={onHelpClick}
                   >
-                    <CircleHelp aria-hidden="true" className="size-4 shrink-0" />
+                    <CircleHelp
+                      aria-hidden="true"
+                      className="size-4 shrink-0"
+                    />
                     {!isSidebarCollapsed && <span>Help</span>}
                   </SidebarMenuButton>
                 )}
@@ -736,80 +827,108 @@ function AppNavigation({ hasOpenWorkspace, hasDiagnosticsSanityWarning, isHelpOp
                 <>
                   <Link
                     to="/worktrees"
-                    className={sidebarMenuButtonClassName({ isActive: isWorktreesActive })}
+                    className={sidebarMenuButtonClassName({
+                      isActive: isWorktreesActive,
+                    })}
                     onClick={() => {
                       recordNavigationStart("/worktrees");
                       setIsMobileSidebarOpen(false);
                     }}
                   >
-                    <GitBranch aria-hidden="true" className="size-4 shrink-0" />
+                    <Trees aria-hidden="true" className="size-4 shrink-0" />
                     <span>Worktrees</span>
                   </Link>
                   <div className="ml-2 grid gap-1 border-l border-border/70 pl-2">
-                    {navigationWorktreeItems.map(({ workspaceRow, displayLabel, titleLabel }) => {
-                      const worktreeRoute = `/worktrees/${encodeURIComponent(workspaceRow.worktree)}`;
-                      const mascotAssignment = getWorktreeMascotAssignment(workspaceRow.worktree);
-                      const worktreeColorClassName = getMascotColorClassNames(mascotAssignment.color);
+                    {navigationWorktreeItems.map(
+                      ({ workspaceRow, displayLabel, titleLabel }) => {
+                        const worktreeRoute = `/worktrees/${encodeURIComponent(workspaceRow.worktree)}`;
+                        const mascotAssignment = getWorktreeMascotAssignment(
+                          workspaceRow.worktree,
+                        );
+                        const worktreeColorClassName = getMascotColorClassNames(
+                          mascotAssignment.color,
+                        );
 
-                      return (
-                        <Link
-                          key={workspaceRow.path}
-                          to={worktreeRoute}
-                          className={sidebarMenuButtonClassName({
-                            isActive: pathname === worktreeRoute,
-                            className: "h-8 text-xs",
-                          })}
-                          onClick={() => {
-                            recordNavigationStart(worktreeRoute);
-                            setIsMobileSidebarOpen(false);
-                          }}
-                          title={titleLabel}
-                        >
-                          <TreePalm aria-hidden="true" className={cn("size-3.5 shrink-0", worktreeColorClassName)} />
-                          <span className="truncate">{displayLabel}</span>
-                        </Link>
-                      );
-                    })}
+                        return (
+                          <Link
+                            key={workspaceRow.path}
+                            to={worktreeRoute}
+                            className={sidebarMenuButtonClassName({
+                              isActive: pathname === worktreeRoute,
+                              className: "h-8 text-xs",
+                            })}
+                            onClick={() => {
+                              recordNavigationStart(worktreeRoute);
+                              setIsMobileSidebarOpen(false);
+                            }}
+                            title={titleLabel}
+                          >
+                            <span className="relative shrink-0">
+                              <TreeDeciduous
+                                aria-hidden="true"
+                                className={cn(
+                                  "size-3.5 shrink-0",
+                                  worktreeColorClassName,
+                                )}
+                              />
+                              {notifiedWorktrees.has(workspaceRow.worktree) && (
+                                <span className="absolute -right-1 -top-1 size-2 rounded-full bg-red-500" />
+                              )}
+                            </span>
+                            <span className="truncate">{displayLabel}</span>
+                          </Link>
+                        );
+                      },
+                    )}
                   </div>
                 </>
               )}
               <Link
                 to="/"
-                className={sidebarMenuButtonClassName({ isActive: isHomeActive })}
+                className={sidebarMenuButtonClassName({
+                  isActive: isHomeActive,
+                })}
                 onClick={() => {
                   recordNavigationStart("/");
                   setIsMobileSidebarOpen(false);
                 }}
               >
-                <LayoutDashboard aria-hidden="true" className="size-4 shrink-0" />
+                <Network aria-hidden="true" className="size-4 shrink-0" />
                 <span>{homeLabel}</span>
               </Link>
               {hasOpenWorkspace && (
                 <Link
                   to="/diagnostics"
-                  className={sidebarMenuButtonClassName({ isActive: isDiagnosticsActive })}
+                  className={sidebarMenuButtonClassName({
+                    isActive: isDiagnosticsActive,
+                  })}
                   onClick={() => {
                     recordNavigationStart("/diagnostics");
                     setIsMobileSidebarOpen(false);
                   }}
-                  >
-                    <ActivitySquare aria-hidden="true" className="size-4 shrink-0" />
-                    <span>Diagnostics</span>
-                    {hasDiagnosticsSanityWarning ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="ml-auto inline-flex text-amber-600">
-                            <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>A sanity check has failed</TooltipContent>
-                      </Tooltip>
-                    ) : null}
-                  </Link>
-                )}
+                >
+                  <Activity aria-hidden="true" className="size-4 shrink-0" />
+                  <span>Diagnostics</span>
+                  {hasDiagnosticsSanityWarning ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="ml-auto inline-flex text-amber-600">
+                          <TriangleAlert
+                            aria-hidden="true"
+                            className="size-3.5 shrink-0"
+                          />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>A sanity check has failed</TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </Link>
+              )}
               <Link
                 to="/settings"
-                className={sidebarMenuButtonClassName({ isActive: isSettingsActive })}
+                className={sidebarMenuButtonClassName({
+                  isActive: isSettingsActive,
+                })}
                 onClick={() => {
                   recordNavigationStart("/settings");
                   setIsMobileSidebarOpen(false);

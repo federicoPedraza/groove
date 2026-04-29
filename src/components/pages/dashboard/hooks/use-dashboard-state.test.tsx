@@ -7,7 +7,7 @@ import type { WorkspaceContextResponse } from "@/src/lib/ipc";
 
 const {
   workspaceGetActiveMock,
-  grooveListMock,
+  grooveTerminalActiveWorktreesMock,
   grooveTerminalCloseMock,
   grooveTerminalListSessionsMock,
   grooveStopMock,
@@ -25,17 +25,26 @@ const {
   listenWorkspaceChangeMock,
   listenWorkspaceReadyMock,
   listenGrooveNotificationMock,
+  getClaudeCodeSoundSettingsMock,
+  getSoundLibraryMock,
   workspaceGitignoreSanityCheckMock,
   workspaceGitignoreSanityApplyMock,
 } = vi.hoisted(() => ({
   workspaceGetActiveMock: vi.fn<() => Promise<WorkspaceContextResponse>>(),
-  grooveListMock: vi.fn(),
+  grooveTerminalActiveWorktreesMock: vi.fn(),
   grooveTerminalCloseMock: vi.fn(),
   grooveTerminalListSessionsMock: vi.fn(),
   grooveStopMock: vi.fn(),
   listenGrooveTerminalLifecycleMock: vi.fn(),
   grooveTerminalLifecycleHandlerRef: {
-    current: null as null | ((event: { workspaceRoot: string; worktree: string; sessionId: string; kind: "started" | "closed" | "error" }) => void),
+    current: null as
+      | null
+      | ((event: {
+          workspaceRoot: string;
+          worktree: string;
+          sessionId: string;
+          kind: "started" | "closed" | "error";
+        }) => void),
   },
   workspacePickAndOpenMock: vi.fn(),
   workspaceOpenMock: vi.fn(),
@@ -49,17 +58,32 @@ const {
   listenWorkspaceChangeMock: vi.fn(),
   listenWorkspaceReadyMock: vi.fn(),
   listenGrooveNotificationMock: vi.fn(),
+  getClaudeCodeSoundSettingsMock: vi.fn(),
+  getSoundLibraryMock: vi.fn(),
   workspaceGitignoreSanityCheckMock: vi.fn(),
   workspaceGitignoreSanityApplyMock: vi.fn(),
 }));
 
-vi.mock("@/src/lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock("@/src/lib/utils/sound", () => ({ playNotificationSound: vi.fn() }));
+vi.mock("@/src/lib/toast", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+vi.mock("@/src/lib/utils/sound", () => ({
+  playNotificationSound: vi.fn(),
+  playCustomSound: vi.fn(),
+}));
+vi.mock("@/src/lib/notification-sound-listener", () => ({
+  startNotificationListener: vi.fn(),
+  setNotificationViewingWorktree: vi.fn(),
+  setNotificationMutedWorktrees: vi.fn(),
+}));
+vi.mock("@/src/lib/utils/notified-worktrees", () => ({
+  clearNotifiedWorktree: vi.fn(),
+}));
 
 vi.mock("@/src/lib/ipc", () => ({
   GROOVE_PLAY_COMMAND_SENTINEL: "__groove_terminal__",
   isTelemetryEnabled: vi.fn(() => false),
-  grooveList: grooveListMock,
+  grooveTerminalActiveWorktrees: grooveTerminalActiveWorktreesMock,
   grooveNew: grooveNewMock,
   grooveRestore: grooveRestoreMock,
   grooveRm: grooveRmMock,
@@ -68,6 +92,8 @@ vi.mock("@/src/lib/ipc", () => ({
   grooveTerminalListSessions: grooveTerminalListSessionsMock,
   listenGrooveTerminalLifecycle: listenGrooveTerminalLifecycleMock,
   listenGrooveNotification: listenGrooveNotificationMock,
+  getClaudeCodeSoundSettings: getClaudeCodeSoundSettingsMock,
+  getSoundLibrary: getSoundLibraryMock,
   listenWorkspaceChange: listenWorkspaceChangeMock,
   listenWorkspaceReady: listenWorkspaceReadyMock,
   workspaceClearActive: workspaceClearActiveMock,
@@ -86,7 +112,7 @@ describe("useDashboardState", () => {
     vi.clearAllMocks();
     window.localStorage.clear();
     workspaceGetActiveMock.mockReset();
-    grooveListMock.mockReset();
+    grooveTerminalActiveWorktreesMock.mockReset();
     grooveTerminalCloseMock.mockReset();
     grooveTerminalListSessionsMock.mockReset();
     grooveStopMock.mockReset();
@@ -104,26 +130,68 @@ describe("useDashboardState", () => {
     listenWorkspaceChangeMock.mockReset();
     listenWorkspaceReadyMock.mockReset();
     listenGrooveNotificationMock.mockReset();
+    getClaudeCodeSoundSettingsMock.mockReset();
+    getSoundLibraryMock.mockReset();
     workspaceGitignoreSanityCheckMock.mockReset();
     workspaceGitignoreSanityApplyMock.mockReset();
 
     // Set defaults
-    grooveListMock.mockResolvedValue({ ok: true, rows: {}, stdout: "", stderr: "" });
+    grooveTerminalActiveWorktreesMock.mockResolvedValue({
+      ok: true,
+      worktrees: [],
+    });
     grooveTerminalCloseMock.mockResolvedValue({ ok: true });
-    grooveTerminalListSessionsMock.mockResolvedValue({ ok: true, sessions: [] });
+    grooveTerminalListSessionsMock.mockResolvedValue({
+      ok: true,
+      sessions: [],
+    });
     grooveStopMock.mockResolvedValue({ ok: true });
-    workspacePickAndOpenMock.mockResolvedValue({ cancelled: true, ok: false, rows: [] });
+    workspacePickAndOpenMock.mockResolvedValue({
+      cancelled: true,
+      ok: false,
+      rows: [],
+    });
     workspaceOpenMock.mockResolvedValue({ ok: true, rows: [] });
-    grooveRestoreMock.mockResolvedValue({ ok: true, exitCode: 0, stdout: "", stderr: "" });
-    grooveNewMock.mockResolvedValue({ ok: true, exitCode: 0, stdout: "", stderr: "" });
-    grooveRmMock.mockResolvedValue({ ok: true, exitCode: 0, stdout: "", stderr: "" });
+    grooveRestoreMock.mockResolvedValue({
+      ok: true,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+    grooveNewMock.mockResolvedValue({
+      ok: true,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+    grooveRmMock.mockResolvedValue({
+      ok: true,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
     workspaceClearActiveMock.mockResolvedValue({ ok: true });
-    workspaceOpenTerminalMock.mockResolvedValue({ ok: true, exitCode: 0, stdout: "", stderr: "" });
-    workspaceOpenWorkspaceTerminalMock.mockResolvedValue({ ok: true, exitCode: 0, stdout: "", stderr: "" });
+    workspaceOpenTerminalMock.mockResolvedValue({
+      ok: true,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+    workspaceOpenWorkspaceTerminalMock.mockResolvedValue({
+      ok: true,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
     workspaceEventsMock.mockResolvedValue({ ok: true });
     listenWorkspaceChangeMock.mockResolvedValue(() => {});
     listenWorkspaceReadyMock.mockResolvedValue(() => {});
     listenGrooveNotificationMock.mockResolvedValue(() => {});
+    getClaudeCodeSoundSettingsMock.mockReturnValue({
+      notification: { enabled: false, soundId: null },
+      stop: { enabled: false, soundId: null },
+    });
+    getSoundLibraryMock.mockReturnValue([]);
     workspaceGitignoreSanityCheckMock.mockResolvedValue({
       ok: true,
       isApplicable: true,
@@ -203,40 +271,22 @@ describe("useDashboardState", () => {
         },
       ],
     });
-    grooveListMock
+    grooveTerminalActiveWorktreesMock
       .mockResolvedValueOnce({
         ok: true,
-        rows: {
-          "feature-alpha": {
-            branch: "feature/alpha",
-            worktree: "feature-alpha",
-            opencodeState: "running",
-            logState: "latest",
-            opencodeActivityState: "idle",
-          },
-        },
-        stdout: "",
-        stderr: "",
+        worktrees: ["feature-alpha"],
       })
       .mockResolvedValueOnce({
         ok: true,
-        rows: {
-          "feature-alpha": {
-            branch: "feature/alpha",
-            worktree: "feature-alpha",
-            opencodeState: "not-running",
-            logState: "latest",
-            opencodeActivityState: "idle",
-          },
-        },
-        stdout: "",
-        stderr: "",
+        worktrees: [],
       });
 
     const { result } = renderHook(() => useDashboardState());
 
     await waitFor(() => {
-      expect(result.current.runtimeStateByWorktree["feature-alpha"]?.opencodeState).toBe("running");
+      expect(result.current.activeTerminalWorktrees.has("feature-alpha")).toBe(
+        true,
+      );
     });
 
     await waitFor(() => {
@@ -253,7 +303,9 @@ describe("useDashboardState", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.runtimeStateByWorktree["feature-alpha"]?.opencodeState).toBe("not-running");
+      expect(result.current.activeTerminalWorktrees.has("feature-alpha")).toBe(
+        false,
+      );
     });
   });
 
@@ -287,7 +339,10 @@ describe("useDashboardState", () => {
     workspaceGetActiveMock.mockResolvedValue(response);
     // workspaceOpen is used by rescan; return same shape
     workspaceOpenMock.mockResolvedValue(response);
-    grooveListMock.mockResolvedValue({ ok: true, rows: {}, stdout: "", stderr: "" });
+    grooveTerminalActiveWorktreesMock.mockResolvedValue({
+      ok: true,
+      worktrees: [],
+    });
   }
 
   it("closes all terminal sessions when running stop action", async () => {
@@ -312,25 +367,23 @@ describe("useDashboardState", () => {
         },
       ],
     });
-    grooveListMock.mockResolvedValue({
+    grooveTerminalActiveWorktreesMock.mockResolvedValue({
       ok: true,
-      rows: {
-        "feature-alpha": {
-          branch: "feature/alpha",
-          worktree: "feature-alpha",
-          opencodeState: "running",
-          logState: "latest",
-          opencodeActivityState: "idle",
-        },
-      },
-      stdout: "",
-      stderr: "",
+      worktrees: ["feature-alpha"],
     });
     grooveTerminalListSessionsMock.mockResolvedValueOnce({
       ok: true,
       sessions: [
-        { sessionId: "session-1", workspaceRoot: "/repo/groove", worktree: "feature-alpha" },
-        { sessionId: "session-2", workspaceRoot: "/repo/groove", worktree: "feature-alpha" },
+        {
+          sessionId: "session-1",
+          workspaceRoot: "/repo/groove",
+          worktree: "feature-alpha",
+        },
+        {
+          sessionId: "session-2",
+          workspaceRoot: "/repo/groove",
+          worktree: "feature-alpha",
+        },
       ],
     });
     grooveTerminalCloseMock.mockResolvedValue({ ok: true });
@@ -338,7 +391,9 @@ describe("useDashboardState", () => {
     const { result } = renderHook(() => useDashboardState());
 
     await waitFor(() => {
-      expect(result.current.runtimeStateByWorktree["feature-alpha"]?.opencodeState).toBe("running");
+      expect(result.current.activeTerminalWorktrees.has("feature-alpha")).toBe(
+        true,
+      );
     });
 
     const row = result.current.worktreeRows[0];
@@ -388,7 +443,9 @@ describe("useDashboardState", () => {
       expect(result.current.isWorkspaceHydrating).toBe(false);
     });
 
-    expect(result.current.errorMessage).toBe("Failed to restore active workspace.");
+    expect(result.current.errorMessage).toBe(
+      "Failed to restore active workspace.",
+    );
   });
 
   it("clears workspace state when workspaceGetActive returns ok without workspaceRoot", async () => {
@@ -413,7 +470,10 @@ describe("useDashboardState", () => {
   // ======================================================
 
   it("pickDirectory applies workspace context on successful pick", async () => {
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
 
     const pickedResponse: WorkspaceContextResponse = {
       ok: true,
@@ -426,7 +486,9 @@ describe("useDashboardState", () => {
     workspacePickAndOpenMock.mockResolvedValue(pickedResponse);
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
       await result.current.pickDirectory();
@@ -438,11 +500,20 @@ describe("useDashboardState", () => {
   });
 
   it("pickDirectory does nothing when user cancels", async () => {
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
-    workspacePickAndOpenMock.mockResolvedValue({ cancelled: true, ok: false, rows: [] });
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
+    workspacePickAndOpenMock.mockResolvedValue({
+      cancelled: true,
+      ok: false,
+      rows: [],
+    });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
       await result.current.pickDirectory();
@@ -453,11 +524,21 @@ describe("useDashboardState", () => {
   });
 
   it("pickDirectory sets error when result is not ok and not cancelled", async () => {
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
-    workspacePickAndOpenMock.mockResolvedValue({ cancelled: false, ok: false, error: "bad dir", rows: [] });
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
+    workspacePickAndOpenMock.mockResolvedValue({
+      cancelled: false,
+      ok: false,
+      error: "bad dir",
+      rows: [],
+    });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
       await result.current.pickDirectory();
@@ -467,17 +548,24 @@ describe("useDashboardState", () => {
   });
 
   it("pickDirectory sets error when workspacePickAndOpen throws", async () => {
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
     workspacePickAndOpenMock.mockRejectedValue(new Error("fs error"));
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
       await result.current.pickDirectory();
     });
 
-    expect(result.current.errorMessage).toBe("Unable to pick workspace directory.");
+    expect(result.current.errorMessage).toBe(
+      "Unable to pick workspace directory.",
+    );
   });
 
   // ======================================================
@@ -485,7 +573,10 @@ describe("useDashboardState", () => {
   // ======================================================
 
   it("openRecentDirectory applies workspace context on success", async () => {
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
 
     const openedResponse: WorkspaceContextResponse = {
       ok: true,
@@ -498,7 +589,9 @@ describe("useDashboardState", () => {
     workspaceOpenMock.mockResolvedValue(openedResponse);
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
       await result.current.openRecentDirectory("/repo/recent");
@@ -509,11 +602,20 @@ describe("useDashboardState", () => {
   });
 
   it("openRecentDirectory sets error when result is not ok", async () => {
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
-    workspaceOpenMock.mockResolvedValue({ ok: false, error: "not found", rows: [] });
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
+    workspaceOpenMock.mockResolvedValue({
+      ok: false,
+      error: "not found",
+      rows: [],
+    });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
       await result.current.openRecentDirectory("/repo/missing");
@@ -523,24 +625,36 @@ describe("useDashboardState", () => {
   });
 
   it("openRecentDirectory sets error on exception", async () => {
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
     workspaceOpenMock.mockRejectedValue(new Error("crash"));
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
       await result.current.openRecentDirectory("/repo/bad");
     });
 
-    expect(result.current.errorMessage).toBe("Unable to open selected recent directory.");
+    expect(result.current.errorMessage).toBe(
+      "Unable to open selected recent directory.",
+    );
   });
 
   it("openRecentDirectory does nothing for empty string", async () => {
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
       await result.current.openRecentDirectory("   ");
@@ -562,8 +676,12 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
@@ -573,23 +691,34 @@ describe("useDashboardState", () => {
     expect(grooveRestoreMock).toHaveBeenCalledWith(
       expect.objectContaining({ worktree: "feature-alpha" }),
     );
-    expect(toast.success).toHaveBeenCalledWith("Restore completed.");
+    expect(toast.success).toHaveBeenCalledWith("Restore completed.", {
+      command: "groove_restore",
+    });
   });
 
   it("runRestoreAction shows error toast on failure", async () => {
     const { toast } = await import("@/src/lib/toast");
     setupActiveWorkspace();
-    grooveRestoreMock.mockResolvedValue({ ok: false, exitCode: 1, stdout: "", stderr: "err" });
+    grooveRestoreMock.mockResolvedValue({
+      ok: false,
+      exitCode: 1,
+      stdout: "",
+      stderr: "err",
+    });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
       await result.current.runRestoreAction(row);
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Restore failed.");
+    expect(toast.error).toHaveBeenCalledWith("Restore failed.", {
+      command: "groove_restore",
+    });
   });
 
   it("runRestoreAction shows error toast on exception", async () => {
@@ -598,14 +727,18 @@ describe("useDashboardState", () => {
     grooveRestoreMock.mockRejectedValue(new Error("boom"));
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
       await result.current.runRestoreAction(row);
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Restore request failed.");
+    expect(toast.error).toHaveBeenCalledWith("Restore request failed.", {
+      command: "groove_restore",
+    });
   });
 
   // ======================================================
@@ -617,17 +750,25 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     await act(async () => {
-      await result.current.runCreateWorktreeAction({ branchOverride: "feature/new" });
+      await result.current.runCreateWorktreeAction({
+        branchOverride: "feature/new",
+      });
     });
 
     expect(grooveNewMock).toHaveBeenCalledWith(
       expect.objectContaining({ branch: "feature/new" }),
     );
-    expect(toast.success).toHaveBeenCalledWith("Worktree created.");
+    expect(toast.success).toHaveBeenCalledWith("Worktree created.", {
+      command: "groove_new",
+    });
     expect(result.current.isCreateModalOpen).toBe(false);
   });
 
@@ -636,7 +777,9 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
       await result.current.runCreateWorktreeAction({ branchOverride: "  " });
@@ -649,16 +792,27 @@ describe("useDashboardState", () => {
   it("runCreateWorktreeAction shows error toast on failure", async () => {
     const { toast } = await import("@/src/lib/toast");
     setupActiveWorkspace();
-    grooveNewMock.mockResolvedValue({ ok: false, exitCode: 1, stdout: "", stderr: "" });
-
-    const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
-
-    await act(async () => {
-      await result.current.runCreateWorktreeAction({ branchOverride: "feature/x" });
+    grooveNewMock.mockResolvedValue({
+      ok: false,
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Create worktree failed.");
+    const { result } = renderHook(() => useDashboardState());
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
+
+    await act(async () => {
+      await result.current.runCreateWorktreeAction({
+        branchOverride: "feature/x",
+      });
+    });
+
+    expect(toast.error).toHaveBeenCalledWith("Create worktree failed.", {
+      command: "groove_new",
+    });
   });
 
   it("runCreateWorktreeAction shows error toast on exception", async () => {
@@ -667,13 +821,20 @@ describe("useDashboardState", () => {
     grooveNewMock.mockRejectedValue(new Error("kaboom"));
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
-      await result.current.runCreateWorktreeAction({ branchOverride: "feature/y" });
+      await result.current.runCreateWorktreeAction({
+        branchOverride: "feature/y",
+      });
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Create worktree request failed.");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Create worktree request failed.",
+      { command: "groove_new" },
+    );
   });
 
   // ======================================================
@@ -685,7 +846,9 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
@@ -693,9 +856,14 @@ describe("useDashboardState", () => {
     });
 
     expect(grooveRmMock).toHaveBeenCalledWith(
-      expect.objectContaining({ target: "feature-alpha", worktree: "feature-alpha" }),
+      expect.objectContaining({
+        target: "feature-alpha",
+        worktree: "feature-alpha",
+      }),
     );
-    expect(toast.success).toHaveBeenCalledWith("Cut groove completed.");
+    expect(toast.success).toHaveBeenCalledWith("Cut groove completed.", {
+      command: "groove_rm",
+    });
   });
 
   it("runCutGrooveAction prompts force retry on modified files error", async () => {
@@ -708,7 +876,9 @@ describe("useDashboardState", () => {
     });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
@@ -723,7 +893,9 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
@@ -733,7 +905,10 @@ describe("useDashboardState", () => {
     expect(grooveRmMock).toHaveBeenCalledWith(
       expect.objectContaining({ force: true }),
     );
-    expect(toast.success).toHaveBeenCalledWith("Cut groove completed with force deletion.");
+    expect(toast.success).toHaveBeenCalledWith(
+      "Cut groove completed with force deletion.",
+      { command: "groove_rm" },
+    );
   });
 
   it("runCutGrooveAction shows error toast on failure without force retry", async () => {
@@ -747,14 +922,18 @@ describe("useDashboardState", () => {
     });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
       await result.current.runCutGrooveAction(row);
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Cut groove failed.");
+    expect(toast.error).toHaveBeenCalledWith("Cut groove failed.", {
+      command: "groove_rm",
+    });
   });
 
   it("runCutGrooveAction shows error toast on exception", async () => {
@@ -763,14 +942,18 @@ describe("useDashboardState", () => {
     grooveRmMock.mockRejectedValue(new Error("fail"));
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
       await result.current.runCutGrooveAction(row);
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Cut groove request failed.");
+    expect(toast.error).toHaveBeenCalledWith("Cut groove request failed.", {
+      command: "groove_rm",
+    });
   });
 
   // ======================================================
@@ -780,9 +963,24 @@ describe("useDashboardState", () => {
   it("runForgetAllDeletedWorktreesAction cuts all deleted rows", async () => {
     setupActiveWorkspace({
       rows: [
-        { worktree: "alive", branchGuess: "main", path: "/repo/groove/.worktrees/alive", status: "paused" },
-        { worktree: "gone1", branchGuess: "gone/1", path: "/repo/groove/.worktrees/gone1", status: "deleted" },
-        { worktree: "gone2", branchGuess: "gone/2", path: "/repo/groove/.worktrees/gone2", status: "deleted" },
+        {
+          worktree: "alive",
+          branchGuess: "main",
+          path: "/repo/groove/.worktrees/alive",
+          status: "paused",
+        },
+        {
+          worktree: "gone1",
+          branchGuess: "gone/1",
+          path: "/repo/groove/.worktrees/gone1",
+          status: "deleted",
+        },
+        {
+          worktree: "gone2",
+          branchGuess: "gone/2",
+          path: "/repo/groove/.worktrees/gone2",
+          status: "deleted",
+        },
       ],
     });
 
@@ -795,15 +993,21 @@ describe("useDashboardState", () => {
 
     // grooveRm called once per deleted row
     expect(grooveRmMock).toHaveBeenCalledTimes(2);
-    expect(grooveRmMock).toHaveBeenCalledWith(expect.objectContaining({ target: "gone1" }));
-    expect(grooveRmMock).toHaveBeenCalledWith(expect.objectContaining({ target: "gone2" }));
+    expect(grooveRmMock).toHaveBeenCalledWith(
+      expect.objectContaining({ target: "gone1" }),
+    );
+    expect(grooveRmMock).toHaveBeenCalledWith(
+      expect.objectContaining({ target: "gone2" }),
+    );
   });
 
   it("runForgetAllDeletedWorktreesAction does nothing when no deleted rows", async () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     await act(async () => {
       await result.current.runForgetAllDeletedWorktreesAction();
@@ -821,7 +1025,9 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
@@ -831,40 +1037,58 @@ describe("useDashboardState", () => {
     expect(grooveRestoreMock).toHaveBeenCalledWith(
       expect.objectContaining({ action: "go", target: "feature/alpha" }),
     );
-    expect(toast.success).toHaveBeenCalledWith("Started Groove in-app terminal.");
+    expect(toast.success).toHaveBeenCalledWith(
+      "Started Groove in-app terminal.",
+      { command: "groove_restore" },
+    );
   });
 
-  it("runPlayGrooveAction custom mode shows opencode toast on success", async () => {
+  it("runPlayGrooveAction custom mode shows success toast", async () => {
     const { toast } = await import("@/src/lib/toast");
     setupActiveWorkspace({
       workspaceMeta: { ...WORKSPACE_META, playGrooveCommand: "custom-cmd" },
     });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
       await result.current.runPlayGrooveAction(row);
     });
 
-    expect(toast.success).toHaveBeenCalledWith("Opened opencode in terminal.");
+    expect(toast.success).toHaveBeenCalledWith("Play Groove succeeded.", {
+      command: "groove_restore",
+    });
   });
 
   it("runPlayGrooveAction sentinel mode shows specific error on failure", async () => {
     const { toast } = await import("@/src/lib/toast");
     setupActiveWorkspace();
-    grooveRestoreMock.mockResolvedValue({ ok: false, exitCode: 1, stdout: "", stderr: "", error: "pty failed" });
+    grooveRestoreMock.mockResolvedValue({
+      ok: false,
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+      error: "pty failed",
+    });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
       await result.current.runPlayGrooveAction(row);
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Failed to start Groove in-app terminal: pty failed");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Failed to start Groove in-app terminal: pty failed",
+      { command: "groove_restore" },
+    );
   });
 
   it("runPlayGrooveAction custom mode shows play groove failed on failure", async () => {
@@ -872,17 +1096,26 @@ describe("useDashboardState", () => {
     setupActiveWorkspace({
       workspaceMeta: { ...WORKSPACE_META, playGrooveCommand: "custom-cmd" },
     });
-    grooveRestoreMock.mockResolvedValue({ ok: false, exitCode: 1, stdout: "", stderr: "" });
+    grooveRestoreMock.mockResolvedValue({
+      ok: false,
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+    });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
       await result.current.runPlayGrooveAction(row);
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Play groove failed.");
+    expect(toast.error).toHaveBeenCalledWith("Play groove failed.", {
+      command: "groove_restore",
+    });
   });
 
   it("runPlayGrooveAction shows error toast on exception", async () => {
@@ -891,14 +1124,19 @@ describe("useDashboardState", () => {
     grooveRestoreMock.mockRejectedValue(new Error("network"));
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
       await result.current.runPlayGrooveAction(row);
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Groove in-app terminal start request failed.");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Groove in-app terminal start request failed.",
+      { command: "groove_restore" },
+    );
   });
 
   // ======================================================
@@ -910,7 +1148,9 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     await act(async () => {
       await result.current.runOpenWorktreeTerminalAction("feature-alpha");
@@ -919,7 +1159,9 @@ describe("useDashboardState", () => {
     expect(workspaceOpenTerminalMock).toHaveBeenCalledWith(
       expect.objectContaining({ worktree: "feature-alpha" }),
     );
-    expect(toast.success).toHaveBeenCalledWith("Opened terminal.");
+    expect(toast.success).toHaveBeenCalledWith("Opened terminal.", {
+      command: "groove_restore",
+    });
   });
 
   it("runOpenWorktreeTerminalAction shows error when no worktree provided", async () => {
@@ -927,28 +1169,41 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
       await result.current.runOpenWorktreeTerminalAction(undefined);
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Select a worktree before opening a terminal.");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Select a worktree before opening a terminal.",
+    );
   });
 
   it("runOpenWorktreeTerminalAction shows error on failure", async () => {
     const { toast } = await import("@/src/lib/toast");
     setupActiveWorkspace();
-    workspaceOpenTerminalMock.mockResolvedValue({ ok: false, exitCode: 1, stdout: "", stderr: "" });
+    workspaceOpenTerminalMock.mockResolvedValue({
+      ok: false,
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+    });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     await act(async () => {
       await result.current.runOpenWorktreeTerminalAction("feature-alpha");
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Failed to open terminal.");
+    expect(toast.error).toHaveBeenCalledWith("Failed to open terminal.", {
+      command: "groove_restore",
+    });
   });
 
   it("runOpenWorktreeTerminalAction shows error on exception", async () => {
@@ -957,13 +1212,17 @@ describe("useDashboardState", () => {
     workspaceOpenTerminalMock.mockRejectedValue(new Error("crash"));
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     await act(async () => {
       await result.current.runOpenWorktreeTerminalAction("feature-alpha");
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Terminal open request failed.");
+    expect(toast.error).toHaveBeenCalledWith("Terminal open request failed.", {
+      command: "groove_restore",
+    });
   });
 
   it("runOpenWorkspaceTerminalAction opens workspace terminal on success", async () => {
@@ -971,43 +1230,63 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     await act(async () => {
       await result.current.runOpenWorkspaceTerminalAction();
     });
 
     expect(workspaceOpenWorkspaceTerminalMock).toHaveBeenCalled();
-    expect(toast.success).toHaveBeenCalledWith("Opened terminal.");
+    expect(toast.success).toHaveBeenCalledWith("Opened terminal.", {
+      command: "workspace_open",
+    });
   });
 
   it("runOpenWorkspaceTerminalAction shows error when no workspace meta", async () => {
     const { toast } = await import("@/src/lib/toast");
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     await act(async () => {
       await result.current.runOpenWorkspaceTerminalAction();
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Select a directory before opening a terminal.");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Select a directory before opening a terminal.",
+    );
   });
 
   it("runOpenWorkspaceTerminalAction shows error on failure", async () => {
     const { toast } = await import("@/src/lib/toast");
     setupActiveWorkspace();
-    workspaceOpenWorkspaceTerminalMock.mockResolvedValue({ ok: false, exitCode: 1, stdout: "", stderr: "" });
+    workspaceOpenWorkspaceTerminalMock.mockResolvedValue({
+      ok: false,
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+    });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     await act(async () => {
       await result.current.runOpenWorkspaceTerminalAction();
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Failed to open terminal.");
+    expect(toast.error).toHaveBeenCalledWith("Failed to open terminal.", {
+      command: "workspace_open",
+    });
   });
 
   it("runOpenWorkspaceTerminalAction shows error on exception", async () => {
@@ -1016,13 +1295,17 @@ describe("useDashboardState", () => {
     workspaceOpenWorkspaceTerminalMock.mockRejectedValue(new Error("crash"));
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     await act(async () => {
       await result.current.runOpenWorkspaceTerminalAction();
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Terminal open request failed.");
+    expect(toast.error).toHaveBeenCalledWith("Terminal open request failed.", {
+      command: "workspace_open",
+    });
   });
 
   // ======================================================
@@ -1043,13 +1326,20 @@ describe("useDashboardState", () => {
     expect(workspaceClearActiveMock).toHaveBeenCalled();
     expect(result.current.activeWorkspace).toBeNull();
     expect(result.current.worktreeRows).toEqual([]);
-    expect(result.current.statusMessage).toBe("Workspace closed. Select a directory to continue.");
-    expect(toast.success).toHaveBeenCalledWith("Current workspace closed.");
+    expect(result.current.statusMessage).toBe(
+      "Workspace closed. Select a directory to continue.",
+    );
+    expect(toast.success).toHaveBeenCalledWith("Current workspace closed.", {
+      command: "workspace_clear_active",
+    });
   });
 
   it("closeCurrentWorkspace shows error when workspaceClearActive returns not ok", async () => {
     setupActiveWorkspace();
-    workspaceClearActiveMock.mockResolvedValue({ ok: false, error: "lock conflict" });
+    workspaceClearActiveMock.mockResolvedValue({
+      ok: false,
+      error: "lock conflict",
+    });
 
     const { result } = renderHook(() => useDashboardState());
     await waitFor(() => expect(result.current.activeWorkspace).not.toBeNull());
@@ -1073,8 +1363,13 @@ describe("useDashboardState", () => {
       await result.current.closeCurrentWorkspace();
     });
 
-    expect(result.current.errorMessage).toBe("Failed to fully clear workspace session. Try again.");
-    expect(toast.error).toHaveBeenCalledWith("Failed to close current workspace.");
+    expect(result.current.errorMessage).toBe(
+      "Failed to fully clear workspace session. Try again.",
+    );
+    expect(toast.error).toHaveBeenCalledWith(
+      "Failed to close current workspace.",
+      { command: "workspace_clear_active" },
+    );
   });
 
   // ======================================================
@@ -1085,7 +1380,9 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
@@ -1104,7 +1401,9 @@ describe("useDashboardState", () => {
     });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
@@ -1136,7 +1435,9 @@ describe("useDashboardState", () => {
       await result.current.applyGitignoreSanityPatch();
     });
 
-    expect(result.current.gitignoreSanityStatusMessage).toBe("Applied Groove .gitignore sanity patch.");
+    expect(result.current.gitignoreSanityStatusMessage).toBe(
+      "Applied Groove .gitignore sanity patch.",
+    );
   });
 
   it("applyGitignoreSanityPatch sets status when already applied", async () => {
@@ -1157,7 +1458,9 @@ describe("useDashboardState", () => {
       await result.current.applyGitignoreSanityPatch();
     });
 
-    expect(result.current.gitignoreSanityStatusMessage).toBe("Groove .gitignore sanity patch is already applied.");
+    expect(result.current.gitignoreSanityStatusMessage).toBe(
+      "Groove .gitignore sanity patch is already applied.",
+    );
   });
 
   it("applyGitignoreSanityPatch sets not applicable message", async () => {
@@ -1178,7 +1481,9 @@ describe("useDashboardState", () => {
       await result.current.applyGitignoreSanityPatch();
     });
 
-    expect(result.current.gitignoreSanityStatusMessage).toBe("No .gitignore found in the active workspace.");
+    expect(result.current.gitignoreSanityStatusMessage).toBe(
+      "No .gitignore found in the active workspace.",
+    );
   });
 
   it("applyGitignoreSanityPatch sets error on failure", async () => {
@@ -1195,7 +1500,9 @@ describe("useDashboardState", () => {
       await result.current.applyGitignoreSanityPatch();
     });
 
-    expect(result.current.gitignoreSanityErrorMessage).toBe("permission denied");
+    expect(result.current.gitignoreSanityErrorMessage).toBe(
+      "permission denied",
+    );
   });
 
   it("applyGitignoreSanityPatch sets error on exception", async () => {
@@ -1209,7 +1516,9 @@ describe("useDashboardState", () => {
       await result.current.applyGitignoreSanityPatch();
     });
 
-    expect(result.current.gitignoreSanityErrorMessage).toBe("Failed to apply .gitignore sanity patch.");
+    expect(result.current.gitignoreSanityErrorMessage).toBe(
+      "Failed to apply .gitignore sanity patch.",
+    );
   });
 
   it("applyGitignoreSanityPatch includes patchedWorktree in message when present", async () => {
@@ -1231,8 +1540,12 @@ describe("useDashboardState", () => {
       await result.current.applyGitignoreSanityPatch();
     });
 
-    expect(result.current.gitignoreSanityStatusMessage).toContain("feature-alpha");
-    expect(result.current.gitignoreSanityStatusMessage).toContain("Play Groove");
+    expect(result.current.gitignoreSanityStatusMessage).toContain(
+      "feature-alpha",
+    );
+    expect(result.current.gitignoreSanityStatusMessage).toContain(
+      "Play Groove",
+    );
   });
 
   // ======================================================
@@ -1264,7 +1577,9 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     expect(result.current.isCreateModalOpen).toBe(false);
     expect(result.current.createBranch).toBe("");
@@ -1324,7 +1639,9 @@ describe("useDashboardState", () => {
     await waitFor(() => expect(result.current.activeWorkspace).not.toBeNull());
 
     await waitFor(() => {
-      expect(result.current.gitignoreSanityErrorMessage).toBe("Failed to check .gitignore sanity.");
+      expect(result.current.gitignoreSanityErrorMessage).toBe(
+        "Failed to check .gitignore sanity.",
+      );
     });
   });
 
@@ -1346,12 +1663,17 @@ describe("useDashboardState", () => {
 
   it("shows realtime unavailable message when workspaceEvents fails", async () => {
     setupActiveWorkspace();
-    workspaceEventsMock.mockResolvedValue({ ok: false, error: "not supported" });
+    workspaceEventsMock.mockResolvedValue({
+      ok: false,
+      error: "not supported",
+    });
 
     const { result } = renderHook(() => useDashboardState());
 
     await waitFor(() => {
-      expect(result.current.statusMessage).toContain("Realtime updates are unavailable");
+      expect(result.current.statusMessage).toContain(
+        "Realtime updates are unavailable",
+      );
     });
   });
 
@@ -1362,7 +1684,9 @@ describe("useDashboardState", () => {
     const { result } = renderHook(() => useDashboardState());
 
     await waitFor(() => {
-      expect(result.current.statusMessage).toContain("Realtime updates are unavailable");
+      expect(result.current.statusMessage).toContain(
+        "Realtime updates are unavailable",
+      );
     });
   });
 
@@ -1374,7 +1698,9 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
 
@@ -1402,7 +1728,9 @@ describe("useDashboardState", () => {
     setupActiveWorkspace();
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     expect(result.current.forceCutConfirmLoading).toBe(false);
   });
@@ -1416,19 +1744,32 @@ describe("useDashboardState", () => {
       "groove:recent-directories",
       JSON.stringify(["/prev/dir1", "/prev/dir2"]),
     );
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
-    expect(result.current.recentDirectories).toEqual(["/prev/dir1", "/prev/dir2"]);
+    expect(result.current.recentDirectories).toEqual([
+      "/prev/dir1",
+      "/prev/dir2",
+    ]);
   });
 
   it("runPlayGrooveAction does nothing when workspaceMeta is null", async () => {
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     // workspaceMeta is null since workspace has no meta
     await act(async () => {
@@ -1448,33 +1789,54 @@ describe("useDashboardState", () => {
     setupActiveWorkspace({
       workspaceMeta: { ...WORKSPACE_META, playGrooveCommand: "custom-cmd" },
     });
-    grooveRestoreMock.mockResolvedValue({ ok: false, exitCode: 1, stdout: "", stderr: "", error: "custom error" });
+    grooveRestoreMock.mockResolvedValue({
+      ok: false,
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+      error: "custom error",
+    });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
       await result.current.runPlayGrooveAction(row);
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Play groove failed: custom error");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Play groove failed: custom error",
+      { command: "groove_restore" },
+    );
   });
 
   it("runPlayGrooveAction sentinel mode shows generic error when no result.error", async () => {
     const { toast } = await import("@/src/lib/toast");
     setupActiveWorkspace();
-    grooveRestoreMock.mockResolvedValue({ ok: false, exitCode: 1, stdout: "", stderr: "" });
+    grooveRestoreMock.mockResolvedValue({
+      ok: false,
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+    });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
       await result.current.runPlayGrooveAction(row);
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Failed to start Groove in-app terminal.");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Failed to start Groove in-app terminal.",
+      { command: "groove_restore" },
+    );
   });
 
   it("runPlayGrooveAction custom mode shows error toast on exception", async () => {
@@ -1485,21 +1847,30 @@ describe("useDashboardState", () => {
     grooveRestoreMock.mockRejectedValue(new Error("net-fail"));
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     await act(async () => {
       await result.current.runPlayGrooveAction(row);
     });
 
-    expect(toast.error).toHaveBeenCalledWith("Play groove request failed.");
+    expect(toast.error).toHaveBeenCalledWith("Play groove request failed.", {
+      command: "groove_restore",
+    });
   });
 
   it("runStopAction returns false when workspaceMeta is null", async () => {
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     let stopResult: boolean | undefined;
     await act(async () => {
@@ -1518,10 +1889,15 @@ describe("useDashboardState", () => {
   it("runStopAction shows error on terminal list failure", async () => {
     const { toast } = await import("@/src/lib/toast");
     setupActiveWorkspace();
-    grooveTerminalListSessionsMock.mockResolvedValue({ ok: false, error: "Session list failed" });
+    grooveTerminalListSessionsMock.mockResolvedValue({
+      ok: false,
+      error: "Session list failed",
+    });
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     let stopResult: boolean | undefined;
@@ -1530,7 +1906,9 @@ describe("useDashboardState", () => {
     });
 
     expect(stopResult).toBe(false);
-    expect(toast.error).toHaveBeenCalledWith("Session list failed");
+    expect(toast.error).toHaveBeenCalledWith("Session list failed", {
+      command: "groove_stop",
+    });
   });
 
   it("runStopAction shows generic error toast on exception", async () => {
@@ -1539,7 +1917,9 @@ describe("useDashboardState", () => {
     grooveTerminalListSessionsMock.mockRejectedValue(new Error("crash"));
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.worktreeRows.length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(result.current.worktreeRows.length).toBeGreaterThan(0),
+    );
 
     const row = result.current.worktreeRows[0]!;
     let stopResult: boolean | undefined;
@@ -1548,17 +1928,91 @@ describe("useDashboardState", () => {
     });
 
     expect(stopResult).toBe(false);
-    expect(toast.error).toHaveBeenCalledWith("Stop request failed.");
+    expect(toast.error).toHaveBeenCalledWith("Stop request failed.", {
+      command: "groove_stop",
+    });
   });
 
   it("handles invalid localStorage gracefully", async () => {
     window.localStorage.setItem("groove:recent-directories", "not-json!!!");
-    workspaceGetActiveMock.mockResolvedValue({ ok: true, rows: [] } as unknown as WorkspaceContextResponse);
+    workspaceGetActiveMock.mockResolvedValue({
+      ok: true,
+      rows: [],
+    } as unknown as WorkspaceContextResponse);
 
     const { result } = renderHook(() => useDashboardState());
-    await waitFor(() => expect(result.current.isWorkspaceHydrating).toBe(false));
+    await waitFor(() =>
+      expect(result.current.isWorkspaceHydrating).toBe(false),
+    );
 
     expect(result.current.recentDirectories).toEqual([]);
   });
 
+  describe("notification listener integration", () => {
+    const workspaceResponse = {
+      ok: true,
+      workspaceRoot: "/repo",
+      hasWorktreesDirectory: true,
+      workspaceMeta: {
+        version: 1,
+        rootName: "repo",
+        createdAt: "t",
+        updatedAt: "t",
+      },
+      rows: [
+        {
+          worktree: "main",
+          branchGuess: "main",
+          path: "/repo",
+          status: "ready",
+        },
+      ],
+    } as unknown as WorkspaceContextResponse;
+
+    beforeEach(() => {
+      workspaceGetActiveMock.mockResolvedValue(workspaceResponse);
+    });
+
+    it("starts the singleton notification listener with workspace root", async () => {
+      const { startNotificationListener } =
+        await import("@/src/lib/notification-sound-listener");
+
+      const { result } = renderHook(() => useDashboardState());
+      await waitFor(() =>
+        expect(result.current.isWorkspaceHydrating).toBe(false),
+      );
+
+      expect(startNotificationListener).toHaveBeenCalledWith("/repo");
+    });
+
+    it("sets viewing worktree when provided", async () => {
+      const { setNotificationViewingWorktree } =
+        await import("@/src/lib/notification-sound-listener");
+
+      const { result } = renderHook(() => useDashboardState("my-worktree"));
+      await waitFor(() =>
+        expect(result.current.isWorkspaceHydrating).toBe(false),
+      );
+
+      expect(setNotificationViewingWorktree).toHaveBeenCalledWith(
+        "my-worktree",
+      );
+    });
+
+    it("clears viewing worktree on unmount", async () => {
+      const { setNotificationViewingWorktree } =
+        await import("@/src/lib/notification-sound-listener");
+
+      const { result, unmount } = renderHook(() =>
+        useDashboardState("my-worktree"),
+      );
+      await waitFor(() =>
+        expect(result.current.isWorkspaceHydrating).toBe(false),
+      );
+
+      unmount();
+
+      expect(setNotificationViewingWorktree).toHaveBeenCalledWith(undefined);
+    });
+  });
 });

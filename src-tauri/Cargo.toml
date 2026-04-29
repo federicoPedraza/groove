@@ -21,3 +21,4 @@ walkdir = "2"
 rfd = "0.15"
 time = { version = "0.3", features = ["formatting"] }
 portable-pty = "0.9"
+base64 = "0.22.1"

@@ -72,22 +72,6 @@ fn list_process_snapshot_rows() -> Result<(Vec<ProcessSnapshotRow>, Option<Strin
     Ok((rows, raw.warning))
 }
 
-fn list_opencode_process_rows() -> Result<Vec<DiagnosticsProcessRow>, String> {
-    let (snapshot_rows, _warning) = list_process_snapshot_rows()?;
-    let mut rows = snapshot_rows
-        .into_iter()
-        .filter(|row| is_worktree_opencode_process(row.process_name.as_deref(), &row.command))
-        .map(|row| DiagnosticsProcessRow {
-            pid: row.pid,
-            process_name: row.process_name.unwrap_or_else(|| "unknown".to_string()),
-            command: row.command,
-        })
-        .collect::<Vec<_>>();
-
-    rows.sort_by(|left, right| left.pid.cmp(&right.pid));
-    Ok(rows)
-}
-
 fn list_worktree_node_app_rows() -> Result<(Vec<DiagnosticsNodeAppRow>, Option<String>), String> {
     let (snapshot_rows, warning) = list_process_snapshot_rows()?;
     let mut rows = snapshot_rows
@@ -165,12 +149,18 @@ fn collect_system_overview() -> DiagnosticsSystemOverview {
     let platform = crate::backend::common::platform_env::Platform::current().to_string();
     let hostname = resolve_hostname();
     let cpu_cores = resolve_cpu_cores();
+    let mut warnings: Vec<String> = Vec::new();
+
     let cpu_usage_percent = read_linux_cpu_usage_percent();
+    if cpu_usage_percent.is_none() {
+        warnings.push(format!("CPU usage: could not read /proc/stat (platform: {platform})"));
+    }
 
     let (ram_total_bytes, ram_used_bytes, ram_usage_percent) =
         if let Some((total, used, usage_percent)) = read_linux_ram_usage() {
             (Some(total), Some(used), Some(usage_percent))
         } else {
+            warnings.push(format!("RAM usage: could not read /proc/meminfo (platform: {platform})"));
             (None, None, None)
         };
 
@@ -178,6 +168,7 @@ fn collect_system_overview() -> DiagnosticsSystemOverview {
         if let Some((total, used, usage_percent)) = read_linux_swap_usage() {
             (Some(total), Some(used), Some(usage_percent))
         } else {
+            warnings.push(format!("Swap usage: could not read /proc/meminfo (platform: {platform})"));
             (None, None, None)
         };
 
@@ -186,6 +177,10 @@ fn collect_system_overview() -> DiagnosticsSystemOverview {
         if let Some((total, used, usage_percent)) = read_linux_disk_usage(&disk_target) {
             (Some(total), Some(used), Some(usage_percent))
         } else {
+            warnings.push(format!(
+                "Disk usage: df failed for path '{}' (platform: {platform})",
+                disk_target.display()
+            ));
             (None, None, None)
         };
 
@@ -203,5 +198,6 @@ fn collect_system_overview() -> DiagnosticsSystemOverview {
         disk_usage_percent,
         platform,
         hostname,
+        warnings,
     }
 }

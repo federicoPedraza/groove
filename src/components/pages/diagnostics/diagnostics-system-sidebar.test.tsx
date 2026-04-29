@@ -40,7 +40,9 @@ describe("DiagnosticsSystemSidebar", () => {
       );
 
       expect(screen.getByText("System")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /refresh system diagnostics/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /refresh system diagnostics/i }),
+      ).toBeInTheDocument();
     });
 
     it("calls onRefresh when refresh button is clicked", () => {
@@ -54,7 +56,9 @@ describe("DiagnosticsSystemSidebar", () => {
         />,
       );
 
-      fireEvent.click(screen.getByRole("button", { name: /refresh system diagnostics/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /refresh system diagnostics/i }),
+      );
       expect(onRefresh).toHaveBeenCalledTimes(1);
     });
 
@@ -69,7 +73,9 @@ describe("DiagnosticsSystemSidebar", () => {
         />,
       );
 
-      expect(screen.getByRole("button", { name: /refresh system diagnostics/i })).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /refresh system diagnostics/i }),
+      ).toBeDisabled();
     });
 
     it("renders metric progress bars for CPU, RAM, Swap, and Disk", () => {
@@ -426,7 +432,9 @@ describe("DiagnosticsSystemSidebar", () => {
         />,
       );
 
-      expect(screen.queryByRole("button", { name: /refresh system diagnostics/i })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /refresh system diagnostics/i }),
+      ).not.toBeInTheDocument();
     });
 
     it("clamps collapsed metric values", () => {

@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DashboardHeader } from "@/src/components/pages/dashboard/dashboard-header";
 
-function renderHeader(overrides: Partial<Parameters<typeof DashboardHeader>[0]> = {}) {
+function renderHeader(
+  overrides: Partial<Parameters<typeof DashboardHeader>[0]> = {},
+) {
   const props = {
     isBusy: false,
     isCreatePending: false,
@@ -19,7 +21,9 @@ describe("DashboardHeader", () => {
   it("renders the heading and description", () => {
     renderHeader();
     expect(screen.getByText("Dashboard")).toBeTruthy();
-    expect(screen.getByText("Manage worktrees and runtime state.")).toBeTruthy();
+    expect(
+      screen.getByText("Manage worktrees and runtime state."),
+    ).toBeTruthy();
   });
 
   it("renders create worktree button", () => {
@@ -64,14 +68,24 @@ describe("DashboardHeader", () => {
 
   it("shows spinner icon when isBusy is true", () => {
     const { container } = render(
-      <DashboardHeader isBusy={true} isCreatePending={false} onCreate={vi.fn()} onRefresh={vi.fn()} />,
+      <DashboardHeader
+        isBusy={true}
+        isCreatePending={false}
+        onCreate={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
     );
     expect(container.querySelector(".animate-spin")).toBeTruthy();
   });
 
   it("does not show spinner when isBusy is false", () => {
     const { container } = render(
-      <DashboardHeader isBusy={false} isCreatePending={false} onCreate={vi.fn()} onRefresh={vi.fn()} />,
+      <DashboardHeader
+        isBusy={false}
+        isCreatePending={false}
+        onCreate={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
     );
     expect(container.querySelector(".animate-spin")).toBeNull();
   });

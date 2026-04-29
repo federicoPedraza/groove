@@ -1,9 +1,23 @@
-export type ThemeMode = "light" | "groove" | "ice" | "gum" | "lava" | "earth" | "wind" | "dark-groove" | "dark";
+export type ThemeMode =
+  | "light"
+  | "groove"
+  | "ice"
+  | "gum"
+  | "cappuccino"
+  | "lava"
+  | "earth"
+  | "wind"
+  | "dark-groove"
+  | "dark";
 
 export const DEFAULT_THEME_MODE: ThemeMode = "groove";
 export const THEME_STORAGE_KEY = "groove.theme-mode";
 
-export const THEME_MODE_OPTIONS: Array<{ value: ThemeMode; label: string; description: string }> = [
+export const THEME_MODE_OPTIONS: Array<{
+  value: ThemeMode;
+  label: string;
+  description: string;
+}> = [
   {
     value: "light",
     label: "Light",
@@ -25,6 +39,16 @@ export const THEME_MODE_OPTIONS: Array<{ value: ThemeMode; label: string; descri
     description: "Warm pink palette with bubblegum rose accents.",
   },
   {
+    value: "cappuccino",
+    label: "Cappuccino",
+    description: "Warm coffee palette with cinnamon and cream tones.",
+  },
+  {
+    value: "wind",
+    label: "Wind",
+    description: "Airy light palette with soft sky-blue neutrals.",
+  },
+  {
     value: "lava",
     label: "Lava",
     description: "Volcanic dark palette with ember-orange contrast.",
@@ -33,11 +57,6 @@ export const THEME_MODE_OPTIONS: Array<{ value: ThemeMode; label: string; descri
     value: "earth",
     label: "Earth",
     description: "Grounded dark palette with moss and clay tones.",
-  },
-  {
-    value: "wind",
-    label: "Wind",
-    description: "Airy light palette with soft sky-blue neutrals.",
   },
   {
     value: "dark-groove",

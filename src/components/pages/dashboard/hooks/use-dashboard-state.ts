@@ -3,26 +3,29 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ActiveWorkspace,
   RestoreApiResponse,
-  RuntimeListApiResponse,
-  RuntimeStateRow,
   WorkspaceMeta,
   WorktreeRow,
 } from "@/src/components/pages/dashboard/types";
 import { toast } from "@/src/lib/toast";
 import type { GroupedWorktreeItem } from "@/src/lib/utils/time/grouping";
 import { buildGroupedWorktreeItems } from "@/src/lib/utils/time/grouping";
-import { playNotificationSound } from "@/src/lib/utils/sound";
+import { clearNotifiedWorktree } from "@/src/lib/utils/notified-worktrees";
+import {
+  setNotificationMutedWorktrees,
+  setNotificationViewingWorktree,
+  startNotificationListener,
+} from "@/src/lib/notification-sound-listener";
 import { describeWorkspaceContextError } from "@/src/lib/utils/workspace/context";
 import { shouldPromptForceCutRetry } from "@/src/lib/utils/worktree/status";
+import { playGrooveHookSound } from "@/src/lib/groove-sound-system";
 import {
-  grooveList,
+  grooveTerminalActiveWorktrees,
   grooveNew,
   grooveRestore,
   grooveRm,
   grooveTerminalClose,
   grooveTerminalListSessions,
   listenGrooveTerminalLifecycle,
-  listenGrooveNotification,
   listenWorkspaceChange,
   listenWorkspaceReady,
   workspaceClearActive,
@@ -84,7 +87,9 @@ function readStoredRecentDirectories(): string[] {
       .map((candidate) => candidate.trim())
       .filter((candidate) => candidate.length > 0);
 
-    const deduplicated = normalized.filter((candidate, index) => normalized.indexOf(candidate) === index);
+    const deduplicated = normalized.filter(
+      (candidate, index) => normalized.indexOf(candidate) === index,
+    );
     return deduplicated.slice(0, MAX_RECENT_DIRECTORIES);
   } catch {
     return [];
@@ -97,23 +102,37 @@ function persistRecentDirectories(directories: string[]): void {
   }
 
   try {
-    window.localStorage.setItem(RECENT_DIRECTORIES_STORAGE_KEY, JSON.stringify(directories));
+    window.localStorage.setItem(
+      RECENT_DIRECTORIES_STORAGE_KEY,
+      JSON.stringify(directories),
+    );
   } catch {
     return;
   }
 }
 
-function buildRecentDirectories(nextDirectory: string, previousDirectories: string[]): string[] {
+function buildRecentDirectories(
+  nextDirectory: string,
+  previousDirectories: string[],
+): string[] {
   const normalizedDirectory = nextDirectory.trim();
   if (!normalizedDirectory) {
     return previousDirectories;
   }
 
-  const deduplicated = previousDirectories.filter((candidate) => candidate !== normalizedDirectory);
-  return [normalizedDirectory, ...deduplicated].slice(0, MAX_RECENT_DIRECTORIES);
+  const deduplicated = previousDirectories.filter(
+    (candidate) => candidate !== normalizedDirectory,
+  );
+  return [normalizedDirectory, ...deduplicated].slice(
+    0,
+    MAX_RECENT_DIRECTORIES,
+  );
 }
 
-function isSameWorkspaceMeta(left: WorkspaceMeta | null, right: WorkspaceMeta | null): boolean {
+function isSameWorkspaceMeta(
+  left: WorkspaceMeta | null,
+  right: WorkspaceMeta | null,
+): boolean {
   if (!left && !right) {
     return true;
   }
@@ -128,12 +147,16 @@ function isSameWorkspaceMeta(left: WorkspaceMeta | null, right: WorkspaceMeta | 
     left.defaultTerminal === right.defaultTerminal &&
     left.terminalCustomCommand === right.terminalCustomCommand &&
     left.playGrooveCommand === right.playGrooveCommand &&
-    left.openTerminalAtWorktreeCommand === right.openTerminalAtWorktreeCommand &&
+    left.openTerminalAtWorktreeCommand ===
+      right.openTerminalAtWorktreeCommand &&
     left.runLocalCommand === right.runLocalCommand
   );
 }
 
-function areWorktreeRowsEqual(left: WorktreeRow[], right: WorktreeRow[]): boolean {
+function areWorktreeRowsEqual(
+  left: WorktreeRow[],
+  right: WorktreeRow[],
+): boolean {
   if (left.length !== right.length) {
     return false;
   }
@@ -149,7 +172,10 @@ function areWorktreeRowsEqual(left: WorktreeRow[], right: WorktreeRow[]): boolea
   });
 }
 
-function clientDebugLog(event: string, details?: Record<string, unknown>): void {
+function clientDebugLog(
+  event: string,
+  details?: Record<string, unknown>,
+): void {
   if (!DEBUG_CLIENT_LOGS) {
     return;
   }
@@ -160,41 +186,70 @@ function clientDebugLog(event: string, details?: Record<string, unknown>): void 
   });
 }
 
-function logPlayTelemetry(event: string, payload: Record<string, unknown>): void {
+function logPlayTelemetry(
+  event: string,
+  payload: Record<string, unknown>,
+): void {
   if (!isTelemetryEnabled()) {
     return;
   }
   console.info(`${UI_TELEMETRY_PREFIX} ${event}`, payload);
 }
 
-export function useDashboardState() {
-  const [activeWorkspace, setActiveWorkspace] = useState<ActiveWorkspace | null>(() => dashboardWorkspaceSnapshot.activeWorkspace);
+export function useDashboardState(viewingWorktree?: string) {
+  const [activeWorkspace, setActiveWorkspace] =
+    useState<ActiveWorkspace | null>(
+      () => dashboardWorkspaceSnapshot.activeWorkspace,
+    );
   const [isWorkspaceHydrating, setIsWorkspaceHydrating] = useState(true);
   const [worktreeRows, setWorktreeRows] = useState<WorktreeRow[]>([]);
-  const [hasWorktreesDirectory, setHasWorktreesDirectory] = useState<boolean | null>(null);
+  const [hasWorktreesDirectory, setHasWorktreesDirectory] = useState<
+    boolean | null
+  >(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
-  const [pendingRestoreActions, setPendingRestoreActions] = useState<string[]>([]);
-  const [pendingCutGrooveActions, setPendingCutGrooveActions] = useState<string[]>([]);
-  const [isForgetAllDeletedWorktreesPending, setIsForgetAllDeletedWorktreesPending] = useState(false);
+  const [pendingRestoreActions, setPendingRestoreActions] = useState<string[]>(
+    [],
+  );
+  const [pendingCutGrooveActions, setPendingCutGrooveActions] = useState<
+    string[]
+  >([]);
+  const [
+    isForgetAllDeletedWorktreesPending,
+    setIsForgetAllDeletedWorktreesPending,
+  ] = useState(false);
   const [pendingStopActions, setPendingStopActions] = useState<string[]>([]);
   const [pendingPlayActions, setPendingPlayActions] = useState<string[]>([]);
   const [copiedBranchPath, setCopiedBranchPath] = useState<string | null>(null);
-  const [isCloseWorkspaceConfirmOpen, setIsCloseWorkspaceConfirmOpen] = useState(false);
+  const [mutedWorktrees, setMutedWorktrees] = useState<Set<string>>(new Set());
+  const mutedWorktreesRef = useRef(mutedWorktrees);
+  mutedWorktreesRef.current = mutedWorktrees;
+  const viewingWorktreeRef = useRef(viewingWorktree);
+  viewingWorktreeRef.current = viewingWorktree;
+  const [isCloseWorkspaceConfirmOpen, setIsCloseWorkspaceConfirmOpen] =
+    useState(false);
   const [cutConfirmRow, setCutConfirmRow] = useState<WorktreeRow | null>(null);
-  const [forceCutConfirmRow, setForceCutConfirmRow] = useState<WorktreeRow | null>(null);
-  const [runtimeStateByWorktree, setRuntimeStateByWorktree] = useState<Record<string, RuntimeStateRow>>({});
+  const [forceCutConfirmRow, setForceCutConfirmRow] =
+    useState<WorktreeRow | null>(null);
+  const [activeTerminalWorktrees, setActiveTerminalWorktrees] = useState<
+    Set<string>
+  >(new Set());
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createBranch, setCreateBranch] = useState("");
   const [createBase, setCreateBase] = useState("");
   const [isCreatePending, setIsCreatePending] = useState(false);
   const [recentDirectories, setRecentDirectories] = useState<string[]>([]);
-  const [gitignoreSanity, setGitignoreSanity] = useState<WorkspaceGitignoreSanityResponse | null>(null);
-  const [gitignoreSanityStatusMessage, setGitignoreSanityStatusMessage] = useState<string | null>(null);
-  const [gitignoreSanityErrorMessage, setGitignoreSanityErrorMessage] = useState<string | null>(null);
-  const [isGitignoreSanityChecking, setIsGitignoreSanityChecking] = useState(false);
-  const [isGitignoreSanityApplyPending, setIsGitignoreSanityApplyPending] = useState(false);
+  const [gitignoreSanity, setGitignoreSanity] =
+    useState<WorkspaceGitignoreSanityResponse | null>(null);
+  const [gitignoreSanityStatusMessage, setGitignoreSanityStatusMessage] =
+    useState<string | null>(null);
+  const [gitignoreSanityErrorMessage, setGitignoreSanityErrorMessage] =
+    useState<string | null>(null);
+  const [isGitignoreSanityChecking, setIsGitignoreSanityChecking] =
+    useState(false);
+  const [isGitignoreSanityApplyPending, setIsGitignoreSanityApplyPending] =
+    useState(false);
 
   const runtimeFetchCounterRef = useRef(0);
   const eventRescanTimeoutRef = useRef<number | null>(null);
@@ -202,18 +257,29 @@ export function useDashboardState() {
   const copiedBranchResetTimeoutRef = useRef<number | null>(null);
   const rescanInFlightRef = useRef(false);
   const rescanQueuedRef = useRef(false);
-  const workspaceRescanLastRequestRef = useRef<{ key: string; at: number } | null>(null);
+  const workspaceRescanLastRequestRef = useRef<{
+    key: string;
+    at: number;
+  } | null>(null);
   const lastRescanAtRef = useRef<number>(0);
   const runtimeFetchInFlightRef = useRef(false);
   const runtimeFetchQueuedRef = useRef(false);
-  const runtimeFetchLastRequestRef = useRef<{ key: string; at: number } | null>(null);
-  const runtimeFetchScheduledRef = useRef<{ key: string; at: number } | null>(null);
+  const runtimeFetchLastRequestRef = useRef<{ key: string; at: number } | null>(
+    null,
+  );
+  const runtimeFetchScheduledRef = useRef<{ key: string; at: number } | null>(
+    null,
+  );
   const realtimeUnavailableRef = useRef(false);
 
   const workspaceMeta = activeWorkspace?.workspaceMeta ?? null;
   const workspaceRoot = activeWorkspace?.workspaceRoot ?? null;
-  const forceCutActionKey = forceCutConfirmRow ? `${forceCutConfirmRow.path}:cut` : null;
-  const forceCutConfirmLoading = forceCutActionKey !== null && pendingCutGrooveActions.includes(forceCutActionKey);
+  const forceCutActionKey = forceCutConfirmRow
+    ? `${forceCutConfirmRow.path}:cut`
+    : null;
+  const forceCutConfirmLoading =
+    forceCutActionKey !== null &&
+    pendingCutGrooveActions.includes(forceCutActionKey);
   const groupedWorktreeItems = useMemo<GroupedWorktreeItem[]>(() => {
     return buildGroupedWorktreeItems(worktreeRows);
   }, [worktreeRows]);
@@ -234,44 +300,68 @@ export function useDashboardState() {
       return null;
     }
 
-    return [workspaceRoot, workspaceMeta.rootName, workspaceMeta.updatedAt ?? "", knownWorktreesKey].join("::");
+    return [
+      workspaceRoot,
+      workspaceMeta.rootName,
+      workspaceMeta.updatedAt ?? "",
+      knownWorktreesKey,
+    ].join("::");
   }, [knownWorktrees.length, knownWorktreesKey, workspaceMeta, workspaceRoot]);
 
   const workspaceRescanRequestKey = useMemo<string | null>(() => {
     if (!workspaceRoot) {
       return null;
     }
-    return [workspaceRoot, workspaceMeta?.updatedAt ?? "", knownWorktreesKey].join("::");
+    return [
+      workspaceRoot,
+      workspaceMeta?.updatedAt ?? "",
+      knownWorktreesKey,
+    ].join("::");
   }, [knownWorktreesKey, workspaceMeta?.updatedAt, workspaceRoot]);
 
-  const applyWorkspaceContext = useCallback((result: WorkspaceContextResponse): void => {
-    if (!result.workspaceRoot || !result.workspaceMeta || typeof result.hasWorktreesDirectory !== "boolean") {
-      return;
-    }
-    const hasWorktreesDirectory = result.hasWorktreesDirectory;
-    const nextWorkspace = {
-      workspaceRoot: result.workspaceRoot,
-      repositoryRemoteUrl: result.repositoryRemoteUrl,
-      workspaceMeta: result.workspaceMeta,
-      hasWorktreesDirectory,
-      rows: result.rows,
-    };
-    setActiveWorkspace((previous) => {
+  const applyWorkspaceContext = useCallback(
+    (result: WorkspaceContextResponse): void => {
       if (
-        previous &&
-        previous.workspaceRoot === nextWorkspace.workspaceRoot &&
-        previous.repositoryRemoteUrl === nextWorkspace.repositoryRemoteUrl &&
-        previous.hasWorktreesDirectory === nextWorkspace.hasWorktreesDirectory &&
-        isSameWorkspaceMeta(previous.workspaceMeta, nextWorkspace.workspaceMeta) &&
-        areWorktreeRowsEqual(previous.rows, nextWorkspace.rows)
+        !result.workspaceRoot ||
+        !result.workspaceMeta ||
+        typeof result.hasWorktreesDirectory !== "boolean"
       ) {
-        return previous;
+        return;
       }
-      return nextWorkspace;
-    });
-    setWorktreeRows((previous) => (areWorktreeRowsEqual(previous, result.rows) ? previous : result.rows));
-    setHasWorktreesDirectory((previous) => (previous === hasWorktreesDirectory ? previous : hasWorktreesDirectory));
-  }, []);
+      const hasWorktreesDirectory = result.hasWorktreesDirectory;
+      const nextWorkspace = {
+        workspaceRoot: result.workspaceRoot,
+        repositoryRemoteUrl: result.repositoryRemoteUrl,
+        workspaceMeta: result.workspaceMeta,
+        hasWorktreesDirectory,
+        rows: result.rows,
+      };
+      setActiveWorkspace((previous) => {
+        if (
+          previous &&
+          previous.workspaceRoot === nextWorkspace.workspaceRoot &&
+          previous.repositoryRemoteUrl === nextWorkspace.repositoryRemoteUrl &&
+          previous.hasWorktreesDirectory ===
+            nextWorkspace.hasWorktreesDirectory &&
+          isSameWorkspaceMeta(
+            previous.workspaceMeta,
+            nextWorkspace.workspaceMeta,
+          ) &&
+          areWorktreeRowsEqual(previous.rows, nextWorkspace.rows)
+        ) {
+          return previous;
+        }
+        return nextWorkspace;
+      });
+      setWorktreeRows((previous) =>
+        areWorktreeRowsEqual(previous, result.rows) ? previous : result.rows,
+      );
+      setHasWorktreesDirectory((previous) =>
+        previous === hasWorktreesDirectory ? previous : hasWorktreesDirectory,
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
     setRecentDirectories(readStoredRecentDirectories());
@@ -298,7 +388,12 @@ export function useDashboardState() {
   const pushRecentDirectory = useCallback((directoryPath: string): void => {
     setRecentDirectories((previous) => {
       const nextDirectories = buildRecentDirectories(directoryPath, previous);
-      if (nextDirectories.length === previous.length && nextDirectories.every((candidate, index) => candidate === previous[index])) {
+      if (
+        nextDirectories.length === previous.length &&
+        nextDirectories.every(
+          (candidate, index) => candidate === previous[index],
+        )
+      ) {
         return previous;
       }
 
@@ -361,7 +456,9 @@ export function useDashboardState() {
         pushRecentDirectory(result.workspaceRoot);
       }
       realtimeUnavailableRef.current = false;
-      setStatusMessage(`Workspace is active (${result.workspaceMeta?.rootName ?? "unknown"}).`);
+      setStatusMessage(
+        `Workspace is active (${result.workspaceMeta?.rootName ?? "unknown"}).`,
+      );
     } catch {
       setErrorMessage("Unable to pick workspace directory.");
     } finally {
@@ -388,7 +485,9 @@ export function useDashboardState() {
         applyWorkspaceContext(result);
         pushRecentDirectory(normalizedPath);
         realtimeUnavailableRef.current = false;
-        setStatusMessage(`Workspace is active (${result.workspaceMeta?.rootName ?? "unknown"}).`);
+        setStatusMessage(
+          `Workspace is active (${result.workspaceMeta?.rootName ?? "unknown"}).`,
+        );
       } catch {
         setErrorMessage("Unable to open selected recent directory.");
       } finally {
@@ -415,7 +514,9 @@ export function useDashboardState() {
         const result = await workspaceGitignoreSanityCheck();
         if (!result.ok) {
           setGitignoreSanity(null);
-          setGitignoreSanityErrorMessage(result.error ?? "Failed to check .gitignore sanity.");
+          setGitignoreSanityErrorMessage(
+            result.error ?? "Failed to check .gitignore sanity.",
+          );
           return;
         }
 
@@ -445,26 +546,36 @@ export function useDashboardState() {
 
       const result = await workspaceGitignoreSanityApply();
       if (!result.ok) {
-        setGitignoreSanityErrorMessage(result.error ?? "Failed to apply .gitignore sanity patch.");
+        setGitignoreSanityErrorMessage(
+          result.error ?? "Failed to apply .gitignore sanity patch.",
+        );
         return;
       }
 
       setGitignoreSanity(result);
       if (!result.isApplicable) {
-        setGitignoreSanityStatusMessage("No .gitignore found in the active workspace.");
+        setGitignoreSanityStatusMessage(
+          "No .gitignore found in the active workspace.",
+        );
       } else if (result.patched) {
         if (result.patchedWorktree) {
           setGitignoreSanityStatusMessage(
             `Applied Groove .gitignore sanity patch in ${result.patchedWorktree} and started Play Groove.`,
           );
         } else {
-          setGitignoreSanityStatusMessage("Applied Groove .gitignore sanity patch.");
+          setGitignoreSanityStatusMessage(
+            "Applied Groove .gitignore sanity patch.",
+          );
         }
       } else {
-        setGitignoreSanityStatusMessage("Groove .gitignore sanity patch is already applied.");
+        setGitignoreSanityStatusMessage(
+          "Groove .gitignore sanity patch is already applied.",
+        );
       }
     } catch {
-      setGitignoreSanityErrorMessage("Failed to apply .gitignore sanity patch.");
+      setGitignoreSanityErrorMessage(
+        "Failed to apply .gitignore sanity patch.",
+      );
     } finally {
       setIsGitignoreSanityApplyPending(false);
     }
@@ -487,124 +598,140 @@ export function useDashboardState() {
     })();
   }, [loadGitignoreSanityCheck, workspaceRoot]);
 
-  const rescanWorktrees = useCallback(async (options?: { force?: boolean }): Promise<void> => {
-    if (!workspaceRoot) {
-      return;
-    }
-
-    if (!options?.force && workspaceRescanRequestKey) {
-      const now = Date.now();
-      const previousRescan = workspaceRescanLastRequestRef.current;
-      if (previousRescan && previousRescan.key === workspaceRescanRequestKey && now - previousRescan.at < WORKSPACE_RESCAN_REQUEST_TTL_MS) {
+  const rescanWorktrees = useCallback(
+    async (options?: { force?: boolean }): Promise<void> => {
+      if (!workspaceRoot) {
         return;
       }
-      workspaceRescanLastRequestRef.current = {
-        key: workspaceRescanRequestKey,
-        at: now,
-      };
-    }
 
-    if (rescanInFlightRef.current) {
-      rescanQueuedRef.current = true;
-      return;
-    }
-    try {
-      rescanInFlightRef.current = true;
-      lastRescanAtRef.current = Date.now();
-      setIsBusy(true);
-      setErrorMessage(null);
-      const result = await workspaceOpen(workspaceRoot);
-      if (!result.ok) {
-        setErrorMessage(describeWorkspaceContextError(result));
+      if (!options?.force && workspaceRescanRequestKey) {
+        const now = Date.now();
+        const previousRescan = workspaceRescanLastRequestRef.current;
+        if (
+          previousRescan &&
+          previousRescan.key === workspaceRescanRequestKey &&
+          now - previousRescan.at < WORKSPACE_RESCAN_REQUEST_TTL_MS
+        ) {
+          return;
+        }
+        workspaceRescanLastRequestRef.current = {
+          key: workspaceRescanRequestKey,
+          at: now,
+        };
+      }
+
+      if (rescanInFlightRef.current) {
+        rescanQueuedRef.current = true;
         return;
       }
-      applyWorkspaceContext(result);
-    } catch {
-      setErrorMessage("Failed to rescan workspace worktrees.");
-    } finally {
-      rescanInFlightRef.current = false;
-      setIsBusy(false);
-      if (rescanQueuedRef.current) {
-        rescanQueuedRef.current = false;
-        window.setTimeout(() => {
-          void rescanWorktrees();
-        }, 120);
+      try {
+        rescanInFlightRef.current = true;
+        lastRescanAtRef.current = Date.now();
+        setIsBusy(true);
+        setErrorMessage(null);
+        const result = await workspaceOpen(workspaceRoot);
+        if (!result.ok) {
+          setErrorMessage(describeWorkspaceContextError(result));
+          return;
+        }
+        applyWorkspaceContext(result);
+      } catch {
+        setErrorMessage("Failed to rescan workspace worktrees.");
+      } finally {
+        rescanInFlightRef.current = false;
+        setIsBusy(false);
+        if (rescanQueuedRef.current) {
+          rescanQueuedRef.current = false;
+          window.setTimeout(() => {
+            void rescanWorktrees();
+          }, 120);
+        }
       }
-    }
-  }, [applyWorkspaceContext, workspaceRescanRequestKey, workspaceRoot]);
+    },
+    [applyWorkspaceContext, workspaceRescanRequestKey, workspaceRoot],
+  );
 
-  const fetchRuntimeState = useCallback(async (options?: { force?: boolean }): Promise<void> => {
-    if (!workspaceRoot || !workspaceMeta || knownWorktrees.length === 0 || !runtimeFetchRequestKey) {
-      setRuntimeStateByWorktree({});
-      return;
-    }
-    if (runtimeFetchInFlightRef.current) {
-      runtimeFetchQueuedRef.current = true;
-      if (options?.force) {
-        runtimeFetchLastRequestRef.current = null;
-      }
-      return;
-    }
-
-    if (!options?.force) {
-      const now = Date.now();
-      const previousRuntimeFetch = runtimeFetchLastRequestRef.current;
+  const fetchRuntimeState = useCallback(
+    async (options?: { force?: boolean }): Promise<void> => {
       if (
-        previousRuntimeFetch &&
-        previousRuntimeFetch.key === runtimeFetchRequestKey &&
-        now - previousRuntimeFetch.at < RUNTIME_FETCH_REQUEST_TTL_MS
+        !workspaceRoot ||
+        !workspaceMeta ||
+        knownWorktrees.length === 0 ||
+        !runtimeFetchRequestKey
       ) {
+        setActiveTerminalWorktrees(new Set());
         return;
       }
-      runtimeFetchLastRequestRef.current = {
-        key: runtimeFetchRequestKey,
-        at: now,
-      };
-    } else {
-      runtimeFetchLastRequestRef.current = {
-        key: runtimeFetchRequestKey,
-        at: Date.now(),
-      };
-    }
-    runtimeFetchInFlightRef.current = true;
-
-    const fetchId = runtimeFetchCounterRef.current + 1;
-    runtimeFetchCounterRef.current = fetchId;
-
-    try {
-      const result = (await grooveList({
-        rootName: workspaceMeta.rootName,
-        knownWorktrees,
-        workspaceMeta,
-      }, {
-        intent: "background",
-      })) as RuntimeListApiResponse;
-
-      if (runtimeFetchCounterRef.current !== fetchId) {
+      if (runtimeFetchInFlightRef.current) {
+        runtimeFetchQueuedRef.current = true;
+        if (options?.force) {
+          runtimeFetchLastRequestRef.current = null;
+        }
         return;
       }
-      if (!result.ok) {
-        setRuntimeStateByWorktree({});
-        return;
+
+      if (!options?.force) {
+        const now = Date.now();
+        const previousRuntimeFetch = runtimeFetchLastRequestRef.current;
+        if (
+          previousRuntimeFetch &&
+          previousRuntimeFetch.key === runtimeFetchRequestKey &&
+          now - previousRuntimeFetch.at < RUNTIME_FETCH_REQUEST_TTL_MS
+        ) {
+          return;
+        }
+        runtimeFetchLastRequestRef.current = {
+          key: runtimeFetchRequestKey,
+          at: now,
+        };
+      } else {
+        runtimeFetchLastRequestRef.current = {
+          key: runtimeFetchRequestKey,
+          at: Date.now(),
+        };
       }
-      setRuntimeStateByWorktree(result.rows);
-    } catch {
-      if (runtimeFetchCounterRef.current === fetchId) {
-        setRuntimeStateByWorktree({});
+      runtimeFetchInFlightRef.current = true;
+
+      const fetchId = runtimeFetchCounterRef.current + 1;
+      runtimeFetchCounterRef.current = fetchId;
+
+      try {
+        const result = await grooveTerminalActiveWorktrees({
+          rootName: workspaceMeta.rootName,
+          knownWorktrees,
+          workspaceMeta,
+        });
+
+        if (runtimeFetchCounterRef.current !== fetchId) {
+          return;
+        }
+        if (!result.ok) {
+          setActiveTerminalWorktrees(new Set());
+          return;
+        }
+        setActiveTerminalWorktrees(new Set(result.worktrees));
+      } catch {
+        if (runtimeFetchCounterRef.current === fetchId) {
+          setActiveTerminalWorktrees(new Set());
+        }
+      } finally {
+        runtimeFetchInFlightRef.current = false;
+        if (runtimeFetchQueuedRef.current) {
+          runtimeFetchQueuedRef.current = false;
+          window.setTimeout(() => {
+            void fetchRuntimeState();
+          }, 120);
+        }
       }
-    } finally {
-      runtimeFetchInFlightRef.current = false;
-      if (runtimeFetchQueuedRef.current) {
-        runtimeFetchQueuedRef.current = false;
-        window.setTimeout(() => {
-          void fetchRuntimeState();
-        }, 120);
-      }
-    }
-  }, [knownWorktrees, runtimeFetchRequestKey, workspaceMeta, workspaceRoot]);
+    },
+    [knownWorktrees, runtimeFetchRequestKey, workspaceMeta, workspaceRoot],
+  );
 
   const scheduleRuntimeStateFetch = useCallback(
-    (delayMs = RUNTIME_FETCH_DEBOUNCE_MS, options?: { force?: boolean }): void => {
+    (
+      delayMs = RUNTIME_FETCH_DEBOUNCE_MS,
+      options?: { force?: boolean },
+    ): void => {
       const nextKey = runtimeFetchRequestKey;
       if (!nextKey) {
         return;
@@ -644,7 +771,12 @@ export function useDashboardState() {
 
   useEffect(() => {
     scheduleRuntimeStateFetchRef.current(0);
-  }, [knownWorktreesKey, workspaceMeta?.rootName, workspaceMeta?.updatedAt, workspaceRoot]);
+  }, [
+    knownWorktreesKey,
+    workspaceMeta?.rootName,
+    workspaceMeta?.updatedAt,
+    workspaceRoot,
+  ]);
 
   useEffect(() => {
     if (!workspaceRoot || !workspaceMeta || realtimeUnavailableRef.current) {
@@ -678,7 +810,10 @@ export function useDashboardState() {
       }
 
       const elapsedSinceLastRescan = Date.now() - lastRescanAtRef.current;
-      const minIntervalDelay = Math.max(0, EVENT_RESCAN_MIN_INTERVAL_MS - elapsedSinceLastRescan);
+      const minIntervalDelay = Math.max(
+        0,
+        EVENT_RESCAN_MIN_INTERVAL_MS - elapsedSinceLastRescan,
+      );
       const delayMs = Math.max(EVENT_RESCAN_DEBOUNCE_MS, minIntervalDelay);
 
       if (eventRescanTimeoutRef.current !== null) {
@@ -721,7 +856,11 @@ export function useDashboardState() {
         cleanupListeners();
         realtimeUnavailableRef.current = true;
         if (!closed) {
-          setStatusMessage((prev) => prev ?? "Realtime updates are unavailable. Use Refresh for manual rescans.");
+          setStatusMessage(
+            (prev) =>
+              prev ??
+              "Realtime updates are unavailable. Use Refresh for manual rescans.",
+          );
         }
       }
     })();
@@ -734,7 +873,7 @@ export function useDashboardState() {
         eventRescanTimeoutRef.current = null;
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-subscribe when rootName changes, not on every meta update
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-subscribe when rootName changes, not on every meta update
   }, [workspaceMeta?.rootName, workspaceRoot]);
 
   useEffect(() => {
@@ -764,51 +903,48 @@ export function useDashboardState() {
   }, [scheduleRuntimeStateFetch, workspaceMeta, workspaceRoot]);
 
   useEffect(() => {
-    if (!workspaceRoot) {
-      return;
+    if (workspaceRoot) {
+      startNotificationListener(workspaceRoot);
     }
-
-    let mounted = true;
-    let unlisten: (() => void) | null = null;
-
-    void (async () => {
-      unlisten = await listenGrooveNotification((event) => {
-        if (!mounted || event.workspaceRoot !== workspaceRoot) {
-          return;
-        }
-
-        playNotificationSound();
-      });
-    })();
-
-    return () => {
-      mounted = false;
-      if (unlisten) {
-        unlisten();
-      }
-    };
   }, [workspaceRoot]);
+
+  useEffect(() => {
+    setNotificationViewingWorktree(viewingWorktree);
+    if (viewingWorktree) {
+      clearNotifiedWorktree(viewingWorktree);
+    }
+    return () => {
+      setNotificationViewingWorktree(undefined);
+    };
+  }, [viewingWorktree]);
+
+  useEffect(() => {
+    setNotificationMutedWorktrees(mutedWorktrees);
+  }, [mutedWorktrees]);
 
   const refreshWorktrees = useCallback(async (): Promise<void> => {
     await rescanWorktrees({ force: true });
     scheduleRuntimeStateFetch(0);
   }, [rescanWorktrees, scheduleRuntimeStateFetch]);
 
-  const copyBranchName = useCallback(async (row: WorktreeRow): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(row.branchGuess);
-      setCopiedBranchPath(row.path);
-      if (copiedBranchResetTimeoutRef.current !== null) {
-        window.clearTimeout(copiedBranchResetTimeoutRef.current);
+  const copyBranchName = useCallback(
+    async (row: WorktreeRow): Promise<void> => {
+      try {
+        await navigator.clipboard.writeText(row.branchGuess);
+        setCopiedBranchPath(row.path);
+        if (copiedBranchResetTimeoutRef.current !== null) {
+          window.clearTimeout(copiedBranchResetTimeoutRef.current);
+        }
+        copiedBranchResetTimeoutRef.current = window.setTimeout(() => {
+          setCopiedBranchPath((prev) => (prev === row.path ? null : prev));
+          copiedBranchResetTimeoutRef.current = null;
+        }, 1500);
+      } catch {
+        toast.error("Failed to copy branch name.");
       }
-      copiedBranchResetTimeoutRef.current = window.setTimeout(() => {
-        setCopiedBranchPath((prev) => (prev === row.path ? null : prev));
-        copiedBranchResetTimeoutRef.current = null;
-      }, 1500);
-    } catch {
-      toast.error("Failed to copy branch name.");
-    }
-  }, []);
+    },
+    [],
+  );
 
   const runRestoreAction = useCallback(
     async (row: WorktreeRow): Promise<void> => {
@@ -816,7 +952,9 @@ export function useDashboardState() {
         return;
       }
       const actionKey = `${row.path}:restore`;
-      setPendingRestoreActions((prev) => (prev.includes(actionKey) ? prev : [...prev, actionKey]));
+      setPendingRestoreActions((prev) =>
+        prev.includes(actionKey) ? prev : [...prev, actionKey],
+      );
 
       try {
         const result = (await grooveRestore({
@@ -826,66 +964,73 @@ export function useDashboardState() {
           worktree: row.worktree,
         })) as RestoreApiResponse;
         if (result.ok) {
-          toast.success("Restore completed.");
+          toast.success("Restore completed.", { command: "groove_restore" });
           await rescanWorktrees({ force: true });
           scheduleRuntimeStateFetch(0);
           return;
         }
-        toast.error("Restore failed.");
+        toast.error("Restore failed.", { command: "groove_restore" });
       } catch {
-        toast.error("Restore request failed.");
+        toast.error("Restore request failed.", { command: "groove_restore" });
       } finally {
-        setPendingRestoreActions((prev) => prev.filter((candidate) => candidate !== actionKey));
+        setPendingRestoreActions((prev) =>
+          prev.filter((candidate) => candidate !== actionKey),
+        );
       }
     },
     [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
-  const runCreateWorktreeAction = useCallback(async (options?: CreateWorktreeActionOptions): Promise<void> => {
-    if (!workspaceMeta) {
-      return;
-    }
-
-    const branch = (options?.branchOverride ?? createBranch).trim();
-    const base = (options?.baseOverride ?? createBase).trim();
-    if (!branch) {
-      toast.error("Branch name is required.");
-      return;
-    }
-
-    setIsCreatePending(true);
-    try {
-      const result = await grooveNew({
-        rootName: workspaceMeta.rootName,
-        knownWorktrees,
-        workspaceMeta,
-        branch,
-        ...(base ? { base } : {}),
-      });
-      if (result.ok) {
-        setIsCreateModalOpen(false);
-        setCreateBranch("");
-        setCreateBase("");
-        toast.success("Worktree created.");
-        await rescanWorktrees({ force: true });
-        scheduleRuntimeStateFetch(0);
+  const runCreateWorktreeAction = useCallback(
+    async (options?: CreateWorktreeActionOptions): Promise<void> => {
+      if (!workspaceMeta) {
         return;
       }
 
-      toast.error("Create worktree failed.");
-    } catch {
-      toast.error("Create worktree request failed.");
-    } finally {
-      setIsCreatePending(false);
-    }
-  }, [
-    createBase,
-    createBranch,
-    knownWorktrees,
-    rescanWorktrees,
-    scheduleRuntimeStateFetch,
-    workspaceMeta,
-  ]);
+      const branch = (options?.branchOverride ?? createBranch).trim();
+      const base = (options?.baseOverride ?? createBase).trim();
+      if (!branch) {
+        toast.error("Branch name is required.");
+        return;
+      }
+
+      setIsCreatePending(true);
+      try {
+        const result = await grooveNew({
+          rootName: workspaceMeta.rootName,
+          knownWorktrees,
+          workspaceMeta,
+          branch,
+          ...(base ? { base } : {}),
+        });
+        if (result.ok) {
+          setIsCreateModalOpen(false);
+          setCreateBranch("");
+          setCreateBase("");
+          toast.success("Worktree created.", { command: "groove_new" });
+          await rescanWorktrees({ force: true });
+          scheduleRuntimeStateFetch(0);
+          return;
+        }
+
+        toast.error("Create worktree failed.", { command: "groove_new" });
+      } catch {
+        toast.error("Create worktree request failed.", {
+          command: "groove_new",
+        });
+      } finally {
+        setIsCreatePending(false);
+      }
+    },
+    [
+      createBase,
+      createBranch,
+      knownWorktrees,
+      rescanWorktrees,
+      scheduleRuntimeStateFetch,
+      workspaceMeta,
+    ],
+  );
 
   const runCutGrooveAction = useCallback(
     async (row: WorktreeRow, force = false): Promise<void> => {
@@ -893,7 +1038,9 @@ export function useDashboardState() {
         return;
       }
       const actionKey = `${row.path}:cut`;
-      setPendingCutGrooveActions((prev) => (prev.includes(actionKey) ? prev : [...prev, actionKey]));
+      setPendingCutGrooveActions((prev) =>
+        prev.includes(actionKey) ? prev : [...prev, actionKey],
+      );
 
       try {
         const result = await grooveRm({
@@ -906,8 +1053,12 @@ export function useDashboardState() {
         });
 
         if (result.ok) {
+          playGrooveHookSound("remove");
           toast.success(
-            force ? "Cut groove completed with force deletion." : "Cut groove completed.",
+            force
+              ? "Cut groove completed with force deletion."
+              : "Cut groove completed.",
+            { command: "groove_rm" },
           );
           await rescanWorktrees({ force: true });
           scheduleRuntimeStateFetch(0);
@@ -918,31 +1069,36 @@ export function useDashboardState() {
           setForceCutConfirmRow(row);
           return;
         }
-        toast.error("Cut groove failed.");
+        toast.error("Cut groove failed.", { command: "groove_rm" });
       } catch {
-        toast.error("Cut groove request failed.");
+        toast.error("Cut groove request failed.", { command: "groove_rm" });
       } finally {
-        setPendingCutGrooveActions((prev) => prev.filter((candidate) => candidate !== actionKey));
+        setPendingCutGrooveActions((prev) =>
+          prev.filter((candidate) => candidate !== actionKey),
+        );
       }
     },
     [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta],
   );
 
-  const runForgetAllDeletedWorktreesAction = useCallback(async (): Promise<void> => {
-    const deletedRows = worktreeRows.filter((row) => row.status === "deleted");
-    if (deletedRows.length === 0 || isForgetAllDeletedWorktreesPending) {
-      return;
-    }
-
-    setIsForgetAllDeletedWorktreesPending(true);
-    try {
-      for (const row of deletedRows) {
-        await runCutGrooveAction(row);
+  const runForgetAllDeletedWorktreesAction =
+    useCallback(async (): Promise<void> => {
+      const deletedRows = worktreeRows.filter(
+        (row) => row.status === "deleted",
+      );
+      if (deletedRows.length === 0 || isForgetAllDeletedWorktreesPending) {
+        return;
       }
-    } finally {
-      setIsForgetAllDeletedWorktreesPending(false);
-    }
-  }, [isForgetAllDeletedWorktreesPending, runCutGrooveAction, worktreeRows]);
+
+      setIsForgetAllDeletedWorktreesPending(true);
+      try {
+        for (const row of deletedRows) {
+          await runCutGrooveAction(row);
+        }
+      } finally {
+        setIsForgetAllDeletedWorktreesPending(false);
+      }
+    }, [isForgetAllDeletedWorktreesPending, runCutGrooveAction, worktreeRows]);
 
   const runStopAction = useCallback(
     async (row: WorktreeRow): Promise<boolean> => {
@@ -950,7 +1106,9 @@ export function useDashboardState() {
         return false;
       }
       const actionKey = `${row.path}:stop`;
-      setPendingStopActions((prev) => (prev.includes(actionKey) ? prev : [...prev, actionKey]));
+      setPendingStopActions((prev) =>
+        prev.includes(actionKey) ? prev : [...prev, actionKey],
+      );
 
       try {
         const terminalPayloadBase = {
@@ -960,9 +1118,13 @@ export function useDashboardState() {
           worktree: row.worktree,
         };
 
-        const sessionListResult = await grooveTerminalListSessions(terminalPayloadBase);
+        const sessionListResult =
+          await grooveTerminalListSessions(terminalPayloadBase);
         if (!sessionListResult.ok) {
-          toast.error(sessionListResult.error ?? "Failed to list terminal sessions.");
+          toast.error(
+            sessionListResult.error ?? "Failed to list terminal sessions.",
+            { command: "groove_stop" },
+          );
           return false;
         }
 
@@ -973,12 +1135,15 @@ export function useDashboardState() {
           });
         }
 
+        playGrooveHookSound("pause");
         return true;
       } catch {
-        toast.error("Stop request failed.");
+        toast.error("Stop request failed.", { command: "groove_stop" });
         return false;
       } finally {
-        setPendingStopActions((prev) => prev.filter((candidate) => candidate !== actionKey));
+        setPendingStopActions((prev) =>
+          prev.filter((candidate) => candidate !== actionKey),
+        );
       }
     },
     [knownWorktrees, workspaceMeta],
@@ -989,7 +1154,9 @@ export function useDashboardState() {
       if (!workspaceMeta) {
         return;
       }
-      const isGrooveInAppTemplate = workspaceMeta.playGrooveCommand?.trim() === GROOVE_PLAY_COMMAND_SENTINEL;
+      const isGrooveInAppTemplate =
+        workspaceMeta.playGrooveCommand?.trim() ===
+        GROOVE_PLAY_COMMAND_SENTINEL;
       logPlayTelemetry("play_groove.start", {
         workspaceRoot,
         worktree: row.worktree,
@@ -997,7 +1164,9 @@ export function useDashboardState() {
         mode: isGrooveInAppTemplate ? "sentinel" : "custom",
       });
       const actionKey = `${row.path}:play`;
-      setPendingPlayActions((prev) => (prev.includes(actionKey) ? prev : [...prev, actionKey]));
+      setPendingPlayActions((prev) =>
+        prev.includes(actionKey) ? prev : [...prev, actionKey],
+      );
 
       try {
         const result = (await grooveRestore({
@@ -1018,7 +1187,13 @@ export function useDashboardState() {
           exitCode: result.exitCode ?? null,
         });
         if (result.ok) {
-          toast.success(isGrooveInAppTemplate ? "Started Groove in-app terminal." : "Opened opencode in terminal.");
+          playGrooveHookSound("play");
+          toast.success(
+            isGrooveInAppTemplate
+              ? "Started Groove in-app terminal."
+              : "Play Groove succeeded.",
+            { command: "groove_restore" },
+          );
           logPlayTelemetry("play_groove.refresh_kickoff", {
             workspaceRoot,
             worktree: row.worktree,
@@ -1032,11 +1207,21 @@ export function useDashboardState() {
         }
 
         if (isGrooveInAppTemplate) {
-          toast.error(result.error ? `Failed to start Groove in-app terminal: ${result.error}` : "Failed to start Groove in-app terminal.");
+          toast.error(
+            result.error
+              ? `Failed to start Groove in-app terminal: ${result.error}`
+              : "Failed to start Groove in-app terminal.",
+            { command: "groove_restore" },
+          );
           return;
         }
 
-        toast.error(result.error ? `Play groove failed: ${result.error}` : "Play groove failed.");
+        toast.error(
+          result.error
+            ? `Play groove failed: ${result.error}`
+            : "Play groove failed.",
+          { command: "groove_restore" },
+        );
       } catch (error) {
         logPlayTelemetry("play_groove.invoke_result", {
           workspaceRoot,
@@ -1046,60 +1231,81 @@ export function useDashboardState() {
           ok: false,
           error: error instanceof Error ? error.message : String(error),
         });
-        toast.error(isGrooveInAppTemplate ? "Groove in-app terminal start request failed." : "Play groove request failed.");
+        toast.error(
+          isGrooveInAppTemplate
+            ? "Groove in-app terminal start request failed."
+            : "Play groove request failed.",
+          { command: "groove_restore" },
+        );
       } finally {
-        setPendingPlayActions((prev) => prev.filter((candidate) => candidate !== actionKey));
+        setPendingPlayActions((prev) =>
+          prev.filter((candidate) => candidate !== actionKey),
+        );
       }
     },
-    [knownWorktrees, rescanWorktrees, scheduleRuntimeStateFetch, workspaceMeta, workspaceRoot],
+    [
+      knownWorktrees,
+      rescanWorktrees,
+      scheduleRuntimeStateFetch,
+      workspaceMeta,
+      workspaceRoot,
+    ],
   );
 
-  const runOpenWorktreeTerminalAction = useCallback(async (worktree?: string): Promise<void> => {
-    if (!workspaceMeta || !worktree) {
-      toast.error("Select a worktree before opening a terminal.");
-      return;
-    }
-
-    try {
-      const result = (await workspaceOpenTerminal({
-        rootName: workspaceMeta.rootName,
-        knownWorktrees,
-        workspaceMeta,
-        worktree,
-      })) as RestoreApiResponse;
-      if (result.ok) {
-        toast.success("Opened terminal.");
+  const runOpenWorktreeTerminalAction = useCallback(
+    async (worktree?: string): Promise<void> => {
+      if (!workspaceMeta || !worktree) {
+        toast.error("Select a worktree before opening a terminal.");
         return;
       }
 
-      toast.error("Failed to open terminal.");
-    } catch {
-      toast.error("Terminal open request failed.");
-    }
-  }, [knownWorktrees, workspaceMeta]);
+      try {
+        const result = (await workspaceOpenTerminal({
+          rootName: workspaceMeta.rootName,
+          knownWorktrees,
+          workspaceMeta,
+          worktree,
+        })) as RestoreApiResponse;
+        if (result.ok) {
+          toast.success("Opened terminal.", { command: "groove_restore" });
+          return;
+        }
 
-  const runOpenWorkspaceTerminalAction = useCallback(async (): Promise<void> => {
-    if (!workspaceMeta) {
-      toast.error("Select a directory before opening a terminal.");
-      return;
-    }
+        toast.error("Failed to open terminal.", { command: "groove_restore" });
+      } catch {
+        toast.error("Terminal open request failed.", {
+          command: "groove_restore",
+        });
+      }
+    },
+    [knownWorktrees, workspaceMeta],
+  );
 
-    try {
-      const result = (await workspaceOpenWorkspaceTerminal({
-        rootName: workspaceMeta.rootName,
-        knownWorktrees,
-        workspaceMeta,
-      })) as RestoreApiResponse;
-      if (result.ok) {
-        toast.success("Opened terminal.");
+  const runOpenWorkspaceTerminalAction =
+    useCallback(async (): Promise<void> => {
+      if (!workspaceMeta) {
+        toast.error("Select a directory before opening a terminal.");
         return;
       }
 
-      toast.error("Failed to open terminal.");
-    } catch {
-      toast.error("Terminal open request failed.");
-    }
-  }, [knownWorktrees, workspaceMeta]);
+      try {
+        const result = (await workspaceOpenWorkspaceTerminal({
+          rootName: workspaceMeta.rootName,
+          knownWorktrees,
+          workspaceMeta,
+        })) as RestoreApiResponse;
+        if (result.ok) {
+          toast.success("Opened terminal.", { command: "workspace_open" });
+          return;
+        }
+
+        toast.error("Failed to open terminal.", { command: "workspace_open" });
+      } catch {
+        toast.error("Terminal open request failed.", {
+          command: "workspace_open",
+        });
+      }
+    }, [knownWorktrees, workspaceMeta]);
 
   const closeCurrentWorkspace = useCallback(async (): Promise<void> => {
     try {
@@ -1118,13 +1324,17 @@ export function useDashboardState() {
       setPendingStopActions([]);
       setPendingPlayActions([]);
       setCopiedBranchPath(null);
-      setRuntimeStateByWorktree({});
+      setActiveTerminalWorktrees(new Set());
       realtimeUnavailableRef.current = false;
       setStatusMessage("Workspace closed. Select a directory to continue.");
-      toast.success("Current workspace closed.");
+      toast.success("Current workspace closed.", {
+        command: "workspace_clear_active",
+      });
     } catch {
       setErrorMessage("Failed to fully clear workspace session. Try again.");
-      toast.error("Failed to close current workspace.");
+      toast.error("Failed to close current workspace.", {
+        command: "workspace_clear_active",
+      });
     } finally {
       setIsBusy(false);
     }
@@ -1147,7 +1357,7 @@ export function useDashboardState() {
     isCloseWorkspaceConfirmOpen,
     cutConfirmRow,
     forceCutConfirmRow,
-    runtimeStateByWorktree,
+    activeTerminalWorktrees,
     isCreateModalOpen,
     createBranch,
     createBase,
@@ -1182,5 +1392,17 @@ export function useDashboardState() {
     runOpenWorktreeTerminalAction,
     runOpenWorkspaceTerminalAction,
     closeCurrentWorkspace,
+    mutedWorktrees,
+    toggleWorktreeMute: useCallback((worktree: string) => {
+      setMutedWorktrees((prev) => {
+        const next = new Set(prev);
+        if (next.has(worktree)) {
+          next.delete(worktree);
+        } else {
+          next.add(worktree);
+        }
+        return next;
+      });
+    }, []),
   };
 }

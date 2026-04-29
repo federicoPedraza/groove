@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import {
@@ -70,14 +78,23 @@ function shouldIgnoreShortcutTarget(target: EventTarget | null): boolean {
   }
 
   const tagName = target.tagName.toLowerCase();
-  return tagName === "input" || tagName === "textarea" || tagName === "select" || target.isContentEditable;
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    target.isContentEditable
+  );
 }
 
 function getGlobalSettingsSnapshotForShortcuts() {
   return getGlobalSettingsSnapshot();
 }
 
-export function KeyboardShortcutsProvider({ children }: { children: ReactNode }) {
+export function KeyboardShortcutsProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const globalSettings = useSyncExternalStore(
@@ -85,30 +102,50 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
     getGlobalSettingsSnapshotForShortcuts,
     getGlobalSettingsSnapshotForShortcuts,
   );
-  const [registry, setRegistry] = useState<Record<string, ShortcutRegistryEntry>>({});
+  const [registry, setRegistry] = useState<
+    Record<string, ShortcutRegistryEntry>
+  >({});
   const [isActionLauncherOpen, setIsActionLauncherOpen] = useState(false);
-  const [launcherMode, setLauncherMode] = useState<"actions" | "worktree-details">("actions");
-  const [dashboardWorktreeDetailActionables, setDashboardWorktreeDetailActionables] = useState<ActionLauncherItem[]>([]);
-  const [fallbackWorktreeDetailActionables, setFallbackWorktreeDetailActionables] = useState<ActionLauncherItem[]>([]);
+  const [launcherMode, setLauncherMode] = useState<
+    "actions" | "worktree-details"
+  >("actions");
+  const [
+    dashboardWorktreeDetailActionables,
+    setDashboardWorktreeDetailActionables,
+  ] = useState<ActionLauncherItem[]>([]);
+  const [
+    fallbackWorktreeDetailActionables,
+    setFallbackWorktreeDetailActionables,
+  ] = useState<ActionLauncherItem[]>([]);
   const awaitingLeaderRef = useRef(false);
   const leaderTimeoutRef = useRef<number | null>(null);
 
-  const register = useCallback((registrationId: string, pathname: string, registration: ShortcutRegistration) => {
-    if (pathname === "/") {
-      setDashboardWorktreeDetailActionables(registration.worktreeDetailActionables ?? []);
-    }
+  const register = useCallback(
+    (
+      registrationId: string,
+      pathname: string,
+      registration: ShortcutRegistration,
+    ) => {
+      if (pathname === "/") {
+        setDashboardWorktreeDetailActionables(
+          registration.worktreeDetailActionables ?? [],
+        );
+      }
 
-    setRegistry((current) => ({
-      ...current,
-      [registrationId]: {
-        registrationId,
-        pathname,
-        commands: registration.commands ?? [],
-        actionables: registration.actionables ?? [],
-        worktreeDetailActionables: registration.worktreeDetailActionables ?? [],
-      },
-    }));
-  }, []);
+      setRegistry((current) => ({
+        ...current,
+        [registrationId]: {
+          registrationId,
+          pathname,
+          commands: registration.commands ?? [],
+          actionables: registration.actionables ?? [],
+          worktreeDetailActionables:
+            registration.worktreeDetailActionables ?? [],
+        },
+      }));
+    },
+    [],
+  );
 
   const unregister = useCallback((registrationId: string) => {
     setRegistry((current) => {
@@ -122,7 +159,9 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
   }, []);
 
   const currentEntries = useMemo(() => {
-    return Object.values(registry).filter((entry) => entry.pathname === location.pathname);
+    return Object.values(registry).filter(
+      (entry) => entry.pathname === location.pathname,
+    );
   }, [location.pathname, registry]);
 
   const globalCommands = useMemo<ShortcutCommand[]>(() => {
@@ -139,7 +178,8 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
       {
         id: OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID,
         label: "Open worktree details",
-        description: "Show worktree-focused actions in a top-centered launcher.",
+        description:
+          "Show worktree-focused actions in a top-centered launcher.",
         run: () => {
           setLauncherMode("worktree-details");
           setIsActionLauncherOpen(true);
@@ -165,34 +205,48 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
   }, [navigate]);
 
   const globalCommandsById = useMemo(() => {
-    return globalCommands.reduce<Record<string, ShortcutCommand>>((map, command) => {
-      map[command.id] = command;
-      return map;
-    }, {});
+    return globalCommands.reduce<Record<string, ShortcutCommand>>(
+      (map, command) => {
+        map[command.id] = command;
+        return map;
+      },
+      {},
+    );
   }, [globalCommands]);
 
-  const runCommand = useCallback((commandId: string) => {
-    const pageCommand = currentEntries.flatMap((entry) => entry.commands).find((command) => command.id === commandId);
-    const fallbackCommand = globalCommandsById[commandId];
-    const command = pageCommand ?? fallbackCommand;
-    if (!command) {
-      return;
-    }
-    void Promise.resolve(command.run());
-  }, [currentEntries, globalCommandsById]);
+  const runCommand = useCallback(
+    (commandId: string) => {
+      const pageCommand = currentEntries
+        .flatMap((entry) => entry.commands)
+        .find((command) => command.id === commandId);
+      const fallbackCommand = globalCommandsById[commandId];
+      const command = pageCommand ?? fallbackCommand;
+      if (!command) {
+        return;
+      }
+      void Promise.resolve(command.run());
+    },
+    [currentEntries, globalCommandsById],
+  );
 
   const launcherItems = useMemo<ActionLauncherItem[]>(() => {
-    const pageActionables = currentEntries.flatMap((entry) => entry.actionables);
-    const pageCommands = currentEntries.flatMap((entry) => entry.commands).map<ActionLauncherButtonItem>((command) => ({
-      id: `page-command:${command.id}`,
-      type: "button",
-      label: command.label,
-      description: command.description,
-      run: command.run,
-    }));
+    const pageActionables = currentEntries.flatMap(
+      (entry) => entry.actionables,
+    );
+    const pageCommands = currentEntries
+      .flatMap((entry) => entry.commands)
+      .map<ActionLauncherButtonItem>((command) => ({
+        id: `page-command:${command.id}`,
+        type: "button",
+        label: command.label,
+        description: command.description,
+        run: command.run,
+      }));
     const globalActionables = globalCommands
       .filter((command) => command.id !== OPEN_ACTION_LAUNCHER_COMMAND_ID)
-      .filter((command) => command.id !== OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID)
+      .filter(
+        (command) => command.id !== OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID,
+      )
       .map<ActionLauncherButtonItem>((command) => ({
         id: `global-command:${command.id}`,
         type: "button",
@@ -214,7 +268,11 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
     }
 
     return currentEntries.flatMap((entry) => entry.worktreeDetailActionables);
-  }, [currentEntries, dashboardWorktreeDetailActionables, fallbackWorktreeDetailActionables]);
+  }, [
+    currentEntries,
+    dashboardWorktreeDetailActionables,
+    fallbackWorktreeDetailActionables,
+  ]);
 
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
@@ -223,13 +281,22 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
     try {
       const workspaceResult = await workspaceGetActive();
       if (!workspaceResult.ok) {
-        setFallbackWorktreeDetailActionables((prev) => (prev.length === 0 ? prev : []));
+        setFallbackWorktreeDetailActionables((prev) =>
+          prev.length === 0 ? prev : [],
+        );
         return;
       }
 
-      setFallbackWorktreeDetailActionables(buildGlobalWorktreeDetailActionables(workspaceResult.rows, navigateRef.current));
+      setFallbackWorktreeDetailActionables(
+        buildGlobalWorktreeDetailActionables(
+          workspaceResult.rows,
+          navigateRef.current,
+        ),
+      );
     } catch {
-      setFallbackWorktreeDetailActionables((prev) => (prev.length === 0 ? prev : []));
+      setFallbackWorktreeDetailActionables((prev) =>
+        prev.length === 0 ? prev : [],
+      );
     }
   }, []);
 
@@ -307,12 +374,17 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
         return;
       }
 
-      const leaderKey = normalizeShortcutKey(globalSettings.keyboardShortcutLeader, "Space");
+      const leaderKey = normalizeShortcutKey(
+        globalSettings.keyboardShortcutLeader,
+        "Space",
+      );
       const bindings = globalSettings.keyboardLeaderBindings;
 
       if (awaitingLeaderRef.current) {
         clearLeaderState();
-        const commandId = Object.keys(bindings).find((bindingCommandId) => bindings[bindingCommandId] === key);
+        const commandId = Object.keys(bindings).find(
+          (bindingCommandId) => bindings[bindingCommandId] === key,
+        );
         if (!commandId) {
           return;
         }
@@ -341,9 +413,16 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
       window.removeEventListener("blur", onWindowBlur);
       clearLeaderState();
     };
-  }, [globalSettings.keyboardLeaderBindings, globalSettings.keyboardShortcutLeader, runCommand]);
+  }, [
+    globalSettings.keyboardLeaderBindings,
+    globalSettings.keyboardShortcutLeader,
+    runCommand,
+  ]);
 
-  const contextValue = useMemo<KeyboardShortcutsContextValue>(() => ({ register, unregister }), [register, unregister]);
+  const contextValue = useMemo<KeyboardShortcutsContextValue>(
+    () => ({ register, unregister }),
+    [register, unregister],
+  );
 
   return (
     <KeyboardShortcutsContext.Provider value={contextValue}>
@@ -351,8 +430,14 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
       <ActionLauncher
         open={isActionLauncherOpen}
         onOpenChange={setIsActionLauncherOpen}
-        title={launcherMode === "worktree-details" ? "Worktree details" : "Actions"}
-        items={launcherMode === "worktree-details" ? worktreeDetailsLauncherItems : launcherItems}
+        title={
+          launcherMode === "worktree-details" ? "Worktree details" : "Actions"
+        }
+        items={
+          launcherMode === "worktree-details"
+            ? worktreeDetailsLauncherItems
+            : launcherItems
+        }
       />
     </KeyboardShortcutsContext.Provider>
   );

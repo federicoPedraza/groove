@@ -51,7 +51,10 @@ type SidebarMenuButtonProps = React.ComponentProps<"button"> & {
   collapsed?: boolean;
 };
 
-type SidebarCollapseButtonProps = Omit<React.ComponentProps<"button">, "aria-label" | "onClick" | "onToggle"> & {
+type SidebarCollapseButtonProps = Omit<
+  React.ComponentProps<"button">,
+  "aria-label" | "onClick" | "onToggle"
+> & {
   collapsed: boolean;
   onToggle: (nextCollapsed: boolean) => void;
   expandLabel?: string;
@@ -106,7 +109,11 @@ function SidebarCollapseButton({
   return (
     <button
       type="button"
-      className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-8 w-8 p-0", className)}
+      className={cn(
+        buttonVariants({ variant: "ghost", size: "sm" }),
+        "h-8 w-8 p-0",
+        className,
+      )}
       onClick={() => {
         onToggle(!collapsed);
       }}

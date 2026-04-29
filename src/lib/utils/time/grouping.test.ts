@@ -8,7 +8,9 @@ import {
   buildGroupedWorktreeItems,
 } from "@/src/lib/utils/time/grouping";
 
-function makeRow(overrides: Partial<WorkspaceRow> & { path: string }): WorkspaceRow {
+function makeRow(
+  overrides: Partial<WorkspaceRow> & { path: string },
+): WorkspaceRow {
   return {
     worktree: "default",
     branchGuess: "main",
@@ -105,9 +107,21 @@ describe("buildGroupedWorktreeItems", () => {
 
   it("sorts active rows by lastExecutedAt descending, then by worktree, then by path", () => {
     const rows: WorkspaceRow[] = [
-      makeRow({ path: "/z", worktree: "beta", lastExecutedAt: "2025-01-01T00:00:00Z" }),
-      makeRow({ path: "/a", worktree: "alpha", lastExecutedAt: "2025-01-01T00:00:00Z" }),
-      makeRow({ path: "/b", worktree: "alpha", lastExecutedAt: "2025-01-01T00:00:00Z" }),
+      makeRow({
+        path: "/z",
+        worktree: "beta",
+        lastExecutedAt: "2025-01-01T00:00:00Z",
+      }),
+      makeRow({
+        path: "/a",
+        worktree: "alpha",
+        lastExecutedAt: "2025-01-01T00:00:00Z",
+      }),
+      makeRow({
+        path: "/b",
+        worktree: "alpha",
+        lastExecutedAt: "2025-01-01T00:00:00Z",
+      }),
       makeRow({ path: "/x", lastExecutedAt: "2025-06-01T00:00:00Z" }),
     ];
 
@@ -121,9 +135,7 @@ describe("buildGroupedWorktreeItems", () => {
   });
 
   it("uses 'No activity yet' for rows without lastExecutedAt", () => {
-    const rows: WorkspaceRow[] = [
-      makeRow({ path: "/a" }),
-    ];
+    const rows: WorkspaceRow[] = [makeRow({ path: "/a" })];
 
     const items = buildGroupedWorktreeItems(rows);
     const sections = items.filter((item) => item.type === "section");

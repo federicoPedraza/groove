@@ -22,14 +22,23 @@ const DEFAULT_SETTINGS: OpencodeSettings = {
   settingsDirectory: DEFAULT_OPENCODE_SETTINGS_DIRECTORY,
 };
 
-export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeIntegrationPanelProps) {
+export function OpencodeIntegrationPanel({
+  title,
+  workspaceRoot,
+}: OpencodeIntegrationPanelProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
-  const [effectiveScope, setEffectiveScope] = useState<"workspace" | "global" | "none">("none");
-  const [workspaceSettings, setWorkspaceSettings] = useState<OpencodeSettings>({ ...DEFAULT_SETTINGS });
-  const [globalSettings, setGlobalSettings] = useState<OpencodeSettings>({ ...DEFAULT_SETTINGS });
+  const [effectiveScope, setEffectiveScope] = useState<
+    "workspace" | "global" | "none"
+  >("none");
+  const [workspaceSettings, setWorkspaceSettings] = useState<OpencodeSettings>({
+    ...DEFAULT_SETTINGS,
+  });
+  const [globalSettings, setGlobalSettings] = useState<OpencodeSettings>({
+    ...DEFAULT_SETTINGS,
+  });
 
   const refreshStatus = useCallback(async () => {
     setLoadingStatus(true);
@@ -42,7 +51,9 @@ export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeInteg
       }
 
       setEffectiveScope(response.effectiveScope);
-      setWorkspaceSettings(response.workspaceSettings ?? { ...DEFAULT_SETTINGS });
+      setWorkspaceSettings(
+        response.workspaceSettings ?? { ...DEFAULT_SETTINGS },
+      );
       setGlobalSettings(response.globalSettings ?? { ...DEFAULT_SETTINGS });
     } catch {
       setErrorMessage("Failed to load Opencode status.");
@@ -60,7 +71,9 @@ export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeInteg
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
-          <p className="text-xs text-muted-foreground">Workspace/global Opencode configuration stored in Groove settings.</p>
+          <p className="text-xs text-muted-foreground">
+            Workspace/global Opencode configuration stored in Groove settings.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -74,7 +87,11 @@ export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeInteg
               void refreshStatus();
             }}
           >
-            {loadingStatus ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <RefreshCw aria-hidden="true" className="size-4" />}
+            {loadingStatus ? (
+              <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw aria-hidden="true" className="size-4" />
+            )}
             <span>Refresh</span>
           </Button>
           <Button
@@ -93,8 +110,12 @@ export function OpencodeIntegrationPanel({ title, workspaceRoot }: OpencodeInteg
         </div>
       </div>
 
-      {statusMessage ? <p className="text-xs text-green-800">{statusMessage}</p> : null}
-      {errorMessage ? <p className="text-xs text-destructive">{errorMessage}</p> : null}
+      {statusMessage ? (
+        <p className="text-xs text-green-800">{statusMessage}</p>
+      ) : null}
+      {errorMessage ? (
+        <p className="text-xs text-destructive">{errorMessage}</p>
+      ) : null}
 
       <OpencodeSettingsModal
         open={isModalOpen}

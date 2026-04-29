@@ -11,7 +11,11 @@ import {
 
 function createWrapper(contextValue: AppLayoutContextValue) {
   return function Wrapper({ children }: { children: ReactNode }) {
-    return createElement(AppLayoutContext.Provider, { value: contextValue }, children);
+    return createElement(
+      AppLayoutContext.Provider,
+      { value: contextValue },
+      children,
+    );
   };
 }
 
@@ -90,7 +94,9 @@ describe("useAppLayout", () => {
     renderHook(
       () =>
         useAppLayout({
-          noDirectoryOpenState: incompleteState as Parameters<typeof useAppLayout>[0]["noDirectoryOpenState"],
+          noDirectoryOpenState: incompleteState as Parameters<
+            typeof useAppLayout
+          >[0]["noDirectoryOpenState"],
         }),
       { wrapper },
     );
@@ -123,7 +129,9 @@ describe("useAppLayout", () => {
     renderHook(() => useAppLayout({ pageSidebar: pageSidebarFn }), { wrapper });
 
     const lastCall = setOptions.mock.calls[setOptions.mock.calls.length - 1][0];
-    const stablePageSidebar = lastCall.pageSidebar as (args: { collapsed: boolean }) => unknown;
+    const stablePageSidebar = lastCall.pageSidebar as (args: {
+      collapsed: boolean;
+    }) => unknown;
 
     stablePageSidebar({ collapsed: true });
     expect(pageSidebarFn).toHaveBeenCalledWith({ collapsed: true });
@@ -138,10 +146,14 @@ describe("useAppLayout", () => {
 
     const pageSidebarNode = createElement("div", null, "static sidebar");
 
-    renderHook(() => useAppLayout({ pageSidebar: pageSidebarNode }), { wrapper });
+    renderHook(() => useAppLayout({ pageSidebar: pageSidebarNode }), {
+      wrapper,
+    });
 
     const lastCall = setOptions.mock.calls[setOptions.mock.calls.length - 1][0];
-    const stablePageSidebar = lastCall.pageSidebar as (args: { collapsed: boolean }) => unknown;
+    const stablePageSidebar = lastCall.pageSidebar as (args: {
+      collapsed: boolean;
+    }) => unknown;
 
     const result = stablePageSidebar({ collapsed: false });
     expect(result).toBe(pageSidebarNode);

@@ -43,7 +43,10 @@ function parseHostAndPath(host: string, path: string): ParsedRemote | null {
   };
 }
 
-export function buildCreatePrUrl(repositoryRemoteUrl: string | null | undefined, branchName: string | null | undefined): string | null {
+export function buildCreatePrUrl(
+  repositoryRemoteUrl: string | null | undefined,
+  branchName: string | null | undefined,
+): string | null {
   if (!repositoryRemoteUrl) {
     return null;
   }

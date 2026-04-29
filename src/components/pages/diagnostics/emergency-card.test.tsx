@@ -6,41 +6,43 @@ import { EmergencyCard } from "@/src/components/pages/diagnostics/emergency-card
 let resizeCallback: ResizeObserverCallback | null = null;
 
 beforeAll(() => {
-  global.ResizeObserver = vi.fn().mockImplementation((callback: ResizeObserverCallback) => {
-    resizeCallback = callback;
-    return {
-      observe: vi.fn(),
-      unobserve: vi.fn(),
-      disconnect: vi.fn(),
-    };
-  });
+  global.ResizeObserver = vi
+    .fn()
+    .mockImplementation((callback: ResizeObserverCallback) => {
+      resizeCallback = callback;
+      return {
+        observe: vi.fn(),
+        unobserve: vi.fn(),
+        disconnect: vi.fn(),
+      };
+    });
 });
 
 describe("EmergencyCard", () => {
-  let onKillAllNodeAndOpencodeInstances: ReturnType<typeof vi.fn>;
+  let onKillAllNodeInstances: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    onKillAllNodeAndOpencodeInstances = vi.fn();
+    onKillAllNodeInstances = vi.fn();
     resizeCallback = null;
   });
 
   it("renders the emergency heading and description", () => {
     render(
       <EmergencyCard
-        isKillingAllNodeAndOpencodeInstances={false}
-        onKillAllNodeAndOpencodeInstances={onKillAllNodeAndOpencodeInstances}
+        isKillingAllNodeInstances={false}
+        onKillAllNodeInstances={onKillAllNodeInstances}
       />,
     );
 
     expect(screen.getByText("Emergency")).toBeInTheDocument();
-    expect(screen.getByText(/Kill all Node and OpenCode processes/)).toBeInTheDocument();
+    expect(screen.getByText(/Kill all Node processes/)).toBeInTheDocument();
   });
 
   it("renders the kill button and calls handler on click", () => {
     render(
       <EmergencyCard
-        isKillingAllNodeAndOpencodeInstances={false}
-        onKillAllNodeAndOpencodeInstances={onKillAllNodeAndOpencodeInstances}
+        isKillingAllNodeInstances={false}
+        onKillAllNodeInstances={onKillAllNodeInstances}
       />,
     );
 
@@ -48,14 +50,14 @@ describe("EmergencyCard", () => {
     expect(killButton).not.toBeDisabled();
 
     fireEvent.click(killButton);
-    expect(onKillAllNodeAndOpencodeInstances).toHaveBeenCalledTimes(1);
+    expect(onKillAllNodeInstances).toHaveBeenCalledTimes(1);
   });
 
   it("disables the kill button when killing is in progress", () => {
     render(
       <EmergencyCard
-        isKillingAllNodeAndOpencodeInstances={true}
-        onKillAllNodeAndOpencodeInstances={onKillAllNodeAndOpencodeInstances}
+        isKillingAllNodeInstances={true}
+        onKillAllNodeInstances={onKillAllNodeInstances}
       />,
     );
 
@@ -66,8 +68,8 @@ describe("EmergencyCard", () => {
   it("renders the animation pane", () => {
     const { container } = render(
       <EmergencyCard
-        isKillingAllNodeAndOpencodeInstances={false}
-        onKillAllNodeAndOpencodeInstances={onKillAllNodeAndOpencodeInstances}
+        isKillingAllNodeInstances={false}
+        onKillAllNodeInstances={onKillAllNodeInstances}
       />,
     );
 
@@ -79,8 +81,8 @@ describe("EmergencyCard", () => {
     vi.useFakeTimers();
     render(
       <EmergencyCard
-        isKillingAllNodeAndOpencodeInstances={false}
-        onKillAllNodeAndOpencodeInstances={onKillAllNodeAndOpencodeInstances}
+        isKillingAllNodeInstances={false}
+        onKillAllNodeInstances={onKillAllNodeInstances}
       />,
     );
 
@@ -95,8 +97,8 @@ describe("EmergencyCard", () => {
   it("handles ResizeObserver callback with entries", () => {
     render(
       <EmergencyCard
-        isKillingAllNodeAndOpencodeInstances={false}
-        onKillAllNodeAndOpencodeInstances={onKillAllNodeAndOpencodeInstances}
+        isKillingAllNodeInstances={false}
+        onKillAllNodeInstances={onKillAllNodeInstances}
       />,
     );
 
@@ -104,7 +106,9 @@ describe("EmergencyCard", () => {
     if (resizeCallback) {
       act(() => {
         resizeCallback!(
-          [{ contentRect: { width: 300, height: 200 } }] as unknown as ResizeObserverEntry[],
+          [
+            { contentRect: { width: 300, height: 200 } },
+          ] as unknown as ResizeObserverEntry[],
           {} as ResizeObserver,
         );
       });
@@ -114,15 +118,18 @@ describe("EmergencyCard", () => {
   it("handles ResizeObserver callback with empty entries", () => {
     render(
       <EmergencyCard
-        isKillingAllNodeAndOpencodeInstances={false}
-        onKillAllNodeAndOpencodeInstances={onKillAllNodeAndOpencodeInstances}
+        isKillingAllNodeInstances={false}
+        onKillAllNodeInstances={onKillAllNodeInstances}
       />,
     );
 
     // Trigger with empty entries array
     if (resizeCallback) {
       act(() => {
-        resizeCallback!([] as unknown as ResizeObserverEntry[], {} as ResizeObserver);
+        resizeCallback!(
+          [] as unknown as ResizeObserverEntry[],
+          {} as ResizeObserver,
+        );
       });
     }
   });
@@ -130,14 +137,16 @@ describe("EmergencyCard", () => {
   it("changes color class on button hover", () => {
     const { container } = render(
       <EmergencyCard
-        isKillingAllNodeAndOpencodeInstances={false}
-        onKillAllNodeAndOpencodeInstances={onKillAllNodeAndOpencodeInstances}
+        isKillingAllNodeInstances={false}
+        onKillAllNodeInstances={onKillAllNodeInstances}
       />,
     );
 
     const killButton = screen.getByRole("button", { name: /kill all node/i });
     // The animation pane is the div with pointer-events-none and overflow-hidden
-    const animationPane = container.querySelector(".pointer-events-none") as HTMLElement;
+    const animationPane = container.querySelector(
+      ".pointer-events-none",
+    ) as HTMLElement;
 
     expect(animationPane.className).toContain("text-foreground");
 

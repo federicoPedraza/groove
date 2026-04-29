@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/src/lib/ipc", () => ({
   diagnosticsGetSystemOverview: vi.fn().mockResolvedValue({ ok: false }),
-  grooveBinRepair: vi.fn().mockResolvedValue({ ok: true, changed: false, status: {} }),
+  grooveBinRepair: vi
+    .fn()
+    .mockResolvedValue({ ok: true, changed: false, status: {} }),
   grooveBinStatus: vi.fn().mockResolvedValue({ ok: true, status: {} }),
   isAlwaysShowDiagnosticsSidebarEnabled: vi.fn(() => false),
   isGrooveLoadingSectionDisabled: vi.fn(() => false),

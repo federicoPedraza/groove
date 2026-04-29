@@ -741,6 +741,62 @@ pub fn groove_sidecar_binary_names() -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
+// 14. AppImage environment cleanup
+// ---------------------------------------------------------------------------
+
+/// Environment variables that AppImage modifies and stores originals with `_ORIG` suffix.
+/// When spawning child processes (terminals, external commands), the AppImage-injected
+/// values (pointing to the FUSE mount) must be replaced with the originals so that
+/// child shells and tools use system libraries and paths.
+#[cfg(target_os = "linux")]
+const APPIMAGE_RESTORE_VARS: &[&str] = &[
+    "LD_LIBRARY_PATH",
+    "PATH",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GDK_PIXBUF_MODULEDIR",
+    "GTK_PATH",
+    "GTK_IM_MODULE_FILE",
+    "GIO_MODULE_DIR",
+    "GSETTINGS_SCHEMA_DIR",
+    "XDG_DATA_DIRS",
+    "PYTHONPATH",
+    "PERLLIB",
+    "PYTHONHOME",
+    "QT_PLUGIN_PATH",
+];
+
+/// Returns a list of `(key, value)` pairs that should be applied to child process
+/// environments when running inside an AppImage. Each entry either restores the
+/// original pre-AppImage value or removes the variable entirely if no original
+/// was saved.
+#[cfg(target_os = "linux")]
+pub fn appimage_cleaned_env() -> Vec<(String, Option<String>)> {
+    if std::env::var_os("APPIMAGE").is_none() {
+        return Vec::new();
+    }
+
+    let mut overrides = Vec::new();
+    for &var in APPIMAGE_RESTORE_VARS {
+        let orig_key = format!("{var}_ORIG");
+        if let Ok(original) = std::env::var(&orig_key) {
+            overrides.push((var.to_string(), Some(original)));
+        } else if std::env::var_os(var).is_some() {
+            // AppImage set it but didn't save original — remove entirely
+            // (only for vars that are clearly AppImage-injected)
+            if std::env::var(&format!("APPDIR")).is_ok() {
+                overrides.push((var.to_string(), None));
+            }
+        }
+    }
+    overrides
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn appimage_cleaned_env() -> Vec<(String, Option<String>)> {
+    Vec::new()
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 

@@ -1,3 +1,41 @@
+fn has_child_processes(pid: u32) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(content) =
+            std::fs::read_to_string(format!("/proc/{}/task/{}/children", pid, pid))
+        {
+            return !content.trim().is_empty();
+        }
+
+        Command::new("pgrep")
+            .arg("-P")
+            .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("pgrep")
+            .arg("-P")
+            .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = pid;
+        false
+    }
+}
+
 fn request_id() -> String {
     Uuid::new_v4().to_string()
 }
@@ -61,6 +99,23 @@ fn latest_session_id_for_worktree(
         .get(worktree_key)
         .and_then(|session_ids| session_ids.last())
         .cloned()
+}
+
+fn active_worktrees_for_workspace(
+    sessions_state: &GrooveTerminalSessionsState,
+    workspace_root: &Path,
+) -> Vec<String> {
+    let workspace_key_prefix = format!("{}::", workspace_root_storage_key(workspace_root));
+    sessions_state
+        .session_ids_by_worktree
+        .iter()
+        .filter(|(_, session_ids)| !session_ids.is_empty())
+        .filter_map(|(worktree_key, _)| {
+            worktree_key
+                .strip_prefix(&workspace_key_prefix)
+                .map(|worktree| worktree.to_string())
+        })
+        .collect()
 }
 
 fn sessions_for_worktree(
@@ -240,7 +295,11 @@ fn resolve_plain_terminal_command() -> (String, Vec<String>) {
 }
 
 fn augmented_child_path() -> Option<String> {
-    let mut paths = std::env::var_os("PATH")
+    // In an AppImage, PATH is contaminated with FUSE mount paths.
+    // Use the original PATH (saved as PATH_ORIG by AppImage) when available.
+    let base_path = std::env::var_os("PATH_ORIG")
+        .or_else(|| std::env::var_os("PATH"));
+    let mut paths = base_path
         .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
         .unwrap_or_default();
 
@@ -272,6 +331,63 @@ fn resolve_claude_code_bin() -> String {
         .unwrap_or_else(|| "claude".to_string())
 }
 
+fn encode_claude_project_dir_name(worktree_path: &Path) -> String {
+    let raw = worktree_path.display().to_string();
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn resolve_existing_claude_session_id(
+    worktree_path: &Path,
+    expected_session_id: &str,
+) -> Option<String> {
+    let home = dirs_home()?;
+    let project_dir = home
+        .join(".claude")
+        .join("projects")
+        .join(encode_claude_project_dir_name(worktree_path));
+    if !path_is_directory(&project_dir) {
+        return None;
+    }
+
+    let expected_file = project_dir.join(format!("{expected_session_id}.jsonl"));
+    if path_is_file(&expected_file) {
+        return Some(expected_session_id.to_string());
+    }
+
+    let entries = fs::read_dir(&project_dir).ok()?;
+    let mut latest: Option<(std::time::SystemTime, String)> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        match &latest {
+            Some((current_modified, _)) if *current_modified >= modified => {}
+            _ => {
+                latest = Some((modified, stem.to_string()));
+            }
+        }
+    }
+    latest.map(|(_, id)| id)
+}
+
 fn resolve_terminal_worktree_context(
     app: &AppHandle,
     root_name: &Option<String>,
@@ -291,7 +407,10 @@ fn resolve_terminal_worktree_context(
         &known_worktrees,
         workspace_meta,
     )?;
-    let worktree_path = ensure_worktree_in_dir(&workspace_root, worktree, ".worktrees")?;
+    let effective_root = ensure_workspace_meta(&workspace_root)
+        .map(|(meta, _)| effective_workspace_root(&workspace_root, &meta))
+        .unwrap_or_else(|_| workspace_root.clone());
+    let worktree_path = ensure_worktree_in_dir(&effective_root, worktree, ".worktrees")?;
 
     Ok((workspace_root, worktree_path))
 }
@@ -351,7 +470,10 @@ fn open_groove_terminal_session(
             let (worktree_id, has_started) =
                 register_worktree_record(workspace_root, worktree)?;
             let args = if has_started {
-                vec!["--resume".to_string(), worktree_id]
+                match resolve_existing_claude_session_id(worktree_path, &worktree_id) {
+                    Some(session_id) => vec!["--resume".to_string(), session_id],
+                    None => vec!["--session-id".to_string(), Uuid::new_v4().to_string()],
+                }
             } else {
                 vec!["--session-id".to_string(), worktree_id]
             };
@@ -505,9 +627,21 @@ fn open_groove_terminal_session(
         spawn_command.arg(arg);
     }
     spawn_command.cwd(worktree_path);
+    spawn_command.env("PWD", worktree_path.display().to_string());
     spawn_command.env("GROOVE_WORKTREE", worktree_path.display().to_string());
     if let Some(path) = augmented_child_path() {
         spawn_command.env("PATH", path);
+    }
+
+    // Clean AppImage-injected environment variables so the child shell uses
+    // system libraries and paths instead of the FUSE-mounted AppImage ones.
+    // Skip PATH — already handled by augmented_child_path() using PATH_ORIG.
+    for (key, value) in crate::backend::common::platform_env::appimage_cleaned_env() {
+        if key == "PATH" { continue; }
+        match value {
+            Some(restored) => { spawn_command.env(&key, restored); }
+            None => { spawn_command.env_remove(&key); }
+        }
     }
 
     let child = pair.slave.spawn_command(spawn_command).map_err(|error| {

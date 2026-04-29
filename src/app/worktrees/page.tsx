@@ -1,29 +1,49 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 
 import { useDashboardState } from "@/src/components/pages/dashboard/hooks/use-dashboard-state";
-import { getWorktreeStatusBadgeClasses, getWorktreeStatusIcon, getWorktreeStatusTitle } from "@/src/components/pages/dashboard/worktree-status";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
-import { Badge } from "@/src/components/ui/badge";
-import { buttonVariants } from "@/src/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/src/components/ui/card";
-import { deriveWorktreeStatus, getActiveWorktreeRows } from "@/src/lib/utils/worktree/status";
+import { GrooveWorktreeTerminal } from "@/src/components/pages/worktrees/groove-worktree-terminal";
+import { Card, CardContent } from "@/src/components/ui/card";
+import { getContrastColor } from "@/src/lib/utils/get-contrast-color";
+import {
+  getWorktreeMascotAssignment,
+  getMascotBorderClassNames,
+} from "@/src/lib/utils/mascots";
+import { getActiveWorktreeRows } from "@/src/lib/utils/worktree/status";
+
+const COMPACT_FONT_SIZE = 10;
+const MIN_COLUMN_WIDTH_PX = 420;
+const TERMINAL_HEIGHT_PX = 360;
 
 export default function WorktreesPage() {
   const {
     activeWorkspace,
     worktreeRows,
-    runtimeStateByWorktree,
+    activeTerminalWorktrees,
     isBusy,
     isWorkspaceHydrating,
     statusMessage,
     errorMessage,
     pickDirectory,
     openRecentDirectory,
+    workspaceRoot,
+    workspaceMeta,
   } = useDashboardState();
 
-  const runnableRows = getActiveWorktreeRows(worktreeRows, runtimeStateByWorktree);
+  const runnableRows = getActiveWorktreeRows(
+    worktreeRows,
+    activeTerminalWorktrees,
+  );
+
+  const knownWorktrees = useMemo(
+    () =>
+      worktreeRows.filter((r) => r.status !== "deleted").map((r) => r.worktree),
+    [worktreeRows],
+  );
 
   useAppLayout({
     noDirectoryOpenState: {
@@ -38,51 +58,72 @@ export default function WorktreesPage() {
 
   return (
     <>
-      {!activeWorkspace ? null : (
-        <div className="space-y-3">
-          <header className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-card p-4">
-            <div className="space-y-1">
-              <h1 className="text-xl font-semibold tracking-tight">Worktrees</h1>
-              <p className="text-sm text-muted-foreground">Ready or running worktrees that currently have active runtime context.</p>
-            </div>
-          </header>
+      {!activeWorkspace ? null : runnableRows.length === 0 ? (
+        <Card>
+          <CardContent className="py-6">
+            <p className="text-sm text-muted-foreground">
+              There are no worktrees running at the moment.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div
+          className="grid gap-3"
+          style={{
+            gridTemplateColumns: `repeat(auto-fill, minmax(${MIN_COLUMN_WIDTH_PX}px, 1fr))`,
+          }}
+        >
+          {runnableRows.map((row) => {
+            const mascotAssignment = getWorktreeMascotAssignment(row.worktree);
+            const borderClasses = getMascotBorderClassNames(
+              mascotAssignment.color,
+            );
+            const hexColor = mascotAssignment.color.hex;
+            const contrastColor = getContrastColor(hexColor);
 
-          {runnableRows.length === 0 ? (
-            <Card>
-              <CardContent className="py-6">
-                <p className="text-sm text-muted-foreground">There are no worktrees running at the moment.</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {runnableRows.map((row) => {
-                const status = deriveWorktreeStatus(row.status, runtimeStateByWorktree[row.worktree]);
+            return (
+              <div
+                key={row.path}
+                className={`flex flex-col overflow-hidden rounded-lg border ${borderClasses}`}
+                style={{ height: `${TERMINAL_HEIGHT_PX}px` }}
+              >
+                <div
+                  className="flex items-center justify-between px-2 py-1.5 text-xs"
+                  style={{ backgroundColor: hexColor, color: contrastColor }}
+                >
+                  <span className="truncate">{row.branchGuess}</span>
+                  <Link
+                    to={`/worktrees/${encodeURIComponent(row.worktree)}`}
+                    aria-label={`Open details for ${row.worktree}`}
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md p-0 opacity-80 hover:opacity-100"
+                    style={{ color: contrastColor }}
+                  >
+                    <ExternalLink className="size-3.5" />
+                  </Link>
+                </div>
 
-                return (
-                  <Card key={row.path}>
-                    <CardHeader className="space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <CardTitle className="text-base">{row.worktree}</CardTitle>
-                        <Badge variant="outline" className={getWorktreeStatusBadgeClasses(status)} title={getWorktreeStatusTitle(status)}>
-                          {getWorktreeStatusIcon(status)}
-                          {status}
-                        </Badge>
-                      </div>
-                      <p className="truncate text-xs text-muted-foreground" title={row.branchGuess}>Branch: {row.branchGuess}</p>
-                    </CardHeader>
-                    <CardContent>
-                      <Link
-                        className={buttonVariants({ size: "sm", variant: "outline" })}
-                        to={`/worktrees/${encodeURIComponent(row.worktree)}`}
-                      >
-                        Open details
-                      </Link>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+                <div className="min-h-0 flex-1">
+                  {workspaceRoot && workspaceMeta ? (
+                    <GrooveWorktreeTerminal
+                      workspaceRoot={workspaceRoot}
+                      workspaceMeta={workspaceMeta}
+                      knownWorktrees={knownWorktrees}
+                      worktree={row.worktree}
+                      runningSessionIds={[]}
+                      colorBorderClass={borderClasses}
+                      colorHex={hexColor}
+                      terminalFontSize={COMPACT_FONT_SIZE}
+                      compactMode
+                    />
+                  ) : (
+                    <div className="border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+                      No workspace context available.
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </>

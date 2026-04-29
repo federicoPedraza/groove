@@ -6,16 +6,17 @@ const WORKSPACE_EVENTS_MIN_EMIT_INTERVAL: Duration = Duration::from_millis(1200)
 const WORKSPACE_EVENTS_STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const GROOVE_LIST_CACHE_TTL: Duration = Duration::from_secs(45);
 const GROOVE_LIST_CACHE_STALE_TTL: Duration = Duration::from_secs(50);
-const DEFAULT_WORKTREE_SYMLINK_PATHS: [&str; 4] = [".env", ".env.local", ".convex", "node_modules"];
+const DEFAULT_WORKTREE_SYMLINK_PATHS: [&str; 3] = [".env", ".env.local", "node_modules"];
 const DEFAULT_RUN_LOCAL_COMMAND: &str = "pnpm run dev";
-const SUPPORTED_DEFAULT_TERMINALS: [&str; 8] = [
-    "auto", "ghostty", "warp", "kitty", "gnome", "xterm", "none", "custom",
+const SUPPORTED_DEFAULT_TERMINALS: [&str; 9] = [
+    "auto", "ghostty", "warp", "kitty", "alacritty", "gnome", "xterm", "none", "custom",
 ];
-const SUPPORTED_THEME_MODES: [&str; 9] = [
+const SUPPORTED_THEME_MODES: [&str; 10] = [
     "light",
     "groove",
     "ice",
     "gum",
+    "cappuccino",
     "lava",
     "earth",
     "wind",

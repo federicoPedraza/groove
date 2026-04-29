@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WorktreeSymlinkPathsModal } from "@/src/components/pages/settings/worktree-symlink-paths-modal";
@@ -32,7 +38,9 @@ describe("WorktreeSymlinkPathsModal", () => {
     vi.restoreAllMocks();
   });
 
-  function renderModal(overrides: Partial<Parameters<typeof WorktreeSymlinkPathsModal>[0]> = {}) {
+  function renderModal(
+    overrides: Partial<Parameters<typeof WorktreeSymlinkPathsModal>[0]> = {},
+  ) {
     return render(
       <WorktreeSymlinkPathsModal
         open={true}
@@ -102,16 +110,22 @@ describe("WorktreeSymlinkPathsModal", () => {
     renderModal();
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to browse workspace entries.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to browse workspace entries."),
+      ).toBeInTheDocument();
     });
   });
 
   it("shows error when API call throws", async () => {
-    workspaceListSymlinkEntriesMock.mockRejectedValue(new Error("Network error"));
+    workspaceListSymlinkEntriesMock.mockRejectedValue(
+      new Error("Network error"),
+    );
     renderModal();
 
     await waitFor(() => {
-      expect(screen.getByText("Failed to browse workspace entries.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Failed to browse workspace entries."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -122,7 +136,9 @@ describe("WorktreeSymlinkPathsModal", () => {
       expect(screen.getByText("package.json")).toBeInTheDocument();
     });
 
-    const addButton = screen.getByRole("button", { name: /add package\.json/i });
+    const addButton = screen.getByRole("button", {
+      name: /add package\.json/i,
+    });
     fireEvent.click(addButton);
 
     expect(screen.queryByText("No paths selected.")).not.toBeInTheDocument();
@@ -132,10 +148,14 @@ describe("WorktreeSymlinkPathsModal", () => {
     renderModal({ selectedPaths: ["package.json"] });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /remove package\.json/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /remove package\.json/i }),
+      ).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /remove package\.json/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /remove package\.json/i }),
+    );
 
     expect(screen.getByText("No paths selected.")).toBeInTheDocument();
   });
@@ -211,7 +231,9 @@ describe("WorktreeSymlinkPathsModal", () => {
       expect(screen.getByText(".worktrees")).toBeInTheDocument();
     });
 
-    const addWorktreesButton = screen.getByRole("button", { name: /add \.worktrees/i });
+    const addWorktreesButton = screen.getByRole("button", {
+      name: /add \.worktrees/i,
+    });
     expect(addWorktreesButton).toBeDisabled();
   });
 
@@ -219,7 +241,9 @@ describe("WorktreeSymlinkPathsModal", () => {
     renderModal({ selectedPaths: ["package.json"] });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /apply change/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /apply change/i }),
+      ).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("button", { name: /apply change/i }));
@@ -231,12 +255,16 @@ describe("WorktreeSymlinkPathsModal", () => {
     renderModal({ selectedPaths: [".worktrees/test"] });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /apply change/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /apply change/i }),
+      ).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("button", { name: /apply change/i }));
 
-    expect(screen.getByText("Restricted paths like .worktrees cannot be saved.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Restricted paths like .worktrees cannot be saved."),
+    ).toBeInTheDocument();
     expect(onApply).not.toHaveBeenCalled();
   });
 
@@ -251,7 +279,9 @@ describe("WorktreeSymlinkPathsModal", () => {
   it("disables Apply and Discard buttons when savePending is true", () => {
     renderModal({ savePending: true });
 
-    expect(screen.getByRole("button", { name: /apply change/i })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /apply change/i }),
+    ).toBeDisabled();
     expect(screen.getByRole("button", { name: /discard/i })).toBeDisabled();
   });
 
@@ -339,7 +369,9 @@ describe("WorktreeSymlinkPathsModal", () => {
   it("does not render content when closed", () => {
     renderModal({ open: false });
 
-    expect(screen.queryByText("Edit worktree symlink paths")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Edit worktree symlink paths"),
+    ).not.toBeInTheDocument();
   });
 
   it("highlights already-selected entries in the browse table", async () => {
@@ -349,7 +381,9 @@ describe("WorktreeSymlinkPathsModal", () => {
       expect(screen.getByText("package.json")).toBeInTheDocument();
     });
 
-    const addButton = screen.getByRole("button", { name: /add package\.json/i });
+    const addButton = screen.getByRole("button", {
+      name: /add package\.json/i,
+    });
     expect(addButton).toBeDisabled();
   });
 
@@ -358,7 +392,10 @@ describe("WorktreeSymlinkPathsModal", () => {
 
     const removeButtons = screen.getAllByRole("button", { name: /remove/i });
     const paths = removeButtons.map((btn) => {
-      const label = btn.getAttribute("aria-label") || btn.querySelector(".sr-only")?.textContent || "";
+      const label =
+        btn.getAttribute("aria-label") ||
+        btn.querySelector(".sr-only")?.textContent ||
+        "";
       return label;
     });
 

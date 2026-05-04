@@ -1,1 +1,1 @@
-export { SOFT_RED_BUTTON_CLASSES } from "@/src/components/pages/dashboard/constants";
+export { SOFT_RED_BUTTON_CLASSES } from "@/src/components/pages/barracks/constants";

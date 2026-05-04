@@ -211,9 +211,13 @@ function defaultMocks(): void {
 }
 
 describe("DiagnosticsPage", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     defaultMocks();
+    const { clearWorkspaceContextStore } = await import(
+      "@/src/lib/workspace-store"
+    );
+    clearWorkspaceContextStore();
   });
 
   afterEach(() => {

@@ -6,13 +6,13 @@ import { AppNavigation } from "@/src/components/app-navigation";
 
 const {
   grooveTerminalActiveWorktreesMock,
-  isGrooveLoadingSectionDisabledMock,
+  isGrooveBusinessDisabledMock,
   isTelemetryEnabledMock,
   subscribeToGlobalSettingsMock,
   workspaceGetActiveMock,
 } = vi.hoisted(() => ({
   grooveTerminalActiveWorktreesMock: vi.fn(),
-  isGrooveLoadingSectionDisabledMock: vi.fn(() => false),
+  isGrooveBusinessDisabledMock: vi.fn(() => false),
   isTelemetryEnabledMock: vi.fn(() => false),
   subscribeToGlobalSettingsMock: vi.fn((onStoreChange: () => void) => {
     void onStoreChange;
@@ -22,8 +22,10 @@ const {
 }));
 
 vi.mock("@/src/lib/ipc", () => ({
+  DEFAULT_WORKTREE_STATE: "pending",
+  WORKTREE_STATES: ["pending", "fighting", "wounded", "defeated", "blocked", "forgotten"],
   grooveTerminalActiveWorktrees: grooveTerminalActiveWorktreesMock,
-  isGrooveLoadingSectionDisabled: isGrooveLoadingSectionDisabledMock,
+  isGrooveBusinessDisabled: isGrooveBusinessDisabledMock,
   isShowFpsEnabled: vi.fn(() => false),
   isTelemetryEnabled: isTelemetryEnabledMock,
   listenGrooveTerminalLifecycle: vi.fn(async () => () => {}),
@@ -31,6 +33,7 @@ vi.mock("@/src/lib/ipc", () => ({
   listenWorkspaceReady: vi.fn(async () => () => {}),
   subscribeToGlobalSettings: subscribeToGlobalSettingsMock,
   workspaceGetActive: workspaceGetActiveMock,
+  workspaceSetWorktreeState: vi.fn(async () => ({ ok: true })),
 }));
 
 function renderNav(
@@ -42,8 +45,6 @@ function renderNav(
       <AppNavigation
         hasOpenWorkspace={true}
         hasDiagnosticsSanityWarning={false}
-        isHelpOpen={false}
-        onHelpClick={() => {}}
         {...props}
       />
     </MemoryRouter>,
@@ -55,7 +56,7 @@ describe("AppNavigation", () => {
     grooveTerminalActiveWorktreesMock.mockReset();
     subscribeToGlobalSettingsMock.mockClear();
     workspaceGetActiveMock.mockReset();
-    isGrooveLoadingSectionDisabledMock.mockReturnValue(false);
+    isGrooveBusinessDisabledMock.mockReturnValue(false);
     isTelemetryEnabledMock.mockReturnValue(false);
 
     workspaceGetActiveMock.mockResolvedValue({
@@ -87,8 +88,6 @@ describe("AppNavigation", () => {
         <AppNavigation
           hasOpenWorkspace={true}
           hasDiagnosticsSanityWarning={false}
-          isHelpOpen={false}
-          onHelpClick={() => {}}
         />
       </MemoryRouter>,
     );
@@ -104,8 +103,6 @@ describe("AppNavigation", () => {
         <AppNavigation
           hasOpenWorkspace={true}
           hasDiagnosticsSanityWarning={false}
-          isHelpOpen={false}
-          onHelpClick={() => {}}
         />
       </MemoryRouter>,
     );
@@ -115,10 +112,10 @@ describe("AppNavigation", () => {
     });
   });
 
-  it("renders Dashboard link with the home label when workspace is open", async () => {
+  it("renders Barracks link with the home label when workspace is open", async () => {
     renderNav();
     await waitFor(() => {
-      expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Barracks").length).toBeGreaterThan(0);
     });
   });
 
@@ -129,48 +126,39 @@ describe("AppNavigation", () => {
     });
   });
 
-  it("renders Settings link", async () => {
+  it("renders Stronghold link", async () => {
     renderNav();
     await waitFor(() => {
-      expect(screen.getAllByText("Settings").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Stronghold").length).toBeGreaterThan(0);
     });
   });
 
-  it("renders Diagnostics link when workspace is open", async () => {
+  it("renders Situation Room link when workspace is open", async () => {
     renderNav();
     await waitFor(() => {
-      expect(screen.getAllByText("Diagnostics").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Situation Room").length).toBeGreaterThan(0);
     });
   });
 
-  it("does not render Diagnostics link when workspace is closed", async () => {
+  it("does not render Situation Room link when workspace is closed", async () => {
     renderNav({ hasOpenWorkspace: false });
     await waitFor(() => {
-      expect(screen.queryByText("Diagnostics")).toBeFalsy();
+      expect(screen.queryByText("Situation Room")).toBeFalsy();
     });
   });
 
-  it("renders Help button when workspace is open", async () => {
+  it("renders Bestiary link when workspace is open", async () => {
     renderNav();
     await waitFor(() => {
-      expect(screen.getAllByText("Help").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Bestiary").length).toBeGreaterThan(0);
     });
   });
 
-  it("does not render Help button when workspace is closed", async () => {
+  it("does not render Bestiary link when workspace is closed", async () => {
     renderNav({ hasOpenWorkspace: false });
-    expect(screen.queryByText("Help")).toBeFalsy();
-  });
-
-  it("calls onHelpClick when Help button is clicked", async () => {
-    const onHelpClick = vi.fn();
-    renderNav({ onHelpClick });
     await waitFor(() => {
-      expect(screen.getAllByText("Help").length).toBeGreaterThan(0);
+      expect(screen.queryByText("Bestiary")).toBeFalsy();
     });
-    // Click the first Help button (desktop sidebar)
-    fireEvent.click(screen.getAllByText("Help")[0]);
-    expect(onHelpClick).toHaveBeenCalledTimes(1);
   });
 
   it("renders worktree list when worktrees are active", async () => {
@@ -178,13 +166,13 @@ describe("AppNavigation", () => {
     await waitFor(() => {
       expect(screen.getAllByText("feature-alpha").length).toBeGreaterThan(0);
     });
-    // Should also render the Worktrees link
-    expect(screen.getAllByText("Worktrees").length).toBeGreaterThan(0);
+    // Should also render the Wilderness link
+    expect(screen.getAllByText("Wilderness").length).toBeGreaterThan(0);
   });
 
   it("does not render worktree list when workspace is not open", async () => {
     renderNav({ hasOpenWorkspace: false });
-    expect(screen.queryByText("Worktrees")).toBeFalsy();
+    expect(screen.queryByText("Wilderness")).toBeFalsy();
     expect(screen.queryByText("feature-alpha")).toBeFalsy();
   });
 
@@ -192,7 +180,7 @@ describe("AppNavigation", () => {
     renderNav();
     // The sidebar collapse button should be rendered
     await waitFor(() => {
-      expect(screen.getByText("GROOVE")).toBeTruthy();
+      expect(screen.getByLabelText("Gold: 0")).toBeTruthy();
     });
   });
 
@@ -201,7 +189,7 @@ describe("AppNavigation", () => {
     renderNav();
     await waitFor(() => {
       // Should still render without crashing
-      expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Barracks").length).toBeGreaterThan(0);
     });
   });
 
@@ -209,21 +197,21 @@ describe("AppNavigation", () => {
     workspaceGetActiveMock.mockRejectedValue(new Error("Network error"));
     renderNav();
     await waitFor(() => {
-      expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Barracks").length).toBeGreaterThan(0);
     });
   });
 
-  it("renders GROOVE app name label when sidebar is expanded", async () => {
+  it("renders gold indicator when sidebar is expanded", async () => {
     renderNav();
     await waitFor(() => {
-      expect(screen.getByText("GROOVE")).toBeTruthy();
+      expect(screen.getByLabelText("Gold: 0")).toBeTruthy();
     });
   });
 
   it("shows diagnostics warning icon when hasDiagnosticsSanityWarning is true", async () => {
     renderNav({ hasDiagnosticsSanityWarning: true });
     await waitFor(() => {
-      expect(screen.getAllByText("Diagnostics").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Situation Room").length).toBeGreaterThan(0);
     });
   });
 
@@ -231,16 +219,16 @@ describe("AppNavigation", () => {
     renderNav();
     await waitFor(() => {
       // The groove loading sprite container should be rendered
-      expect(screen.getByText("GROOVE")).toBeTruthy();
+      expect(screen.getByLabelText("Gold: 0")).toBeTruthy();
     });
   });
 
   it("hides groove loading section when disabled", async () => {
-    isGrooveLoadingSectionDisabledMock.mockReturnValue(true);
+    isGrooveBusinessDisabledMock.mockReturnValue(true);
     renderNav();
     await waitFor(() => {
-      // GROOVE label still shows but the sprite container should not
-      expect(screen.getByText("GROOVE")).toBeTruthy();
+      // In business mode the "GROOVE" title replaces the gold indicator.
+      expect(screen.getByLabelText("Groove")).toBeTruthy();
     });
   });
 
@@ -267,10 +255,10 @@ describe("AppNavigation", () => {
     const consoleSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     renderNav();
     await waitFor(() => {
-      expect(screen.getAllByText("Settings").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Stronghold").length).toBeGreaterThan(0);
     });
-    // Click Settings link (desktop)
-    fireEvent.click(screen.getAllByText("Settings")[0]);
+    // Click Stronghold link (desktop)
+    fireEvent.click(screen.getAllByText("Stronghold")[0]);
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining("[ui-telemetry] navigation.start"),
       expect.objectContaining({ to: "/settings" }),
@@ -283,10 +271,10 @@ describe("AppNavigation", () => {
     const consoleSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     renderNav({}, ["/"]);
     await waitFor(() => {
-      expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Barracks").length).toBeGreaterThan(0);
     });
-    // Click Dashboard (already on /)
-    fireEvent.click(screen.getAllByText("Dashboard")[0]);
+    // Click Barracks (already on /)
+    fireEvent.click(screen.getAllByText("Barracks")[0]);
     // Should NOT log navigation start since we are already on "/"
     const navigationStartCalls = consoleSpy.mock.calls.filter(
       (call) =>
@@ -323,7 +311,7 @@ describe("AppNavigation", () => {
     grooveTerminalActiveWorktreesMock.mockResolvedValue({ ok: false });
     renderNav();
     await waitFor(() => {
-      expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Barracks").length).toBeGreaterThan(0);
     });
   });
 
@@ -332,9 +320,9 @@ describe("AppNavigation", () => {
     const consoleSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     renderNav();
     await waitFor(() => {
-      expect(screen.getAllByText("Settings").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Stronghold").length).toBeGreaterThan(0);
     });
-    fireEvent.click(screen.getAllByText("Settings")[0]);
+    fireEvent.click(screen.getAllByText("Stronghold")[0]);
     const navigationStartCalls = consoleSpy.mock.calls.filter(
       (call) =>
         typeof call[0] === "string" && call[0].includes("navigation.start"),
@@ -344,10 +332,10 @@ describe("AppNavigation", () => {
   });
 
   it("hides groove loading section when disabled via setting", async () => {
-    isGrooveLoadingSectionDisabledMock.mockReturnValue(true);
+    isGrooveBusinessDisabledMock.mockReturnValue(true);
     renderNav();
     await waitFor(() => {
-      expect(screen.getByText("GROOVE")).toBeTruthy();
+      expect(screen.getByLabelText("Groove")).toBeTruthy();
     });
     // The mascot sprite should not be rendered
     const spriteContainers = document.querySelectorAll(
@@ -356,14 +344,13 @@ describe("AppNavigation", () => {
     expect(spriteContainers.length).toBe(0);
   });
 
-  it("does not show Worktrees or Help when hasOpenWorkspace is false", async () => {
+  it("does not show Wilderness or Situation Room when hasOpenWorkspace is false", async () => {
     renderNav({ hasOpenWorkspace: false });
     await waitFor(() => {
       expect(screen.getAllByText("Home").length).toBeGreaterThan(0);
     });
-    expect(screen.queryByText("Worktrees")).toBeFalsy();
-    expect(screen.queryByText("Help")).toBeFalsy();
-    expect(screen.queryByText("Diagnostics")).toBeFalsy();
+    expect(screen.queryByText("Wilderness")).toBeFalsy();
+    expect(screen.queryByText("Situation Room")).toBeFalsy();
   });
 
   it("renders mobile navigation trigger button", async () => {
@@ -377,7 +364,7 @@ describe("AppNavigation", () => {
   it("collapses sidebar when collapse button is clicked", async () => {
     renderNav();
     await waitFor(() => {
-      expect(screen.getByText("GROOVE")).toBeTruthy();
+      expect(screen.getByLabelText("Gold: 0")).toBeTruthy();
     });
 
     // Find the collapse button and click it
@@ -438,8 +425,8 @@ describe("AppNavigation", () => {
     await waitFor(() => {
       expect(screen.getAllByText("Home").length).toBeGreaterThan(0);
     });
-    // With no open workspace, the Worktrees section should not render
-    expect(screen.queryByText("Worktrees")).toBeFalsy();
+    // With no open workspace, the Wilderness section should not render
+    expect(screen.queryByText("Wilderness")).toBeFalsy();
   });
 
   it("opens mobile navigation when collapsible trigger is clicked", async () => {
@@ -451,30 +438,9 @@ describe("AppNavigation", () => {
     fireEvent.click(screen.getByText("Navigation"));
     // Mobile nav content should be visible
     await waitFor(() => {
-      // Dashboard should appear in both desktop and mobile after expansion
-      expect(screen.getAllByText("Dashboard").length).toBeGreaterThanOrEqual(2);
+      // Barracks should appear in both desktop and mobile after expansion
+      expect(screen.getAllByText("Barracks").length).toBeGreaterThanOrEqual(2);
     });
-  });
-
-  it("closes mobile sidebar on Help click", async () => {
-    const onHelpClick = vi.fn();
-    renderNav({ onHelpClick });
-    await waitFor(() => {
-      expect(screen.getByText("Navigation")).toBeTruthy();
-    });
-
-    // Expand mobile sidebar
-    fireEvent.click(screen.getByText("Navigation"));
-
-    // Click the mobile Help button (there should be 2 Help buttons total)
-    await waitFor(() => {
-      expect(screen.getAllByText("Help").length).toBeGreaterThanOrEqual(2);
-    });
-
-    // Click the last Help button (mobile)
-    const helpButtons = screen.getAllByText("Help");
-    fireEvent.click(helpButtons[helpButtons.length - 1]);
-    expect(onHelpClick).toHaveBeenCalled();
   });
 
   it("does not crash when grooveList returns non-ok during worktree fetch", async () => {
@@ -484,10 +450,10 @@ describe("AppNavigation", () => {
     });
     renderNav();
     await waitFor(() => {
-      expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Barracks").length).toBeGreaterThan(0);
     });
     // Navigation still renders even if grooveList fails
-    expect(screen.getByText("GROOVE")).toBeTruthy();
+    expect(screen.getByLabelText("Gold: 0")).toBeTruthy();
   });
 
   it("normalizes workspace rows from an object shape", async () => {
@@ -513,7 +479,7 @@ describe("AppNavigation", () => {
     });
     renderNav();
     await waitFor(() => {
-      expect(screen.getAllByText("Dashboard").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Barracks").length).toBeGreaterThan(0);
     });
   });
 });

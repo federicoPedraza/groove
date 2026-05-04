@@ -313,6 +313,143 @@ describe("GrooveWorktreeTerminal", () => {
     );
   });
 
+  it("focuses previous session after closing the middle one", async () => {
+    const sessionA: GrooveTerminalSession = {
+      ...mockSession,
+      sessionId: "session-A",
+      pid: 1,
+    };
+    const sessionB: GrooveTerminalSession = {
+      ...mockSession,
+      sessionId: "session-B",
+      pid: 2,
+    };
+    const sessionC: GrooveTerminalSession = {
+      ...mockSession,
+      sessionId: "session-C",
+      pid: 3,
+    };
+
+    grooveTerminalListSessionsMock.mockResolvedValueOnce({
+      ok: true,
+      sessions: [sessionA, sessionB, sessionC],
+    });
+    grooveTerminalListSessionsMock.mockResolvedValue({
+      ok: true,
+      sessions: [sessionA, sessionC],
+    });
+
+    render(<GrooveWorktreeTerminal {...defaultProps} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Close session session-B/ }),
+      ).toBeInTheDocument();
+    });
+
+    // Capture focus calls only after initial mount/auto-focus stabilizes.
+    terminalMockInstance.focus.mockClear();
+
+    await act(async () => {
+      screen
+        .getByRole("button", { name: /Close session session-B/ })
+        .click();
+      await vi.advanceTimersByTimeAsync(64);
+    });
+
+    expect(grooveTerminalCloseMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "session-B" }),
+    );
+    await waitFor(() => {
+      expect(terminalMockInstance.focus).toHaveBeenCalled();
+    });
+  });
+
+  it("focuses next session after closing the first one", async () => {
+    const sessionA: GrooveTerminalSession = {
+      ...mockSession,
+      sessionId: "session-A",
+      pid: 1,
+    };
+    const sessionB: GrooveTerminalSession = {
+      ...mockSession,
+      sessionId: "session-B",
+      pid: 2,
+    };
+
+    grooveTerminalListSessionsMock.mockResolvedValueOnce({
+      ok: true,
+      sessions: [sessionA, sessionB],
+    });
+    grooveTerminalListSessionsMock.mockResolvedValue({
+      ok: true,
+      sessions: [sessionB],
+    });
+
+    render(<GrooveWorktreeTerminal {...defaultProps} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Close session session-A/ }),
+      ).toBeInTheDocument();
+    });
+
+    terminalMockInstance.focus.mockClear();
+
+    await act(async () => {
+      screen
+        .getByRole("button", { name: /Close session session-A/ })
+        .click();
+      await vi.advanceTimersByTimeAsync(64);
+    });
+
+    expect(grooveTerminalCloseMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "session-A" }),
+    );
+    await waitFor(() => {
+      expect(terminalMockInstance.focus).toHaveBeenCalled();
+    });
+  });
+
+  it("does not focus anything when closing the only session", async () => {
+    grooveTerminalListSessionsMock.mockResolvedValueOnce({
+      ok: true,
+      sessions: [mockSession],
+    });
+    grooveTerminalListSessionsMock.mockResolvedValue({
+      ok: true,
+      sessions: [],
+    });
+
+    render(<GrooveWorktreeTerminal {...defaultProps} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Close session/ }),
+      ).toBeInTheDocument();
+    });
+
+    terminalMockInstance.focus.mockClear();
+
+    await act(async () => {
+      screen.getByRole("button", { name: /Close session/ }).click();
+      await vi.advanceTimersByTimeAsync(32);
+    });
+
+    expect(grooveTerminalCloseMock).toHaveBeenCalled();
+    // No surviving panes — nothing to focus.
+    expect(terminalMockInstance.focus).not.toHaveBeenCalled();
+  });
+
   it("shows toast error when close split fails", async () => {
     const { toast } = await import("@/src/lib/toast");
     grooveTerminalCloseMock.mockResolvedValue({

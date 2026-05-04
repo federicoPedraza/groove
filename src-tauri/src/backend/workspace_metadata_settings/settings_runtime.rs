@@ -509,6 +509,129 @@ fn validate_optional_relative_path(
     Ok(Some(trimmed.to_string()))
 }
 
+/// 100-name library of short (3–6 char) creature-y bug names. Per-unit names
+/// are drawn directly from this list on every roll — the previous per-workspace
+/// pool of 10 was removed so any of the 100 can show up. Names that have been
+/// rolled in a workspace are tracked in `WorkspaceMeta.known_bugs`.
+/// Goldmines / Gems always render with their static names.
+const BUG_NAME_LIBRARY: &[&str] = &[
+    "Omen", "Kirla", "Mern", "Kez", "Vex", "Drix", "Nyx", "Skarn", "Glin", "Thrax",
+    "Korv", "Brak", "Zerg", "Mok", "Quill", "Snar", "Yenn", "Drog", "Pip", "Hex",
+    "Slag", "Wisp", "Glob", "Ymir", "Onyx", "Pesk", "Tovl", "Wend", "Squa", "Twil",
+    "Glop", "Rune", "Krug", "Smel", "Voth", "Krat", "Bask", "Frot", "Glim", "Tarn",
+    "Rin", "Soul", "Drex", "Vyne", "Wirm", "Yrex", "Zar", "Mox", "Lirn", "Vorm",
+    "Ker", "Nub", "Jerk", "Quip", "Reek", "Krev", "Yez", "Pog", "Yob", "Yek",
+    "Shun", "Spin", "Crux", "Daxx", "Nim", "Pirl", "Mirk", "Brel", "Korn", "Rax",
+    "Zlin", "Trog", "Ruk", "Slik", "Bom", "Crun", "Dril", "Ekk", "Fop", "Gru",
+    "Hak", "Imp", "Jux", "Lop", "Murn", "Olm", "Pez", "Quor", "Ral", "Shu",
+    "Tym", "Urz", "Wob", "Xer", "Yarl", "Zob", "Brez", "Drak", "Klin", "Pyx",
+];
+
+const GOLDMINE_UNIT_NAME: &str = "Goldmine";
+const GEMS_UNIT_NAME: &str = "Gems";
+
+// Unit kind probabilities (must sum to 1.0).
+const GEMS_UNIT_PROBABILITY: f64 = 0.05;
+const GOLDMINE_UNIT_PROBABILITY: f64 = 0.20;
+
+// Reward multipliers vs the bug (base) reward range.
+const GOLDMINE_REWARD_MULTIPLIER: f64 = 1.5;
+const GEMS_REWARD_MULTIPLIER: f64 = 3.0;
+
+/// Picks one bug name uniformly from the static library.
+fn pick_bug_name() -> String {
+    use rand::seq::SliceRandom;
+    let mut rng = rand::thread_rng();
+    BUG_NAME_LIBRARY
+        .choose(&mut rng)
+        .map(|name| (*name).to_string())
+        .unwrap_or_default()
+}
+
+/// Reward range for a given unit level. Levels are clamped to `1..=5`.
+fn reward_range_for_level(level: u8) -> (u32, u32) {
+    match level.clamp(1, 5) {
+        1 => (0, 50),
+        2 => (50, 120),
+        3 => (100, 230),
+        4 => (200, 400),
+        5 => (500, 960),
+        _ => (0, 0),
+    }
+}
+
+/// Rolls a fresh `WorktreeUnit`. 20 % goldmine / 80 % bug, level uniform 1..=5,
+/// reward uniform within the level's range; goldmines multiply the reward by
+/// 1.5 (rounded). Bug names are drawn from the workspace's local pool;
+/// goldmines always carry the name "Goldmine".
+///
+/// Currently only invoked from the test suite — production code paths no
+/// longer auto-assign units; an explicit user action ("Discover") will wire
+/// this up next.
+#[allow(dead_code)]
+fn roll_worktree_unit() -> WorktreeUnit {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let level: u8 = rng.gen_range(1u8..=5);
+    roll_worktree_unit_with_level(level)
+}
+
+/// Rolls a `WorktreeUnit` with a fixed `level` (clamped to `1..=5`). Kind,
+/// reward, and name are randomized:
+///
+/// - 5 % gems (3× base reward, named "Gems")
+/// - 20 % goldmines (1.5× base reward, named "Goldmine")
+/// - 75 % bugs (1× base reward, name drawn from the static 100-name library)
+fn roll_worktree_unit_with_level(level: u8) -> WorktreeUnit {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let level = level.clamp(1, 5);
+    let roll: f64 = rng.gen();
+    let kind = if roll < GEMS_UNIT_PROBABILITY {
+        WorktreeUnitKind::Gems
+    } else if roll < GEMS_UNIT_PROBABILITY + GOLDMINE_UNIT_PROBABILITY {
+        WorktreeUnitKind::Goldmine
+    } else {
+        WorktreeUnitKind::Bug
+    };
+    let (min, max) = reward_range_for_level(level);
+    let base: u32 = rng.gen_range(min..=max);
+    let reward = match kind {
+        WorktreeUnitKind::Gems => ((base as f64) * GEMS_REWARD_MULTIPLIER).round() as u32,
+        WorktreeUnitKind::Goldmine => {
+            ((base as f64) * GOLDMINE_REWARD_MULTIPLIER).round() as u32
+        }
+        WorktreeUnitKind::Bug => base,
+    };
+    let name = match kind {
+        WorktreeUnitKind::Gems => GEMS_UNIT_NAME.to_string(),
+        WorktreeUnitKind::Goldmine => GOLDMINE_UNIT_NAME.to_string(),
+        WorktreeUnitKind::Bug => pick_bug_name(),
+    };
+    WorktreeUnit {
+        kind,
+        level,
+        reward,
+        name,
+        rewarded: false,
+    }
+}
+
+/// Parses a Claude difficulty response into a level in `1..=5`.
+///
+/// Strategy: trim whitespace, find the first ASCII digit, clamp the resulting
+/// value to `1..=5` (digit `0` → 1, digits `6..=9` → 5). When the response
+/// contains no digit at all, fall back to **5** so a garbled response gives the
+/// user the benefit of the doubt rather than a level-1 bounty.
+fn parse_claude_difficulty(raw: &str) -> u8 {
+    for ch in raw.trim().chars() {
+        if let Some(digit) = ch.to_digit(10) {
+            return (digit as u8).clamp(1, 5);
+        }
+    }
+    5
+}
+
 /// Returns `(worktree_id, is_existing)` — `is_existing` is `true` when the
 /// record already existed before this call.
 fn register_worktree_record(
@@ -527,7 +650,13 @@ fn register_worktree_record(
             id: id.clone(),
             created_at: now_iso(),
             claude_session_started: false,
+            state: default_worktree_state(),
+            // Units are no longer rolled automatically on worktree creation;
+            // they're assigned later by an explicit user action (e.g. the
+            // "Discover" affordance in the bounty UI).
+            unit: None,
             summaries: Vec::new(),
+            comments: Vec::new(),
         },
     );
     workspace_meta.updated_at = now_iso();
@@ -550,6 +679,142 @@ fn mark_claude_session_started(workspace_root: &Path, worktree: &str) {
         let workspace_json = workspace_root.join(".groove").join("workspace.json");
         let _ = write_workspace_meta_file(&workspace_json, &workspace_meta);
     }
+}
+
+fn set_worktree_state(
+    workspace_root: &Path,
+    worktree: &str,
+    state: WorktreeState,
+) -> Result<WorktreeRecord, String> {
+    let (mut workspace_meta, _) = ensure_workspace_meta(workspace_root)?;
+    let record = workspace_meta
+        .worktree_records
+        .entry(worktree.to_string())
+        .or_insert_with(|| WorktreeRecord {
+            id: Uuid::new_v4().to_string(),
+            created_at: now_iso(),
+            claude_session_started: false,
+            state: default_worktree_state(),
+            // Don't auto-roll a unit when a record is created via state
+            // mutation; it stays `None` until something explicitly assigns it.
+            unit: None,
+            summaries: Vec::new(),
+            comments: Vec::new(),
+        });
+    record.state = state;
+    let updated = record.clone();
+    workspace_meta.updated_at = now_iso();
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    write_workspace_meta_file(&workspace_json, &workspace_meta)?;
+    Ok(updated)
+}
+
+/// Claims the bounty for a defeated worktree: bumps `meta.gold` by the unit's
+/// reward and marks `unit.rewarded = true`. Idempotent — calling twice is a
+/// no-op once the unit is already rewarded.
+///
+/// Returns `(updated_record, total_gold)` on success.
+fn claim_worktree_reward(
+    workspace_root: &Path,
+    worktree: &str,
+) -> Result<(WorktreeRecord, u64), String> {
+    let (mut workspace_meta, _) = ensure_workspace_meta(workspace_root)?;
+    let record = workspace_meta
+        .worktree_records
+        .get_mut(worktree)
+        .ok_or_else(|| format!("Worktree {worktree} has no record."))?;
+    if record.state != WorktreeState::Defeated {
+        return Err(format!(
+            "Worktree {worktree} must be defeated before claiming a reward."
+        ));
+    }
+    let unit = record
+        .unit
+        .as_mut()
+        .ok_or_else(|| format!("Worktree {worktree} has no unit to reward."))?;
+    if unit.rewarded {
+        return Err(format!("Worktree {worktree} reward has already been claimed."));
+    }
+    unit.rewarded = true;
+    let reward = unit.reward;
+    let updated_record = record.clone();
+
+    workspace_meta.gold = workspace_meta.gold.saturating_add(reward as u64);
+    let total_gold = workspace_meta.gold;
+    workspace_meta.updated_at = now_iso();
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    write_workspace_meta_file(&workspace_json, &workspace_meta)?;
+    Ok((updated_record, total_gold))
+}
+
+/// Walks every directory under `<scan_root>/.worktrees/` and seeds a default
+/// `WorktreeRecord` in `workspace.json` for any worktree that lacks one.
+/// Existing records are left untouched. Persists once at the end (or skips the
+/// write entirely when nothing changed). Returns the number of records added.
+///
+/// Why: `register_worktree_record` only seeds the worktree being created, so a
+/// workspace that contains pre-existing on-disk worktrees (created outside
+/// Groove or before this codepath existed) ends up with rows the UI shows but
+/// no persisted memory. Running this after every `groove new` makes
+/// `worktree_records` an authoritative ledger of all directories under
+/// `.worktrees/`, so per-worktree state/units/summaries survive even an
+/// external `rm -rf .worktrees/`.
+fn sync_worktree_records_with_disk(
+    workspace_root: &Path,
+    scan_root: &Path,
+) -> Result<usize, String> {
+    let worktrees_dir = scan_root.join(".worktrees");
+    if !path_is_directory(&worktrees_dir) {
+        return Ok(0);
+    }
+
+    let (mut workspace_meta, _) = ensure_workspace_meta(workspace_root)?;
+    let entries = fs::read_dir(&worktrees_dir)
+        .map_err(|error| format!("Failed to read {}: {error}", worktrees_dir.display()))?;
+
+    let mut added = 0usize;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!(
+                "Failed to enumerate {} entries: {error}",
+                worktrees_dir.display()
+            )
+        })?;
+        let path = entry.path();
+        if !path_is_directory(&path) {
+            continue;
+        }
+        let Some(worktree_os_name) = path.file_name() else {
+            continue;
+        };
+        let worktree = worktree_os_name.to_string_lossy().to_string();
+        if workspace_meta.worktree_records.contains_key(&worktree) {
+            continue;
+        }
+        workspace_meta.worktree_records.insert(
+            worktree,
+            WorktreeRecord {
+                id: Uuid::new_v4().to_string(),
+                created_at: now_iso(),
+                claude_session_started: false,
+                state: default_worktree_state(),
+                unit: None,
+                summaries: Vec::new(),
+                comments: Vec::new(),
+            },
+        );
+        added += 1;
+    }
+
+    if added == 0 {
+        return Ok(0);
+    }
+
+    workspace_meta.updated_at = now_iso();
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    write_workspace_meta_file(&workspace_json, &workspace_meta)?;
+    Ok(added)
 }
 
 fn normalize_browse_relative_path(value: Option<&str>) -> Result<String, String> {
@@ -665,7 +930,7 @@ fn workspace_state_file(app: &AppHandle) -> Result<PathBuf, String> {
 fn default_global_settings() -> GlobalSettings {
     GlobalSettings {
         telemetry_enabled: true,
-        disable_groove_loading_section: false,
+        disable_groove_business: false,
         show_fps: false,
         always_show_diagnostics_sidebar: false,
         periodic_rerender_enabled: false,
@@ -876,7 +1141,7 @@ fn seed_global_settings_from_active_workspace(app: &AppHandle, settings: &mut Gl
 
     if let Ok(workspace_meta) = read_workspace_meta_file(&workspace_json) {
         settings.telemetry_enabled = workspace_meta.telemetry_enabled;
-        settings.disable_groove_loading_section = workspace_meta.disable_groove_loading_section;
+        settings.disable_groove_business = workspace_meta.disable_groove_business;
         settings.show_fps = workspace_meta.show_fps;
     }
 }
@@ -921,7 +1186,8 @@ fn ensure_global_settings(app: &AppHandle) -> Result<GlobalSettings, String> {
         .as_object()
         .map(|obj| {
             !obj.contains_key("telemetryEnabled")
-                || !obj.contains_key("disableGrooveLoadingSection")
+                || !(obj.contains_key("disableGrooveBusiness")
+                    || obj.contains_key("disableGrooveLoadingSection"))
                 || !obj.contains_key("showFps")
                 || !obj.contains_key("alwaysShowDiagnosticsSidebar")
                 || !obj.contains_key("periodicRerenderEnabled")
@@ -1233,7 +1499,7 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         default_terminal: default_terminal_auto(),
         terminal_custom_command: None,
         telemetry_enabled: true,
-        disable_groove_loading_section: false,
+        disable_groove_business: false,
         show_fps: false,
         play_groove_command: default_play_groove_command(),
         open_terminal_at_worktree_command: None,
@@ -1245,6 +1511,9 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         onboarding_symlinks_configured: false,
         onboarding_commands_configured: false,
         root_directory: None,
+        gold: 0,
+        defeated_count: 0,
+        known_bugs: Vec::new(),
     }
 }
 
@@ -1264,8 +1533,35 @@ fn read_workspace_meta_file(path: &Path) -> Result<WorkspaceMeta, String> {
 fn write_workspace_meta_file(path: &Path, workspace_meta: &WorkspaceMeta) -> Result<(), String> {
     let body = serde_json::to_string_pretty(workspace_meta)
         .map_err(|error| format!("Failed to serialize workspace metadata: {error}"))?;
-    fs::write(path, format!("{body}\n"))
-        .map_err(|error| format!("Failed to write {}: {error}", path.display()))
+    let payload = format!("{body}\n");
+
+    // Atomic write: write to a sibling temp file and rename into place. POSIX
+    // and Windows both guarantee that an existing file is replaced atomically
+    // by `rename`. Without this, an interrupted `fs::write` (crash, signal,
+    // OOM) leaves a truncated workspace.json that the next read can't parse —
+    // the recovery path then clobbers it with defaults and the user's
+    // settings vanish.
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("Cannot resolve parent of {}", path.display()))?;
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "workspace.json".to_string());
+    let tmp_path = parent.join(format!(".{file_name}.tmp.{}", Uuid::new_v4()));
+
+    fs::write(&tmp_path, &payload)
+        .map_err(|error| format!("Failed to write {}: {error}", tmp_path.display()))?;
+
+    if let Err(error) = fs::rename(&tmp_path, path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!(
+            "Failed to atomically replace {}: {error}",
+            path.display()
+        ));
+    }
+
+    Ok(())
 }
 
 fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String), String> {
@@ -1295,10 +1591,13 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 .and_then(|parsed| parsed.as_object())
                 .map(|obj| obj.contains_key("telemetryEnabled"))
                 .unwrap_or(true);
-            let has_disable_groove_loading_section = parsed_workspace_json
+            let has_disable_groove_business = parsed_workspace_json
                 .as_ref()
                 .and_then(|parsed| parsed.as_object())
-                .map(|obj| obj.contains_key("disableGrooveLoadingSection"))
+                .map(|obj| {
+                    obj.contains_key("disableGrooveBusiness")
+                        || obj.contains_key("disableGrooveLoadingSection")
+                })
                 .unwrap_or(true);
             let has_show_fps = parsed_workspace_json
                 .as_ref()
@@ -1355,8 +1654,8 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 did_update = true;
             }
 
-            if !has_disable_groove_loading_section {
-                workspace_meta.disable_groove_loading_section = false;
+            if !has_disable_groove_business {
+                workspace_meta.disable_groove_business = false;
                 did_update = true;
             }
 
@@ -1438,6 +1737,39 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 did_update = true;
             }
 
+            // Units are no longer auto-rolled on load — they stay `None`
+            // until an explicit user action (e.g. "Discover") assigns one.
+            // For records that already have a unit but are missing the
+            // `name` field (legacy data from before names existed), fill the
+            // name in place rather than re-rolling the whole unit.
+            for record in workspace_meta.worktree_records.values_mut() {
+                if let Some(unit) = record.unit.as_mut() {
+                    if unit.name.is_empty() {
+                        unit.name = match unit.kind {
+                            WorktreeUnitKind::Gems => GEMS_UNIT_NAME.to_string(),
+                            WorktreeUnitKind::Goldmine => GOLDMINE_UNIT_NAME.to_string(),
+                            WorktreeUnitKind::Bug => pick_bug_name(),
+                        };
+                        did_update = true;
+                    }
+                }
+            }
+
+            // Backfill `known_bugs` from any bug units already on disk so
+            // existing workspaces don't lose their history when the register
+            // ships.
+            for record in workspace_meta.worktree_records.values() {
+                if let Some(unit) = &record.unit {
+                    if unit.kind == WorktreeUnitKind::Bug
+                        && !unit.name.is_empty()
+                        && !workspace_meta.known_bugs.contains(&unit.name)
+                    {
+                        workspace_meta.known_bugs.push(unit.name.clone());
+                        did_update = true;
+                    }
+                }
+            }
+
             if did_update {
                 workspace_meta.updated_at = now_iso();
                 write_workspace_meta_file(&workspace_json, &workspace_meta)?;
@@ -1448,12 +1780,27 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 "Loaded existing .groove/workspace.json.".to_string(),
             ))
         }
-        Err(_) => {
+        Err(error) => {
+            // Preserve the unparseable file so the user (or a future migration)
+            // can recover their settings instead of silently losing them.
+            let backup_name = format!(
+                "workspace.corrupted.{}.json",
+                OffsetDateTime::now_utc()
+                    .format(&Rfc3339)
+                    .unwrap_or_else(|_| "unknown".to_string())
+                    .replace(':', "-"),
+            );
+            let backup_path = groove_dir.join(backup_name);
+            let _ = fs::copy(&workspace_json, &backup_path);
+
             let workspace_meta = default_workspace_meta(workspace_root);
             write_workspace_meta_file(&workspace_json, &workspace_meta)?;
             Ok((
                 workspace_meta,
-                "Recovered corrupt .groove/workspace.json by recreating defaults.".to_string(),
+                format!(
+                    "Failed to parse .groove/workspace.json ({error}); backed it up to {} and recreated defaults.",
+                    backup_path.display()
+                ),
             ))
         }
     }
@@ -1489,5 +1836,407 @@ mod settings_runtime_tests {
             shell_single_quote_escape("/tmp/o'connor"),
             "'/tmp/o'\"'\"'connor'"
         );
+    }
+
+    #[test]
+    fn worktree_record_defaults_state_to_pending_when_missing() {
+        let raw = r#"{ "id": "abc", "createdAt": "2026-01-01T00:00:00Z" }"#;
+        let record: WorktreeRecord = serde_json::from_str(raw).expect("legacy parse");
+        assert_eq!(record.state, WorktreeState::Pending);
+        assert!(!record.claude_session_started);
+    }
+
+    #[test]
+    fn set_worktree_state_round_trips_through_workspace_json() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("groove-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_root).expect("mkdir workspace");
+
+        let record =
+            set_worktree_state(&workspace_root, "feature/x", WorktreeState::Fighting)
+                .expect("first set");
+        assert_eq!(record.state, WorktreeState::Fighting);
+
+        let record =
+            set_worktree_state(&workspace_root, "feature/x", WorktreeState::Defeated)
+                .expect("second set");
+        assert_eq!(record.state, WorktreeState::Defeated);
+
+        let raw = std::fs::read_to_string(
+            workspace_root.join(".groove").join("workspace.json"),
+        )
+        .expect("read");
+        assert!(
+            raw.contains("\"state\": \"defeated\"")
+                || raw.contains("\"state\":\"defeated\"")
+        );
+
+        let _ = std::fs::remove_dir_all(&workspace_root);
+    }
+
+    #[test]
+    fn roll_worktree_unit_produces_valid_levels_and_rewards() {
+        let library: Vec<String> = BUG_NAME_LIBRARY
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        let mut bug_count = 0u32;
+        let mut goldmine_count = 0u32;
+        let mut gems_count = 0u32;
+        let total = 4000u32;
+        for _ in 0..total {
+            let unit = roll_worktree_unit();
+            // Names: gems / goldmines fixed; bugs are drawn from the static
+            // 100-name library.
+            match unit.kind {
+                WorktreeUnitKind::Gems => assert_eq!(unit.name, "Gems"),
+                WorktreeUnitKind::Goldmine => assert_eq!(unit.name, "Goldmine"),
+                WorktreeUnitKind::Bug => assert!(
+                    library.iter().any(|name| name == &unit.name),
+                    "bug name {:?} not in library",
+                    unit.name,
+                ),
+            }
+            assert!((1..=5).contains(&unit.level), "level {} out of range", unit.level);
+            let (min, max): (u32, u32) = match unit.level {
+                1 => (0, 50),
+                2 => (50, 120),
+                3 => (100, 230),
+                4 => (200, 400),
+                5 => (500, 960),
+                _ => unreachable!(),
+            };
+            let (lo, hi) = match unit.kind {
+                WorktreeUnitKind::Gems => (
+                    ((min as f64) * 3.0).round() as u32,
+                    ((max as f64) * 3.0).round() as u32,
+                ),
+                WorktreeUnitKind::Goldmine => (
+                    ((min as f64) * 1.5).round() as u32,
+                    ((max as f64) * 1.5).round() as u32,
+                ),
+                WorktreeUnitKind::Bug => (min, max),
+            };
+            assert!(
+                unit.reward >= lo && unit.reward <= hi,
+                "reward {} out of range [{lo}, {hi}] for level {} kind {:?}",
+                unit.reward,
+                unit.level,
+                unit.kind,
+            );
+            match unit.kind {
+                WorktreeUnitKind::Gems => gems_count += 1,
+                WorktreeUnitKind::Goldmine => goldmine_count += 1,
+                WorktreeUnitKind::Bug => bug_count += 1,
+            }
+        }
+        assert_eq!(gems_count + goldmine_count + bug_count, total);
+        let gems_ratio = (gems_count as f64) / (total as f64);
+        let goldmine_ratio = (goldmine_count as f64) / (total as f64);
+        assert!(
+            (0.02..=0.10).contains(&gems_ratio),
+            "gems ratio {gems_ratio} outside [0.02, 0.10] (target 0.05)",
+        );
+        assert!(
+            (0.13..=0.27).contains(&goldmine_ratio),
+            "goldmine ratio {goldmine_ratio} outside [0.13, 0.27] (target 0.20)",
+        );
+    }
+
+    #[test]
+    fn ensure_workspace_meta_does_not_auto_roll_units() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("groove-test-{}", Uuid::new_v4()));
+        let groove_dir = workspace_root.join(".groove");
+        std::fs::create_dir_all(&groove_dir).expect("mkdir .groove");
+
+        // Hand-write a workspace.json with one worktree record that lacks `unit`.
+        let raw = r#"{
+  "version": 1,
+  "rootName": "groove-test",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "updatedAt": "2026-01-01T00:00:00Z",
+  "defaultTerminal": "auto",
+  "telemetryEnabled": true,
+  "playGrooveCommand": "echo",
+  "worktreeSymlinkPaths": [],
+  "opencodeSettings": { "enabled": false, "settingsDirectory": "~/.config/opencode" },
+  "worktreeRecords": {
+    "feature/x": {
+      "id": "abc",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "claudeSessionStarted": false,
+      "state": "pending"
+    }
+  }
+}"#;
+        std::fs::write(groove_dir.join("workspace.json"), raw).expect("seed file");
+
+        let (meta, _msg) =
+            ensure_workspace_meta(&workspace_root).expect("ensure ok");
+        let record = meta
+            .worktree_records
+            .get("feature/x")
+            .expect("record present");
+        assert!(record.unit.is_none(), "unit must NOT be auto-rolled on load");
+        assert!(
+            meta.known_bugs.is_empty(),
+            "no bug units have been rolled yet, known_bugs should be empty",
+        );
+
+        let _ = std::fs::remove_dir_all(&workspace_root);
+    }
+
+    #[test]
+    fn ensure_workspace_meta_backfills_known_bugs_from_existing_units() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("groove-test-{}", Uuid::new_v4()));
+        let groove_dir = workspace_root.join(".groove");
+        std::fs::create_dir_all(&groove_dir).expect("mkdir .groove");
+
+        // Seed a workspace with two bug units already on disk and an empty
+        // known_bugs array.
+        let raw = r#"{
+  "version": 1,
+  "rootName": "groove-test",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "updatedAt": "2026-01-01T00:00:00Z",
+  "defaultTerminal": "auto",
+  "telemetryEnabled": true,
+  "playGrooveCommand": "echo",
+  "worktreeSymlinkPaths": [],
+  "opencodeSettings": { "enabled": false, "settingsDirectory": "~/.config/opencode" },
+  "worktreeRecords": {
+    "feature/a": {
+      "id": "a",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "claudeSessionStarted": false,
+      "state": "pending",
+      "unit": { "kind": "bug", "level": 2, "reward": 80, "name": "Omen" }
+    },
+    "feature/b": {
+      "id": "b",
+      "createdAt": "2026-01-01T00:00:00Z",
+      "claudeSessionStarted": false,
+      "state": "pending",
+      "unit": { "kind": "goldmine", "level": 4, "reward": 450, "name": "Goldmine" }
+    }
+  }
+}"#;
+        std::fs::write(groove_dir.join("workspace.json"), raw).expect("seed file");
+
+        let (meta, _msg) =
+            ensure_workspace_meta(&workspace_root).expect("ensure ok");
+        assert!(
+            meta.known_bugs.iter().any(|name| name == "Omen"),
+            "Omen should be in known_bugs",
+        );
+        assert!(
+            !meta.known_bugs.iter().any(|name| name == "Goldmine"),
+            "Goldmine is not a bug; should NOT be in known_bugs",
+        );
+
+        let _ = std::fs::remove_dir_all(&workspace_root);
+    }
+
+    #[test]
+    fn parse_claude_difficulty_clamps_and_handles_garbage() {
+        assert_eq!(parse_claude_difficulty("3"), 3);
+        assert_eq!(parse_claude_difficulty("  4\n"), 4);
+        assert_eq!(parse_claude_difficulty("the answer is 2"), 2);
+        assert_eq!(parse_claude_difficulty("0"), 1);
+        assert_eq!(parse_claude_difficulty("6"), 5);
+        assert_eq!(parse_claude_difficulty("99"), 5);
+        assert_eq!(parse_claude_difficulty(""), 5);
+        assert_eq!(parse_claude_difficulty("none"), 5);
+    }
+
+    #[test]
+    fn roll_worktree_unit_with_level_respects_level() {
+        let library: Vec<String> = BUG_NAME_LIBRARY
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        for _ in 0..400 {
+            let unit = roll_worktree_unit_with_level(3);
+            assert_eq!(unit.level, 3);
+            let (min, max): (u32, u32) = (100, 230);
+            let (lo, hi) = match unit.kind {
+                WorktreeUnitKind::Gems => (
+                    ((min as f64) * 3.0).round() as u32,
+                    ((max as f64) * 3.0).round() as u32,
+                ),
+                WorktreeUnitKind::Goldmine => (
+                    ((min as f64) * 1.5).round() as u32,
+                    ((max as f64) * 1.5).round() as u32,
+                ),
+                WorktreeUnitKind::Bug => (min, max),
+            };
+            assert!(
+                unit.reward >= lo && unit.reward <= hi,
+                "reward {} out of range [{lo}, {hi}] for level 3 kind {:?}",
+                unit.reward,
+                unit.kind,
+            );
+            match unit.kind {
+                WorktreeUnitKind::Gems => assert_eq!(unit.name, "Gems"),
+                WorktreeUnitKind::Goldmine => assert_eq!(unit.name, "Goldmine"),
+                WorktreeUnitKind::Bug => assert!(
+                    library.iter().any(|name| name == &unit.name),
+                    "bug name {:?} not in library",
+                    unit.name,
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn roll_worktree_unit_with_level_clamps_out_of_range() {
+        assert_eq!(roll_worktree_unit_with_level(0).level, 1);
+        assert_eq!(roll_worktree_unit_with_level(99).level, 5);
+    }
+
+    #[test]
+    fn claim_worktree_reward_bumps_gold_and_marks_rewarded() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("groove-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_root).expect("mkdir workspace");
+
+        // Seed: defeated worktree with a level-3 unit (reward 0..=230 for bug,
+        // 0..=345 for goldmine) and gold = 0.
+        let (mut meta, _) = ensure_workspace_meta(&workspace_root).expect("ensure");
+        let unit = roll_worktree_unit_with_level(3);
+        let reward = unit.reward;
+        meta.worktree_records.insert(
+            "feature/x".to_string(),
+            WorktreeRecord {
+                id: "abc".to_string(),
+                created_at: now_iso(),
+                claude_session_started: false,
+                state: WorktreeState::Defeated,
+                unit: Some(unit),
+                summaries: Vec::new(),
+                comments: Vec::new(),
+            },
+        );
+        let workspace_json = workspace_root.join(".groove").join("workspace.json");
+        write_workspace_meta_file(&workspace_json, &meta).expect("seed");
+
+        let (record, gold) =
+            claim_worktree_reward(&workspace_root, "feature/x").expect("claim");
+        assert_eq!(gold, reward as u64, "gold should match reward");
+        let claimed_unit = record.unit.expect("unit present after claim");
+        assert!(claimed_unit.rewarded, "unit must be marked rewarded");
+        assert_eq!(claimed_unit.reward, reward);
+
+        // Second claim is rejected.
+        let err = claim_worktree_reward(&workspace_root, "feature/x").err();
+        assert!(err.is_some(), "second claim should fail");
+        assert!(
+            err.unwrap().contains("already been claimed"),
+            "error should mention already claimed",
+        );
+
+        let _ = std::fs::remove_dir_all(&workspace_root);
+    }
+
+    #[test]
+    fn sync_worktree_records_with_disk_backfills_orphans_and_preserves_existing() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("groove-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_root).expect("mkdir workspace");
+
+        // Seed: an existing record for "alpha" with a known id, and two
+        // on-disk worktrees ("alpha" already tracked, "beta" orphaned).
+        let (mut meta, _) = ensure_workspace_meta(&workspace_root).expect("ensure");
+        meta.worktree_records.insert(
+            "alpha".to_string(),
+            WorktreeRecord {
+                id: "alpha-id".to_string(),
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                claude_session_started: true,
+                state: WorktreeState::Fighting,
+                unit: None,
+                summaries: Vec::new(),
+                comments: Vec::new(),
+            },
+        );
+        let workspace_json = workspace_root.join(".groove").join("workspace.json");
+        write_workspace_meta_file(&workspace_json, &meta).expect("seed");
+
+        let worktrees_dir = workspace_root.join(".worktrees");
+        std::fs::create_dir_all(worktrees_dir.join("alpha")).expect("mkdir alpha");
+        std::fs::create_dir_all(worktrees_dir.join("beta")).expect("mkdir beta");
+        // Non-directory entry must be ignored.
+        std::fs::write(worktrees_dir.join("README"), b"ignore me").expect("write file");
+
+        let added =
+            sync_worktree_records_with_disk(&workspace_root, &workspace_root).expect("sync");
+        assert_eq!(added, 1, "only the orphan beta should be added");
+
+        let (after, _) = ensure_workspace_meta(&workspace_root).expect("re-read");
+        let alpha = after.worktree_records.get("alpha").expect("alpha kept");
+        assert_eq!(alpha.id, "alpha-id", "existing id preserved");
+        assert_eq!(alpha.state, WorktreeState::Fighting, "existing state preserved");
+        assert!(alpha.claude_session_started, "existing session flag preserved");
+
+        let beta = after.worktree_records.get("beta").expect("beta seeded");
+        assert!(!beta.id.is_empty(), "beta gets a fresh id");
+        assert_eq!(beta.state, WorktreeState::Pending, "beta defaults to pending");
+        assert!(beta.unit.is_none(), "beta has no auto-rolled unit");
+
+        // Idempotent: a second sync writes nothing.
+        let added_again =
+            sync_worktree_records_with_disk(&workspace_root, &workspace_root).expect("sync 2");
+        assert_eq!(added_again, 0, "second sync is a no-op");
+
+        let _ = std::fs::remove_dir_all(&workspace_root);
+    }
+
+    #[test]
+    fn sync_worktree_records_with_disk_handles_missing_worktrees_dir() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("groove-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_root).expect("mkdir workspace");
+        let (_, _) = ensure_workspace_meta(&workspace_root).expect("ensure");
+
+        let added =
+            sync_worktree_records_with_disk(&workspace_root, &workspace_root).expect("sync");
+        assert_eq!(added, 0, "no .worktrees/ dir means nothing to sync");
+
+        let _ = std::fs::remove_dir_all(&workspace_root);
+    }
+
+    #[test]
+    fn claim_worktree_reward_requires_defeated_state() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("groove-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_root).expect("mkdir workspace");
+
+        let (mut meta, _) = ensure_workspace_meta(&workspace_root).expect("ensure");
+        let unit = roll_worktree_unit_with_level(2);
+        meta.worktree_records.insert(
+            "feature/y".to_string(),
+            WorktreeRecord {
+                id: "id".to_string(),
+                created_at: now_iso(),
+                claude_session_started: false,
+                state: WorktreeState::Wounded,
+                unit: Some(unit),
+                summaries: Vec::new(),
+                comments: Vec::new(),
+            },
+        );
+        let workspace_json = workspace_root.join(".groove").join("workspace.json");
+        write_workspace_meta_file(&workspace_json, &meta).expect("seed");
+
+        let err = claim_worktree_reward(&workspace_root, "feature/y").err();
+        assert!(err.is_some(), "claim must fail when not defeated");
+        assert!(
+            err.unwrap().contains("defeated"),
+            "error should mention defeated requirement",
+        );
+
+        let _ = std::fs::remove_dir_all(&workspace_root);
     }
 }

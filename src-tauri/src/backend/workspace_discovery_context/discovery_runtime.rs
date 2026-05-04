@@ -275,8 +275,9 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         .and_then(|v| v.as_str())
         .map(|v| v.to_string());
     let telemetry_enabled = obj.get("telemetryEnabled").and_then(|v| v.as_bool());
-    let disable_groove_loading_section = obj
-        .get("disableGrooveLoadingSection")
+    let disable_groove_business = obj
+        .get("disableGrooveBusiness")
+        .or_else(|| obj.get("disableGrooveLoadingSection"))
         .and_then(|v| v.as_bool());
     let show_fps = obj.get("showFps").and_then(|v| v.as_bool());
     let play_groove_command = obj
@@ -315,7 +316,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         && default_terminal.is_none()
         && terminal_custom_command.is_none()
         && telemetry_enabled.is_none()
-        && disable_groove_loading_section.is_none()
+        && disable_groove_business.is_none()
         && show_fps.is_none()
         && play_groove_command.is_none()
         && open_terminal_at_worktree_command.is_none()
@@ -336,7 +337,7 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         default_terminal,
         terminal_custom_command,
         telemetry_enabled,
-        disable_groove_loading_section,
+        disable_groove_business,
         show_fps,
         play_groove_command,
         open_terminal_at_worktree_command,
@@ -380,8 +381,8 @@ fn workspace_meta_matches(
         }
     }
 
-    if let Some(expected_disable_groove_loading_section) = expected.disable_groove_loading_section {
-        if observed.disable_groove_loading_section != Some(expected_disable_groove_loading_section)
+    if let Some(expected_disable_groove_business) = expected.disable_groove_business {
+        if observed.disable_groove_business != Some(expected_disable_groove_business)
         {
             return false;
         }

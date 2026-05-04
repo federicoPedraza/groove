@@ -27,6 +27,7 @@ import { CommandsSettingsForm } from "@/src/components/pages/settings/commands-s
 import { WorktreeSymlinkPathsModal } from "@/src/components/pages/settings/worktree-symlink-paths-modal";
 import { OpencodeIntegrationPanel } from "@/src/components/opencode/opencode-integration-panel";
 import { ClaudeCodeIntegrationPanel } from "@/src/components/claudecode/claudecode-integration-panel";
+import { MotherduckIntegrationPanel } from "@/src/components/motherduck/motherduck-integration-panel";
 import { GrooveSoundSettingsPanel } from "@/src/components/groove-sound-settings-panel";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
 import {
@@ -73,7 +74,7 @@ import {
 import {
   SOFT_GREEN_BUTTON_CLASSES,
   SOFT_RED_BUTTON_CLASSES,
-} from "@/src/components/pages/dashboard/constants";
+} from "@/src/components/pages/barracks/constants";
 import { THEME_MODE_OPTIONS, type ThemeMode } from "@/src/lib/theme-constants";
 import { applyThemeToDom, DARK_THEME_MODES } from "@/src/lib/theme";
 import {
@@ -113,14 +114,12 @@ import {
 } from "@/src/lib/ipc";
 import { playCustomSound } from "@/src/lib/utils/sound";
 import { describeWorkspaceContextError } from "@/src/lib/utils/workspace/context";
+import { ensureWorkspaceContext } from "@/src/lib/workspace-store";
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 
 let settingsGlobalSettingsGetPromise: Promise<
   Awaited<ReturnType<typeof globalSettingsGet>>
-> | null = null;
-let settingsWorkspaceGetActivePromise: Promise<
-  Awaited<ReturnType<typeof workspaceGetActive>>
 > | null = null;
 
 function logSettingsTelemetry(
@@ -165,12 +164,7 @@ function loadSettingsGlobalSettings(): Promise<
 function loadSettingsWorkspaceGetActive(): Promise<
   Awaited<ReturnType<typeof workspaceGetActive>>
 > {
-  if (!settingsWorkspaceGetActivePromise) {
-    settingsWorkspaceGetActivePromise = workspaceGetActive().finally(() => {
-      settingsWorkspaceGetActivePromise = null;
-    });
-  }
-  return settingsWorkspaceGetActivePromise;
+  return ensureWorkspaceContext();
 }
 
 function isValidSubpage(value: string | null): value is SettingsSubpage {
@@ -195,8 +189,8 @@ export default function SettingsPage() {
   const [telemetryEnabled, setTelemetryEnabled] = useState(
     globalSettingsSnapshot.telemetryEnabled,
   );
-  const [disableGrooveLoadingSection, setDisableGrooveLoadingSection] =
-    useState(globalSettingsSnapshot.disableGrooveLoadingSection);
+  const [disableGrooveBusiness, setDisableGrooveBusiness] =
+    useState(globalSettingsSnapshot.disableGrooveBusiness);
   const [showFps, setShowFps] = useState(globalSettingsSnapshot.showFps);
   const [alwaysShowDiagnosticsSidebar, setAlwaysShowDiagnosticsSidebar] =
     useState(globalSettingsSnapshot.alwaysShowDiagnosticsSidebar);
@@ -275,7 +269,7 @@ export default function SettingsPage() {
   const [activeSubpage, setActiveSubpage] = useState<SettingsSubpage>(
     isValidSubpage(initialSubpage) ? initialSubpage : "general",
   );
-  const disableGrooveLoadingSectionRequestVersionRef = useRef(0);
+  const disableGrooveBusinessRequestVersionRef = useRef(0);
   const telemetryEnabledRequestVersionRef = useRef(0);
   const showFpsRequestVersionRef = useRef(0);
   const alwaysShowDiagnosticsSidebarRequestVersionRef = useRef(0);
@@ -286,8 +280,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     setTelemetryEnabled(globalSettingsSnapshot.telemetryEnabled);
-    setDisableGrooveLoadingSection(
-      globalSettingsSnapshot.disableGrooveLoadingSection,
+    setDisableGrooveBusiness(
+      globalSettingsSnapshot.disableGrooveBusiness,
     );
     setShowFps(globalSettingsSnapshot.showFps);
     setAlwaysShowDiagnosticsSidebar(
@@ -1609,6 +1603,7 @@ export default function SettingsPage() {
                   workspaceRoot={workspaceRoot}
                 />
                 <ClaudeCodeIntegrationPanel />
+                <MotherduckIntegrationPanel workspaceRoot={workspaceRoot} />
               </CardContent>
             </CollapsibleContent>
           </Card>
@@ -1697,70 +1692,71 @@ export default function SettingsPage() {
                 <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
                   <span className="inline-flex min-w-0 items-center gap-2">
                     <Checkbox
-                      checked={disableGrooveLoadingSection}
+                      checked={disableGrooveBusiness}
                       disabled={saveState === "saving"}
                       onCheckedChange={(checked) => {
-                        const nextDisableGrooveLoadingSection =
+                        const nextDisableGrooveBusiness =
                           checked === true;
-                        const previousDisableGrooveLoadingSection =
-                          disableGrooveLoadingSection;
-                        setDisableGrooveLoadingSection(
-                          nextDisableGrooveLoadingSection,
+                        const previousDisableGrooveBusiness =
+                          disableGrooveBusiness;
+                        setDisableGrooveBusiness(
+                          nextDisableGrooveBusiness,
                         );
                         setErrorMessage(null);
 
                         const requestVersion =
-                          ++disableGrooveLoadingSectionRequestVersionRef.current;
+                          ++disableGrooveBusinessRequestVersionRef.current;
 
                         void (async () => {
                           try {
                             const result = await globalSettingsUpdate({
-                              disableGrooveLoadingSection:
-                                nextDisableGrooveLoadingSection,
+                              disableGrooveBusiness:
+                                nextDisableGrooveBusiness,
                             });
 
                             if (
                               requestVersion !==
-                              disableGrooveLoadingSectionRequestVersionRef.current
+                              disableGrooveBusinessRequestVersionRef.current
                             ) {
                               return;
                             }
 
                             if (!result.ok || !result.globalSettings) {
-                              setDisableGrooveLoadingSection(
-                                previousDisableGrooveLoadingSection,
+                              setDisableGrooveBusiness(
+                                previousDisableGrooveBusiness,
                               );
                               setErrorMessage(
                                 result.error ??
-                                  "Failed to update Groove loading section visibility.",
+                                  "Failed to update groove business visibility.",
                               );
                               return;
                             }
 
-                            setDisableGrooveLoadingSection(
-                              result.globalSettings.disableGrooveLoadingSection,
+                            setDisableGrooveBusiness(
+                              result.globalSettings.disableGrooveBusiness,
                             );
                           } catch {
                             if (
                               requestVersion !==
-                              disableGrooveLoadingSectionRequestVersionRef.current
+                              disableGrooveBusinessRequestVersionRef.current
                             ) {
                               return;
                             }
-                            setDisableGrooveLoadingSection(
-                              previousDisableGrooveLoadingSection,
+                            setDisableGrooveBusiness(
+                              previousDisableGrooveBusiness,
                             );
                             setErrorMessage(
-                              "Failed to update Groove loading section visibility.",
+                              "Failed to update groove business visibility.",
                             );
                           }
                         })();
                       }}
                     />
-                    <span>Disable monkey</span>
+                    <span>Disable groove business</span>
                   </span>
                   <span className="text-xs text-muted-foreground/70 sm:text-right">
-                    Hides the sidebar monkey sprite frame on desktop.
+                    Hides the sidebar mascot and replaces themed labels and
+                    icons (Barracks, Stronghold, etc.) with plain ones.
                   </span>
                 </label>
                 <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">

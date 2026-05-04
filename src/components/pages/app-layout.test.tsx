@@ -3,20 +3,25 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/src/lib/ipc", () => ({
+  DEFAULT_WORKTREE_STATE: "pending",
+  WORKTREE_STATES: ["pending", "fighting", "wounded", "defeated", "blocked", "forgotten"],
   diagnosticsGetSystemOverview: vi.fn().mockResolvedValue({ ok: false }),
   grooveBinRepair: vi
     .fn()
     .mockResolvedValue({ ok: true, changed: false, status: {} }),
   grooveBinStatus: vi.fn().mockResolvedValue({ ok: true, status: {} }),
+  grooveTerminalActiveWorktrees: vi.fn().mockResolvedValue({ ok: false }),
   isAlwaysShowDiagnosticsSidebarEnabled: vi.fn(() => false),
-  isGrooveLoadingSectionDisabled: vi.fn(() => false),
+  isGrooveBusinessDisabled: vi.fn(() => false),
   isShowFpsEnabled: vi.fn(() => false),
   isTelemetryEnabled: vi.fn(() => false),
+  listenGrooveTerminalLifecycle: vi.fn(async () => () => {}),
   listenWorkspaceChange: vi.fn(async () => () => {}),
   listenWorkspaceReady: vi.fn(async () => () => {}),
   subscribeToGlobalSettings: vi.fn(() => () => {}),
   workspaceGetActive: vi.fn().mockResolvedValue({ ok: false }),
   workspaceGitignoreSanityCheck: vi.fn().mockResolvedValue({ ok: false }),
+  workspaceSetWorktreeState: vi.fn(async () => ({ ok: true })),
 }));
 
 vi.mock("@/src/lib/toast", () => ({

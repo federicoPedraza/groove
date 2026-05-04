@@ -1,4 +1,8 @@
-import type { WorkspaceMeta } from "./types-core";
+import type {
+  CommentRecord,
+  WorkspaceMeta,
+  WorktreeUnit,
+} from "./types-core";
 
 export type GrooveRestorePayload = {
   rootName: string;
@@ -95,6 +99,53 @@ export type GrooveSummaryResponse = {
   ok: boolean;
   summaries: GrooveSummaryEntry[];
   compiledSummary?: string;
+  error?: string;
+};
+
+export type GrooveCommentPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree: string;
+};
+
+export type GrooveCommentResponse = {
+  requestId?: string;
+  ok: boolean;
+  comment?: CommentRecord;
+  error?: string;
+};
+
+export type GrooveCommentMarkCommittedPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree: string;
+  createdAt: string;
+};
+
+export type GrooveCommentMarkCommittedResponse = {
+  requestId?: string;
+  ok: boolean;
+  comment?: CommentRecord;
+  error?: string;
+};
+
+export type DiscoverWorktreeUnitPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree: string;
+  sessionId: string;
+};
+
+export type DiscoverWorktreeUnitResponse = {
+  requestId?: string;
+  ok: boolean;
+  unit?: WorktreeUnit;
+  level?: number;
+  rawClaudeOutput?: string;
+  wasNewDiscovery?: boolean;
   error?: string;
 };
 

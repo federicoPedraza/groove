@@ -110,6 +110,8 @@ type GrooveTerminalPaneProps = {
   sessionId: string;
   themeMode: ThemeMode;
   autoFocus?: boolean;
+  focused?: boolean;
+  focusToken?: number;
   terminalFontSize?: number;
 };
 
@@ -128,6 +130,8 @@ type SplitTerminalPaneProps = {
   onToggleMinimize: () => void;
   onClose: (sessionId: string) => void;
   autoFocus?: boolean;
+  focused?: boolean;
+  focusToken?: number;
   colorBorderClass?: string;
   colorHex?: string;
   terminalFontSize?: number;
@@ -208,6 +212,8 @@ function GrooveTerminalPane({
   sessionId,
   themeMode,
   autoFocus = false,
+  focused = false,
+  focusToken = 0,
   terminalFontSize = DEFAULT_TERMINAL_FONT_SIZE,
 }: GrooveTerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -428,6 +434,24 @@ function GrooveTerminalPane({
     terminal.options.theme = getXtermTheme(themeMode);
     terminal.refresh(0, terminal.rows - 1);
   }, [themeMode]);
+
+  useEffect(() => {
+    if (!focused) {
+      return;
+    }
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+    // Defer to the next frame so any concurrent unmount/reflow of sibling
+    // panes has settled before we move DOM focus into xterm's textarea.
+    const rafId = window.requestAnimationFrame(() => {
+      terminal.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [focused, focusToken]);
 
   useEffect(() => {
     let disposed = false;
@@ -661,6 +685,8 @@ function SplitTerminalPane({
   onToggleMinimize,
   onClose,
   autoFocus = false,
+  focused = false,
+  focusToken = 0,
   colorBorderClass,
   colorHex,
   terminalFontSize,
@@ -753,6 +779,8 @@ function SplitTerminalPane({
             sessionId={session.sessionId}
             themeMode={themeMode}
             autoFocus={autoFocus}
+            focused={focused}
+            focusToken={focusToken}
             terminalFontSize={terminalFontSize}
           />
         </div>
@@ -774,6 +802,12 @@ export function GrooveWorktreeTerminal({
 }: GrooveWorktreeTerminalProps) {
   const [sessions, setSessions] = useState<GrooveTerminalSession[]>([]);
   const [closingSessionIds, setClosingSessionIds] = useState<string[]>([]);
+  const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
+  const [focusToken, setFocusToken] = useState(0);
+  const requestFocus = useCallback((sessionId: string) => {
+    setFocusedSessionId(sessionId);
+    setFocusToken((value) => value + 1);
+  }, []);
   const stableKnownWorktreesRef = useRef<string[]>(knownWorktrees);
   const knownWorktreesKey = knownWorktrees.join("\0");
   const stableKnownWorktreesKey = stableKnownWorktreesRef.current.join("\0");
@@ -883,6 +917,9 @@ export function GrooveWorktreeTerminal({
         ) {
           return;
         }
+        if (event.kind === "started") {
+          requestFocus(event.sessionId);
+        }
         void syncSessions();
       });
 
@@ -898,10 +935,18 @@ export function GrooveWorktreeTerminal({
       disposed = true;
       cleanupListener();
     };
-  }, [syncSessions, workspaceRoot, worktree]);
+  }, [requestFocus, syncSessions, workspaceRoot, worktree]);
 
   const handleCloseSplit = useCallback(
     async (sessionId: string) => {
+      const closedIndex = sessions.findIndex(
+        (candidate) => candidate.sessionId === sessionId,
+      );
+      const fallbackSession =
+        closedIndex > 0
+          ? sessions[closedIndex - 1]
+          : (sessions[closedIndex + 1] ?? null);
+
       setClosingSessionIds((previous) =>
         previous.includes(sessionId) ? previous : [...previous, sessionId],
       );
@@ -919,6 +964,9 @@ export function GrooveWorktreeTerminal({
         }
 
         await syncSessions();
+        if (fallbackSession) {
+          requestFocus(fallbackSession.sessionId);
+        }
       } catch {
         toast.error("Failed to close split terminal session.");
       } finally {
@@ -927,7 +975,7 @@ export function GrooveWorktreeTerminal({
         );
       }
     },
-    [syncSessions, terminalPayloadBase],
+    [requestFocus, sessions, syncSessions, terminalPayloadBase],
   );
 
   const decoratedSessions = useMemo<DecoratedSession[]>(() => {
@@ -957,6 +1005,7 @@ export function GrooveWorktreeTerminal({
 
   const renderSplitPane = (entry: DecoratedSession, index: number) => {
     const isMinimized = minimizedSessions.has(entry.session.sessionId);
+    const isFocused = focusedSessionId === entry.session.sessionId;
     return (
       <SplitTerminalPane
         workspaceRoot={workspaceRoot}
@@ -976,7 +1025,9 @@ export function GrooveWorktreeTerminal({
         onClose={(sessionId) => {
           void handleCloseSplit(sessionId);
         }}
-        autoFocus={index === 0}
+        autoFocus={index === 0 && focusedSessionId === null}
+        focused={isFocused}
+        focusToken={focusToken}
         colorBorderClass={colorBorderClass}
         colorHex={colorHex}
         terminalFontSize={terminalFontSize}
@@ -1036,13 +1087,7 @@ export function GrooveWorktreeTerminal({
           })}
         </div>
       ) : (
-        <div
-          className={
-            hasColor
-              ? "max-h-[75vh] overflow-y-auto"
-              : "max-h-[75vh] space-y-2 overflow-y-auto"
-          }
-        >
+        <div className={hasColor ? "" : "space-y-2"}>
           {decoratedSessions.map((entry, index) => {
             const isMinimized = minimizedSessions.has(entry.session.sessionId);
             return (

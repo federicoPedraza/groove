@@ -56,6 +56,8 @@ pub(crate) fn run() {
             workspace_update_root_directory,
             workspace_mark_onboarding_configured,
             workspace_update_worktree_symlink_paths,
+            workspace_set_worktree_state,
+            workspace_claim_worktree_reward,
             workspace_list_symlink_entries,
             workspace_open_terminal,
             workspace_open_workspace_terminal,
@@ -91,6 +93,9 @@ pub(crate) fn run() {
             groove_rm,
             groove_stop,
             groove_summary,
+            groove_comment,
+            groove_comment_mark_committed,
+            groove_discover_worktree_unit,
             groove_bin_status,
             groove_bin_repair,
             diagnostics_stop_process,
@@ -112,7 +117,12 @@ pub(crate) fn run() {
             sync_opencode_config,
             repair_opencode_integration,
             run_opencode_flow,
-            cancel_opencode_flow
+            cancel_opencode_flow,
+            motherduck_get_status,
+            motherduck_set_token,
+            motherduck_clear_token,
+            motherduck_test,
+            motherduck_query
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

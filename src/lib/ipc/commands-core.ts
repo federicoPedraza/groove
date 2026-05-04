@@ -16,6 +16,10 @@ import type {
   WorkspaceWorktreeSymlinkPathsPayload,
   WorkspaceBrowseEntriesPayload,
   WorkspaceBrowseEntriesResponse,
+  SetWorktreeStatePayload,
+  SetWorktreeStateResponse,
+  ClaimWorktreeRewardPayload,
+  ClaimWorktreeRewardResponse,
 } from "./types-core";
 import type {
   GrooveRestorePayload,
@@ -28,6 +32,12 @@ import type {
   GrooveStopResponse,
   GrooveSummaryPayload,
   GrooveSummaryResponse,
+  GrooveCommentPayload,
+  GrooveCommentResponse,
+  GrooveCommentMarkCommittedPayload,
+  GrooveCommentMarkCommittedResponse,
+  DiscoverWorktreeUnitPayload,
+  DiscoverWorktreeUnitResponse,
   WorkspaceOpenTerminalPayload,
   WorkspaceOpenWorkspaceTerminalPayload,
   DiagnosticsStopResponse,
@@ -71,6 +81,30 @@ export function grooveSummary(
   payload: GrooveSummaryPayload,
 ): Promise<GrooveSummaryResponse> {
   return invokeCommand<GrooveSummaryResponse>("groove_summary", { payload });
+}
+
+export function grooveComment(
+  payload: GrooveCommentPayload,
+): Promise<GrooveCommentResponse> {
+  return invokeCommand<GrooveCommentResponse>("groove_comment", { payload });
+}
+
+export function grooveCommentMarkCommitted(
+  payload: GrooveCommentMarkCommittedPayload,
+): Promise<GrooveCommentMarkCommittedResponse> {
+  return invokeCommand<GrooveCommentMarkCommittedResponse>(
+    "groove_comment_mark_committed",
+    { payload },
+  );
+}
+
+export function grooveDiscoverWorktreeUnit(
+  payload: DiscoverWorktreeUnitPayload,
+): Promise<DiscoverWorktreeUnitResponse> {
+  return invokeCommand<DiscoverWorktreeUnitResponse>(
+    "groove_discover_worktree_unit",
+    { payload },
+  );
 }
 
 export function workspaceEvents(
@@ -288,6 +322,24 @@ export function workspaceUpdateWorktreeSymlinkPaths(
 ): Promise<WorkspaceCommandSettingsResponse> {
   return invokeCommand<WorkspaceCommandSettingsResponse>(
     "workspace_update_worktree_symlink_paths",
+    { payload },
+  );
+}
+
+export function workspaceSetWorktreeState(
+  payload: SetWorktreeStatePayload,
+): Promise<SetWorktreeStateResponse> {
+  return invokeCommand<SetWorktreeStateResponse>(
+    "workspace_set_worktree_state",
+    { payload },
+  );
+}
+
+export function workspaceClaimWorktreeReward(
+  payload: ClaimWorktreeRewardPayload,
+): Promise<ClaimWorktreeRewardResponse> {
+  return invokeCommand<ClaimWorktreeRewardResponse>(
+    "workspace_claim_worktree_reward",
     { payload },
   );
 }

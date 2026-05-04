@@ -32,9 +32,10 @@ npm run tauri:build:linux    # Linux AppImage + deb
 npm run tauri:build:macos    # macOS dmg
 
 # Setup (installs platform deps + validates sidecars)
-npm run setup:linux
-npm run setup:macos
-npm run setup:windows
+npm run setup                # Unified entry point (auto-detects OS)
+npm run setup:linux          # or setup:macos / setup:windows
+npm run sidecar:check:linux  # Validate sidecar binaries (also :macos / :windows)
+npm run check:linux-deps     # Verify Linux Tauri system deps
 ```
 
 ### Validation by change scope
@@ -47,9 +48,9 @@ npm run setup:windows
 
 **3-layer structure:**
 
-1. **React UI** (`src/`) — React 19 + TypeScript + Vite 7 SPA. Routes in `src/app/`, components in `src/components/`, shadcn primitives in `src/components/ui/`. Tailwind CSS 4 for styling. Path alias: `@/*` maps to `./`.
+1. **React UI** (`src/`) — React 19 + TypeScript + Vite 7 SPA (dev server on `127.0.0.1:1420`, `strictPort`). Pages under `src/app/` (`page.tsx` dashboard, plus `worktrees/`, `diagnostics/`, `settings/`, `bestiary/`, `intelligence/`), components in `src/components/`, shadcn primitives in `src/components/ui/`. Tailwind CSS 4 for styling. Path alias: `@/*` maps to **repo root** — so imports take the form `@/src/lib/...` and `@/src/components/ui/...` (the leading `src/` is required; `@/components/...` will not resolve).
 
-2. **Typed IPC bridge** (`src/lib/ipc/`) — All frontend-to-backend communication goes through typed command signatures in `commands-core.ts` and `commands-features.ts`, with types in `types-*.ts`. The `invoke.ts` helper wraps Tauri's IPC.
+2. **Typed IPC bridge** (`src/lib/ipc/`) — All frontend-to-backend communication goes through typed command signatures in `commands-core.ts` and `commands-features.ts`, with types in `types-*.ts`. The `invoke.ts` helper wraps Tauri's IPC. The Rust side is registered in `src-tauri/src/backend/frontend_command_registry/` — keep both ends in sync when adding/changing commands.
 
 3. **Rust backend** (`src-tauri/src/backend/`) — Domain-organized modules:
    - `groove_worktree_lifecycle/` — create/restore/remove/play/stop worktrees
@@ -60,6 +61,10 @@ npm run setup:windows
    - `workspace_metadata_settings/` — `.groove/workspace.json` persistence
    - `app_state_management/` — workspace/worktree state
    - `startup_health_checks_binary_validation/` — sidecar validation
+   - `frontend_command_registry/` — Tauri command registration (IPC entry points), grouped per domain (`groove_commands.rs`, `terminal_commands.rs`, `events_commands.rs`, etc.)
+   - `motherduck_database/`, `opencode_integration/` — third-party integrations
+
+   Backend→frontend events are emitted via `app.emit(...)` directly from the relevant module (e.g. `pty_terminal_sessions`, `workspace_discovery_context`, `frontend_command_registry/events_commands.rs`) — there is no central event hub.
 
 **Data flow:** React UI --> typed IPC invoke --> Tauri command --> Rust backend --> Git/filesystem/terminal, with Rust emitting events back to the frontend via Tauri's event system.
 
@@ -75,3 +80,8 @@ npm run setup:windows
 - **Rust:** `Result`-based error handling, no `panic!` for runtime failures.
 - **Tests:** Colocated with source files (`*.test.ts`, `*.test.tsx`). Vitest + Testing Library React + jsdom.
 - **Style matching:** Match existing file style. Small, focused diffs. No unrelated reformatting.
+
+## Related docs
+
+- `AGENTS.md` — longer-form operating guide (validation matrix, reporting expectations, single-test recipes). Treat this CLAUDE.md as the quick-reference; defer to AGENTS.md when conflicts arise on workflow/reporting.
+- `README.md` — user-facing product overview, setup paths, and feature catalog.

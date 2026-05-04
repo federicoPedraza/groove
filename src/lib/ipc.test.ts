@@ -50,7 +50,7 @@ import {
   hasBlockingInvokeInFlight,
   invalidateWorkspaceGetActiveCache,
   isAlwaysShowDiagnosticsSidebarEnabled,
-  isGrooveLoadingSectionDisabled,
+  isGrooveBusinessDisabled,
   isPeriodicRerenderEnabled,
   isShowFpsEnabled,
   isTelemetryEnabled,
@@ -114,8 +114,8 @@ describe("getter functions", () => {
     expect(isTelemetryEnabled()).toBe(true);
   });
 
-  it("isGrooveLoadingSectionDisabled returns false by default", () => {
-    expect(isGrooveLoadingSectionDisabled()).toBe(false);
+  it("isGrooveBusinessDisabled returns false by default", () => {
+    expect(isGrooveBusinessDisabled()).toBe(false);
   });
 
   it("isShowFpsEnabled returns false by default", () => {
@@ -193,7 +193,7 @@ describe("subscribeToGlobalSettings", () => {
       ok: true,
       globalSettings: {
         telemetryEnabled: true,
-        disableGrooveLoadingSection: false,
+        disableGrooveBusiness: false,
         showFps: false,
         alwaysShowDiagnosticsSidebar: false,
         periodicRerenderEnabled: false,
@@ -601,7 +601,7 @@ describe("global settings sync", () => {
         themeMode: "dark",
         alwaysShowDiagnosticsSidebar: true,
         periodicRerenderEnabled: true,
-        disableGrooveLoadingSection: true,
+        disableGrooveBusiness: true,
         opencodeSettings: {
           enabled: true,
           defaultModel: "gpt-4",
@@ -614,7 +614,7 @@ describe("global settings sync", () => {
     expect(getThemeMode()).toBe("dark");
     expect(isAlwaysShowDiagnosticsSidebarEnabled()).toBe(true);
     expect(isPeriodicRerenderEnabled()).toBe(true);
-    expect(isGrooveLoadingSectionDisabled()).toBe(true);
+    expect(isGrooveBusinessDisabled()).toBe(true);
     const snap = getGlobalSettingsSnapshot();
     expect(snap.opencodeSettings.enabled).toBe(true);
     expect(snap.opencodeSettings.defaultModel).toBe("gpt-4");

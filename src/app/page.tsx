@@ -1,21 +1,39 @@
 "use client";
 
 import { AlertTriangle, FolderClock, FolderOpen, Terminal, X } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/src/components/ui/button";
 import { Dropdown } from "@/src/components/ui/dropdown";
-import { DashboardHeader } from "@/src/components/pages/dashboard/dashboard-header";
-import { DashboardModals } from "@/src/components/pages/dashboard/dashboard-modals";
-import { SummaryViewerModal } from "@/src/components/pages/dashboard/summary-viewer-modal";
-import { WorktreesTable } from "@/src/components/pages/dashboard/worktrees-table";
-import { useDashboardState } from "@/src/components/pages/dashboard/hooks/use-dashboard-state";
+import { BarracksHeader } from "@/src/components/pages/barracks/barracks-header";
+import { BarracksModals } from "@/src/components/pages/barracks/barracks-modals";
+import { CommentViewerModal } from "@/src/components/pages/barracks/comment-viewer-modal";
+import { SummaryViewerModal } from "@/src/components/pages/barracks/summary-viewer-modal";
+import { WorktreesTable } from "@/src/components/pages/barracks/worktrees-table";
+import { useBarracksState } from "@/src/components/pages/barracks/hooks/use-barracks-state";
 import { useShortcutRegistration } from "@/src/components/shortcuts/use-shortcut-registration";
 import type { ActionLauncherItem } from "@/src/components/shortcuts/action-launcher";
-import type { WorktreeRow } from "@/src/components/pages/dashboard/types";
-import { grooveSummary } from "@/src/lib/ipc";
-import type { SummaryRecord } from "@/src/lib/ipc";
+import type { WorktreeRow } from "@/src/components/pages/barracks/types";
+import {
+  DEFAULT_WORKTREE_STATE,
+  gitAdd,
+  gitCommit,
+  grooveComment,
+  grooveCommentMarkCommitted,
+  grooveDiscoverWorktreeUnit,
+  grooveSummary,
+  workspaceClaimWorktreeReward,
+  workspaceSetWorktreeState,
+} from "@/src/lib/ipc";
+import type {
+  CommentRecord,
+  SummaryRecord,
+  WorktreeState,
+  WorktreeUnit,
+} from "@/src/lib/ipc";
+import { useGrooveBusiness } from "@/src/lib/groove-business";
+import { applyOptimisticWorktreeState } from "@/src/lib/workspace-store";
 import { toast } from "@/src/lib/toast";
 import { playGrooveHookSound } from "@/src/lib/groove-sound-system";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
@@ -32,19 +50,19 @@ import {
 } from "@/src/components/ui/tooltip";
 
 // eslint-disable-next-line react-refresh/only-export-components
-export function buildDashboardWorktreeDetailShortcutActionables(
+export function buildBarracksWorktreeDetailShortcutActionables(
   activeRows: WorktreeRow[],
   navigate: (path: string) => void,
   runPlayGrooveAction: (row: WorktreeRow) => Promise<void>,
 ): ActionLauncherItem[] {
   return activeRows.map((row) => ({
-    id: `dashboard.worktree-details.${row.worktree}`,
+    id: `barracks.worktree-details.${row.worktree}`,
     type: "dropdown",
     label: row.worktree,
     description: row.branchGuess,
     items: [
       {
-        id: `dashboard.worktree-details.${row.worktree}.open`,
+        id: `barracks.worktree-details.${row.worktree}.open`,
         type: "button",
         label: "Open details",
         description: "Open the worktree details view.",
@@ -53,7 +71,7 @@ export function buildDashboardWorktreeDetailShortcutActionables(
         },
       },
       {
-        id: `dashboard.worktree-details.${row.worktree}.play`,
+        id: `barracks.worktree-details.${row.worktree}.play`,
         type: "button",
         label: "Play Groove",
         description: "Start Groove for this worktree.",
@@ -67,6 +85,9 @@ export function buildDashboardWorktreeDetailShortcutActionables(
 
 export default function Home() {
   const navigate = useNavigate();
+  const grooveBusiness = useGrooveBusiness();
+  const LandIcon = grooveBusiness.Icon("land");
+  const landLabel = grooveBusiness.label("land");
   const {
     activeWorkspace,
     worktreeRows,
@@ -112,7 +133,7 @@ export default function Home() {
     runOpenWorktreeTerminalAction,
     runOpenWorkspaceTerminalAction,
     closeCurrentWorkspace,
-  } = useDashboardState();
+  } = useBarracksState();
 
   const [summarizingSections, setSummarizingSections] = useState<Set<string>>(
     new Set(),
@@ -120,11 +141,27 @@ export default function Home() {
   const [summarizingWorktreeIds, setSummarizingWorktreeIds] = useState<
     Set<string>
   >(new Set());
+  const [discoveringWorktrees, setDiscoveringWorktrees] = useState<Set<string>>(
+    new Set(),
+  );
+  const [newDiscoveryWorktrees, setNewDiscoveryWorktrees] = useState<
+    Set<string>
+  >(new Set());
   const [viewingSummaryState, setViewingSummaryState] = useState<{
     summaries: SummaryRecord[];
     initialIndex: number;
     worktreeIds: string[];
   } | null>(null);
+  const [commentingWorktrees, setCommentingWorktrees] = useState<Set<string>>(
+    new Set(),
+  );
+  const [viewingComment, setViewingComment] = useState<{
+    worktree: string;
+    comment: CommentRecord;
+  } | null>(null);
+  const [attackPendingFor, setAttackPendingFor] = useState<
+    "single" | "all" | null
+  >(null);
 
   const ipcWorkspaceMeta = activeWorkspace?.workspaceMeta as
     | import("@/src/lib/ipc").WorkspaceMeta
@@ -142,9 +179,144 @@ export default function Home() {
     return result;
   }, [ipcWorkspaceMeta?.worktreeRecords]);
 
+  const worktreeStates = useMemo(() => {
+    const records = ipcWorkspaceMeta?.worktreeRecords;
+    if (!records) return {};
+    const result: Record<string, WorktreeState> = {};
+    for (const [worktreeName, record] of Object.entries(records)) {
+      result[worktreeName] = record.state ?? DEFAULT_WORKTREE_STATE;
+    }
+    return result;
+  }, [ipcWorkspaceMeta?.worktreeRecords]);
+
+  const worktreeUnits = useMemo(() => {
+    const records = ipcWorkspaceMeta?.worktreeRecords;
+    if (!records) return {};
+    const result: Record<string, WorktreeUnit | undefined> = {};
+    for (const [worktreeName, record] of Object.entries(records)) {
+      result[worktreeName] = record.unit;
+    }
+    return result;
+  }, [ipcWorkspaceMeta?.worktreeRecords]);
+
+  const handleSetWorktreeState = useCallback(
+    (worktree: string, state: WorktreeState) => {
+      applyOptimisticWorktreeState(worktree, state);
+      void workspaceSetWorktreeState({ worktree, state })
+        .then((response) => {
+          if (!response.ok) {
+            toast.error(response.error ?? "Failed to update worktree state.");
+            return;
+          }
+          void refreshWorktrees();
+        })
+        .catch(() => {
+          toast.error("Failed to update worktree state.");
+        });
+    },
+    [refreshWorktrees],
+  );
+
+  const handleDiscoverWorktree = useCallback(
+    (worktree: string, sessionId: string) => {
+      if (discoveringWorktrees.has(worktree)) return;
+      setDiscoveringWorktrees((prev) => new Set(prev).add(worktree));
+      void grooveDiscoverWorktreeUnit({
+        rootName: ipcWorkspaceMeta?.rootName ?? "",
+        knownWorktrees: worktreeRows
+          .filter((r) => r.status !== "deleted")
+          .map((r) => r.worktree),
+        workspaceMeta: ipcWorkspaceMeta,
+        worktree,
+        sessionId,
+      })
+        .then((response) => {
+          if (!response.ok) {
+            toast.error(response.error ?? "Discover failed.");
+            return;
+          }
+          if (response.wasNewDiscovery) {
+            setNewDiscoveryWorktrees((prev) => new Set(prev).add(worktree));
+          }
+          void refreshWorktrees();
+        })
+        .catch(() => {
+          toast.error("Discover request failed.");
+        })
+        .finally(() => {
+          setDiscoveringWorktrees((prev) => {
+            const next = new Set(prev);
+            next.delete(worktree);
+            return next;
+          });
+        });
+    },
+    [
+      discoveringWorktrees,
+      ipcWorkspaceMeta,
+      refreshWorktrees,
+      worktreeRows,
+    ],
+  );
+
+  const handleClaimWorktreeReward = useCallback(
+    (worktree: string) => {
+      void workspaceClaimWorktreeReward({ worktree })
+        .then((response) => {
+          if (!response.ok) {
+            toast.error(response.error ?? "Failed to claim reward.");
+            return;
+          }
+          void refreshWorktrees();
+        })
+        .catch(() => {
+          toast.error("Failed to claim reward.");
+        });
+    },
+    [refreshWorktrees],
+  );
+
+  const summarizePendingBaselineRef = useRef<Map<string, number>>(new Map());
+
+  const clearSummarizePending = useCallback((sessionId: string) => {
+    summarizePendingBaselineRef.current.delete(sessionId);
+    setSummarizingWorktreeIds((prev) => {
+      if (!prev.has(sessionId)) return prev;
+      const next = new Set(prev);
+      next.delete(sessionId);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (summarizingWorktreeIds.size === 0) return;
+    const idsToClear: string[] = [];
+    for (const sessionId of summarizingWorktreeIds) {
+      const baseline = summarizePendingBaselineRef.current.get(sessionId);
+      if (baseline === undefined) continue;
+      const currentCount = worktreeSummaries[sessionId]?.length ?? 0;
+      if (currentCount > baseline) {
+        idsToClear.push(sessionId);
+      }
+    }
+    if (idsToClear.length === 0) return;
+    for (const id of idsToClear) {
+      summarizePendingBaselineRef.current.delete(id);
+    }
+    setSummarizingWorktreeIds((prev) => {
+      const next = new Set(prev);
+      for (const id of idsToClear) next.delete(id);
+      return next;
+    });
+  }, [summarizingWorktreeIds, worktreeSummaries]);
+
   const handleSummarizeWorktree = useCallback(
     (sessionId: string) => {
       if (!workspaceRoot || summarizingWorktreeIds.has(sessionId)) return;
+      summarizePendingBaselineRef.current.set(
+        sessionId,
+        worktreeSummaries[sessionId]?.length ?? 0,
+      );
       setSummarizingWorktreeIds((prev) => new Set(prev).add(sessionId));
       playGrooveHookSound("summaryStart");
 
@@ -160,6 +332,7 @@ export default function Home() {
           playGrooveHookSound("summaryEnd");
           if (!response.ok) {
             toast.error(response.error ?? "Summary failed.");
+            clearSummarizePending(sessionId);
             return;
           }
           const successEntry = response.summaries.find((s) => s.ok);
@@ -170,20 +343,164 @@ export default function Home() {
                 ? `Summary unavailable: ${errorDetail}`
                 : "Session summary unavailable.",
             );
+            clearSummarizePending(sessionId);
           }
         })
         .catch(() => {
           toast.error("Summary request failed.");
-        })
-        .finally(() => {
-          setSummarizingWorktreeIds((prev) => {
-            const next = new Set(prev);
-            next.delete(sessionId);
-            return next;
-          });
+          clearSummarizePending(sessionId);
         });
     },
-    [ipcWorkspaceMeta, summarizingWorktreeIds, worktreeRows, workspaceRoot],
+    [
+      clearSummarizePending,
+      ipcWorkspaceMeta,
+      summarizingWorktreeIds,
+      worktreeRows,
+      worktreeSummaries,
+      workspaceRoot,
+    ],
+  );
+
+  const worktreeComments = useMemo(() => {
+    const records = ipcWorkspaceMeta?.worktreeRecords;
+    if (!records) return {};
+    const result: Record<string, CommentRecord[]> = {};
+    for (const [worktreeName, record] of Object.entries(records)) {
+      if (record.comments && record.comments.length > 0) {
+        result[worktreeName] = record.comments;
+      }
+    }
+    return result;
+  }, [ipcWorkspaceMeta?.worktreeRecords]);
+
+  const commentPendingBaselineRef = useRef<Map<string, number>>(new Map());
+
+  const clearCommentPending = useCallback((worktree: string) => {
+    commentPendingBaselineRef.current.delete(worktree);
+    setCommentingWorktrees((prev) => {
+      if (!prev.has(worktree)) return prev;
+      const next = new Set(prev);
+      next.delete(worktree);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (commentingWorktrees.size === 0) return;
+    const toClear: string[] = [];
+    for (const worktree of commentingWorktrees) {
+      const baseline = commentPendingBaselineRef.current.get(worktree);
+      if (baseline === undefined) continue;
+      const currentCount = worktreeComments[worktree]?.length ?? 0;
+      if (currentCount > baseline) {
+        toClear.push(worktree);
+      }
+    }
+    if (toClear.length === 0) return;
+    for (const w of toClear) commentPendingBaselineRef.current.delete(w);
+    setCommentingWorktrees((prev) => {
+      const next = new Set(prev);
+      for (const w of toClear) next.delete(w);
+      return next;
+    });
+  }, [commentingWorktrees, worktreeComments]);
+
+  const handleCommentWorktree = useCallback(
+    (worktree: string) => {
+      if (!workspaceRoot || commentingWorktrees.has(worktree)) return;
+      commentPendingBaselineRef.current.set(
+        worktree,
+        worktreeComments[worktree]?.length ?? 0,
+      );
+      setCommentingWorktrees((prev) => new Set(prev).add(worktree));
+
+      void grooveComment({
+        rootName: ipcWorkspaceMeta?.rootName ?? "",
+        knownWorktrees: worktreeRows
+          .filter((r) => r.status !== "deleted")
+          .map((r) => r.worktree),
+        workspaceMeta: ipcWorkspaceMeta,
+        worktree,
+      })
+        .then((response) => {
+          if (!response.ok || !response.comment) {
+            toast.error(response.error ?? "Commit comment failed.");
+            clearCommentPending(worktree);
+          }
+        })
+        .catch(() => {
+          toast.error("Commit comment request failed.");
+          clearCommentPending(worktree);
+        });
+    },
+    [
+      clearCommentPending,
+      commentingWorktrees,
+      ipcWorkspaceMeta,
+      worktreeComments,
+      worktreeRows,
+      workspaceRoot,
+    ],
+  );
+
+  const runAttack = useCallback(
+    async (mode: "single" | "all") => {
+      if (!viewingComment || attackPendingFor !== null) return;
+      const targetRow = worktreeRows.find(
+        (r) => r.worktree === viewingComment.worktree,
+      );
+      if (!targetRow) {
+        toast.error("Worktree not found.");
+        return;
+      }
+      const message = viewingComment.comment.message;
+      const createdAt = viewingComment.comment.createdAt;
+      const knownWorktrees = worktreeRows
+        .filter((r) => r.status !== "deleted")
+        .map((r) => r.worktree);
+
+      setAttackPendingFor(mode);
+      try {
+        if (mode === "all") {
+          const addResp = await gitAdd({ path: targetRow.path });
+          if (!addResp.ok) {
+            toast.error(addResp.error ?? "git add failed.");
+            return;
+          }
+        }
+        const commitResp = await gitCommit({
+          path: targetRow.path,
+          message,
+        });
+        if (!commitResp.ok) {
+          toast.error(commitResp.error ?? "git commit failed.");
+          return;
+        }
+        const markResp = await grooveCommentMarkCommitted({
+          rootName: ipcWorkspaceMeta?.rootName ?? "",
+          knownWorktrees,
+          workspaceMeta: ipcWorkspaceMeta,
+          worktree: viewingComment.worktree,
+          createdAt,
+        });
+        if (!markResp.ok || !markResp.comment) {
+          toast.warning(
+            markResp.error ?? "Commit succeeded but persisting state failed.",
+          );
+          return;
+        }
+        toast.success("Committed.");
+        setViewingComment({
+          worktree: viewingComment.worktree,
+          comment: markResp.comment,
+        });
+      } catch {
+        toast.error("Commit request failed.");
+      } finally {
+        setAttackPendingFor(null);
+      }
+    },
+    [attackPendingFor, ipcWorkspaceMeta, viewingComment, worktreeRows],
   );
 
   const handleSummarizeSection = useCallback(
@@ -242,7 +559,7 @@ export default function Home() {
   const shortcutActionables = useMemo<ActionLauncherItem[]>(() => {
     return [
       {
-        id: "dashboard.refresh",
+        id: "barracks.refresh",
         type: "button",
         label: "Refresh worktrees",
         description: "Rescan workspace worktrees and runtime state.",
@@ -257,7 +574,7 @@ export default function Home() {
     ActionLauncherItem[]
   >(() => {
     const activeRows = worktreeRows.filter((row) => row.status !== "deleted");
-    return buildDashboardWorktreeDetailShortcutActionables(
+    return buildBarracksWorktreeDetailShortcutActionables(
       activeRows,
       navigate,
       runPlayGrooveAction,
@@ -269,16 +586,22 @@ export default function Home() {
     worktreeDetailActionables: worktreeDetailShortcutActionables,
   });
 
-  const dashboardPageSidebar = useCallback(
+  const barracksPageSidebar = useCallback(
     ({ collapsed }: { collapsed: boolean }) => (
       <Sidebar collapsed={collapsed}>
         <SidebarHeader>
           {collapsed ? (
-            <h2 className="text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Dir
-            </h2>
+            <div className="flex justify-center">
+              <LandIcon
+                aria-hidden="true"
+                className="size-4 text-muted-foreground"
+              />
+            </div>
           ) : (
-            <h2 className="text-sm font-semibold">Directory</h2>
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <LandIcon aria-hidden="true" className="size-4" />
+              <span>{landLabel}</span>
+            </h2>
           )}
         </SidebarHeader>
         <SidebarContent className="space-y-3">
@@ -385,6 +708,8 @@ export default function Home() {
       openRecentDirectory,
       setIsCloseWorkspaceConfirmOpen,
       runOpenWorkspaceTerminalAction,
+      LandIcon,
+      landLabel,
     ],
   );
 
@@ -397,14 +722,14 @@ export default function Home() {
       onSelectDirectory: pickDirectory,
       onOpenRecentDirectory: openRecentDirectory,
     },
-    pageSidebar: dashboardPageSidebar,
+    pageSidebar: barracksPageSidebar,
   });
 
   return (
     <>
       {!activeWorkspace ? null : (
         <div aria-live="polite" className="space-y-3">
-          <DashboardHeader
+          <BarracksHeader
             isBusy={isBusy}
             isCreatePending={isCreatePending}
             onCreate={() => {
@@ -528,6 +853,19 @@ export default function Home() {
                 isForgetAllDeletedWorktreesPending={
                   isForgetAllDeletedWorktreesPending
                 }
+                worktreeStates={worktreeStates}
+                worktreeUnits={worktreeUnits}
+                onSetWorktreeState={handleSetWorktreeState}
+                discoveringWorktrees={discoveringWorktrees}
+                newDiscoveryWorktrees={newDiscoveryWorktrees}
+                onDiscoverWorktree={handleDiscoverWorktree}
+                onClaimWorktreeReward={handleClaimWorktreeReward}
+                worktreeComments={worktreeComments}
+                commentingWorktrees={commentingWorktrees}
+                onCommentWorktree={handleCommentWorktree}
+                onViewWorktreeComment={(worktree, comment) => {
+                  setViewingComment({ worktree, comment });
+                }}
               />
             )}
 
@@ -545,7 +883,7 @@ export default function Home() {
         </div>
       )}
 
-      <DashboardModals
+      <BarracksModals
         workspaceRoot={workspaceRoot}
         cutConfirmRow={cutConfirmRow}
         setCutConfirmRow={setCutConfirmRow}
@@ -606,6 +944,21 @@ export default function Home() {
         isCreatePending={
           summarizingWorktreeIds.size > 0 || summarizingSections.size > 0
         }
+      />
+      <CommentViewerModal
+        comment={viewingComment?.comment ?? null}
+        open={viewingComment !== null}
+        onClose={() => {
+          setViewingComment(null);
+        }}
+        onAttack={() => {
+          void runAttack("single");
+        }}
+        onAttackAll={() => {
+          void runAttack("all");
+        }}
+        isAttackPending={attackPendingFor === "single"}
+        isAttackAllPending={attackPendingFor === "all"}
       />
     </>
   );

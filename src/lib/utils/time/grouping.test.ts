@@ -62,6 +62,11 @@ describe("getRelativeAgeGroupLabel", () => {
     expect(getRelativeAgeGroupLabel(timestamp, now)).toBe("5 days ago");
   });
 
+  it("returns 'N days ago' instead of '1 months ago' when monthDiff is exactly 1", () => {
+    const timestamp = new Date(2025, 4, 20, 12, 0, 0); // May 20, 2025
+    expect(getRelativeAgeGroupLabel(timestamp, now)).toBe("26 days ago");
+  });
+
   it("returns 'N months ago' for different months in the same year", () => {
     const timestamp = new Date(2025, 2, 15, 12, 0, 0); // March 15, 2025
     expect(getRelativeAgeGroupLabel(timestamp, now)).toBe("3 months ago");

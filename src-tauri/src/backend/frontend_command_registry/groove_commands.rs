@@ -1442,6 +1442,378 @@ fn groove_summary_blocking(
     }
 }
 
+#[tauri::command]
+async fn groove_comment(app: AppHandle, payload: GrooveCommentPayload) -> GrooveCommentResponse {
+    let request_id = request_id();
+    let fallback_request_id = request_id.clone();
+
+    match tauri::async_runtime::spawn_blocking(move || {
+        groove_comment_blocking(app, payload, request_id)
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => GrooveCommentResponse {
+            request_id: fallback_request_id,
+            ok: false,
+            comment: None,
+            error: Some(format!("Failed to run groove comment worker thread: {error}")),
+        },
+    }
+}
+
+const GROOVE_COMMENT_DIFF_BUDGET: usize = 48 * 1024;
+
+fn truncate_to_budget(value: &str, budget: usize) -> String {
+    if value.len() <= budget {
+        return value.to_string();
+    }
+    let mut truncated = value[..budget].to_string();
+    truncated.push_str("\n... [truncated]\n");
+    truncated
+}
+
+fn groove_comment_blocking(
+    app: AppHandle,
+    payload: GrooveCommentPayload,
+    request_id: String,
+) -> GrooveCommentResponse {
+    let trimmed_worktree = payload.worktree.trim();
+    if trimmed_worktree.is_empty() {
+        return GrooveCommentResponse {
+            request_id,
+            ok: false,
+            comment: None,
+            error: Some("worktree is required.".to_string()),
+        };
+    }
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveCommentResponse {
+                request_id,
+                ok: false,
+                comment: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return GrooveCommentResponse {
+                request_id,
+                ok: false,
+                comment: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    let parsed_meta = match read_workspace_meta_file(&workspace_json) {
+        Ok(meta) => meta,
+        Err(error) => {
+            return GrooveCommentResponse {
+                request_id,
+                ok: false,
+                comment: None,
+                error: Some(format!("Failed to read workspace.json: {error}")),
+            }
+        }
+    };
+    let effective_root = effective_workspace_root(&workspace_root, &parsed_meta);
+
+    let worktree_path = effective_root.join(".worktrees").join(trimmed_worktree);
+    if !worktree_path.is_dir() {
+        return GrooveCommentResponse {
+            request_id,
+            ok: false,
+            comment: None,
+            error: Some(format!(
+                "Worktree directory not found: {}",
+                worktree_path.display()
+            )),
+        };
+    }
+
+    let worktree_id = parsed_meta
+        .worktree_records
+        .get(trimmed_worktree)
+        .map(|record| record.id.clone());
+    let Some(worktree_id) = worktree_id else {
+        return GrooveCommentResponse {
+            request_id,
+            ok: false,
+            comment: None,
+            error: Some(format!(
+                "No worktree record for \"{trimmed_worktree}\". Discover the worktree first."
+            )),
+        };
+    };
+
+    let status_result = run_git_command_at_path(&worktree_path, &["status", "--porcelain"]);
+    if let Some(error) = status_result.error.clone() {
+        return GrooveCommentResponse {
+            request_id,
+            ok: false,
+            comment: None,
+            error: Some(error),
+        };
+    }
+    let status_output = status_result.stdout.trim();
+    if status_output.is_empty() {
+        return GrooveCommentResponse {
+            request_id,
+            ok: false,
+            comment: None,
+            error: Some("No changes to comment on. Working tree is clean.".to_string()),
+        };
+    }
+
+    let diff_unstaged = run_git_command_at_path(&worktree_path, &["diff"]);
+    let diff_staged = run_git_command_at_path(&worktree_path, &["diff", "--cached"]);
+
+    let mut diff_text = String::new();
+    let unstaged = diff_unstaged.stdout.trim();
+    let staged = diff_staged.stdout.trim();
+    if !staged.is_empty() {
+        diff_text.push_str("# Staged diff\n");
+        diff_text.push_str(staged);
+        diff_text.push_str("\n\n");
+    }
+    if !unstaged.is_empty() {
+        diff_text.push_str("# Unstaged diff\n");
+        diff_text.push_str(unstaged);
+    }
+    let diff_text = truncate_to_budget(&diff_text, GROOVE_COMMENT_DIFF_BUDGET);
+
+    let prompt = format!(
+        "Write a single conventional-commit message for the changes below. \
+Output ONLY the commit message text — no quotes, no markdown fences, no preamble. \
+First line: type(scope?): subject (<= 72 chars, imperative, lowercase after type). \
+If meaningful, add a blank line and a short body explaining the why. \
+Do not include file lists or trivia.\n\n# git status --porcelain\n{}\n\n{}",
+        status_output, diff_text
+    );
+
+    let claude_bin = resolve_claude_code_bin();
+    eprintln!(
+        "[groove-comment] running claude -p ... at {}",
+        worktree_path.display()
+    );
+    let output = Command::new(&claude_bin)
+        .args(["-p", &prompt, "--output-format", "text"])
+        .current_dir(&worktree_path)
+        .output();
+
+    let message = match output {
+        Ok(out) if out.status.success() => {
+            let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if raw.is_empty() {
+                return GrooveCommentResponse {
+                    request_id,
+                    ok: false,
+                    comment: None,
+                    error: Some("Claude returned an empty commit message.".to_string()),
+                };
+            }
+            raw
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            return GrooveCommentResponse {
+                request_id,
+                ok: false,
+                comment: None,
+                error: Some(if !stderr.is_empty() {
+                    stderr
+                } else if !stdout.is_empty() {
+                    stdout
+                } else {
+                    format!("Claude exited with status {:?}", out.status.code())
+                }),
+            };
+        }
+        Err(error) => {
+            return GrooveCommentResponse {
+                request_id,
+                ok: false,
+                comment: None,
+                error: Some(format!("Failed to execute claude: {error}")),
+            };
+        }
+    };
+
+    let now = now_iso();
+    let new_record = CommentRecord {
+        worktree_id: worktree_id.clone(),
+        created_at: now.clone(),
+        message: message.clone(),
+        state: CommentState::Uncommitted,
+    };
+
+    if let Ok(mut workspace_meta) = read_workspace_meta_file(&workspace_json) {
+        if let Some(record) = workspace_meta.worktree_records.get_mut(trimmed_worktree) {
+            record.comments.push(new_record.clone());
+            workspace_meta.updated_at = now_iso();
+            let _ = write_workspace_meta_file(&workspace_json, &workspace_meta);
+        }
+    }
+
+    GrooveCommentResponse {
+        request_id,
+        ok: true,
+        comment: Some(new_record),
+        error: None,
+    }
+}
+
+#[tauri::command]
+async fn groove_comment_mark_committed(
+    app: AppHandle,
+    payload: GrooveCommentMarkCommittedPayload,
+) -> GrooveCommentMarkCommittedResponse {
+    let request_id = request_id();
+    let fallback_request_id = request_id.clone();
+
+    match tauri::async_runtime::spawn_blocking(move || {
+        groove_comment_mark_committed_blocking(app, payload, request_id)
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => GrooveCommentMarkCommittedResponse {
+            request_id: fallback_request_id,
+            ok: false,
+            comment: None,
+            error: Some(format!(
+                "Failed to run groove comment mark-committed worker thread: {error}"
+            )),
+        },
+    }
+}
+
+fn groove_comment_mark_committed_blocking(
+    app: AppHandle,
+    payload: GrooveCommentMarkCommittedPayload,
+    request_id: String,
+) -> GrooveCommentMarkCommittedResponse {
+    let trimmed_worktree = payload.worktree.trim();
+    if trimmed_worktree.is_empty() {
+        return GrooveCommentMarkCommittedResponse {
+            request_id,
+            ok: false,
+            comment: None,
+            error: Some("worktree is required.".to_string()),
+        };
+    }
+    let trimmed_created_at = payload.created_at.trim();
+    if trimmed_created_at.is_empty() {
+        return GrooveCommentMarkCommittedResponse {
+            request_id,
+            ok: false,
+            comment: None,
+            error: Some("createdAt is required.".to_string()),
+        };
+    }
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveCommentMarkCommittedResponse {
+                request_id,
+                ok: false,
+                comment: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return GrooveCommentMarkCommittedResponse {
+                request_id,
+                ok: false,
+                comment: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    let mut workspace_meta = match read_workspace_meta_file(&workspace_json) {
+        Ok(meta) => meta,
+        Err(error) => {
+            return GrooveCommentMarkCommittedResponse {
+                request_id,
+                ok: false,
+                comment: None,
+                error: Some(format!("Failed to read workspace.json: {error}")),
+            }
+        }
+    };
+
+    let Some(record) = workspace_meta.worktree_records.get_mut(trimmed_worktree) else {
+        return GrooveCommentMarkCommittedResponse {
+            request_id,
+            ok: false,
+            comment: None,
+            error: Some(format!("No worktree record for \"{trimmed_worktree}\".")),
+        };
+    };
+
+    let Some(comment) = record
+        .comments
+        .iter_mut()
+        .find(|c| c.created_at == trimmed_created_at)
+    else {
+        return GrooveCommentMarkCommittedResponse {
+            request_id,
+            ok: false,
+            comment: None,
+            error: Some(format!(
+                "No comment with createdAt={trimmed_created_at} for worktree \"{trimmed_worktree}\"."
+            )),
+        };
+    };
+
+    comment.state = CommentState::Committed;
+    let updated = comment.clone();
+    workspace_meta.updated_at = now_iso();
+    if let Err(error) = write_workspace_meta_file(&workspace_json, &workspace_meta) {
+        return GrooveCommentMarkCommittedResponse {
+            request_id,
+            ok: false,
+            comment: None,
+            error: Some(error),
+        };
+    }
+
+    GrooveCommentMarkCommittedResponse {
+        request_id,
+        ok: true,
+        comment: Some(updated),
+        error: None,
+    }
+}
+
 #[cfg(test)]
 mod groove_commands_tests {
     use super::*;
@@ -1595,6 +1967,16 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
                 stderr: result.stderr,
                 error: Some(error),
             };
+        }
+        if let Err(sync_error) =
+            sync_worktree_records_with_disk(&workspace_root, &effective_root)
+        {
+            if !result.stderr.trim().is_empty() {
+                result.stderr.push('\n');
+            }
+            result.stderr.push_str(&format!(
+                "Warning: failed to sync worktree records with disk: {sync_error}"
+            ));
         }
         if let Err(error) =
             record_worktree_last_executed_at(&app, &workspace_root, &stamped_worktree)
@@ -2013,4 +2395,267 @@ fn groove_stop(app: AppHandle, payload: GrooveStopPayload) -> GrooveStopResponse
     }
 
     response
+}
+
+const DISCOVER_PROMPT: &str = "Analyze the work done in this Claude session. Rate its difficulty on a scale 1-5 based on the following cheatsheet, then respond with ONLY a single digit (1, 2, 3, 4, or 5). No words, no punctuation, no explanation.\n\nCheatsheet:\n- 1: UI fixes, fixes that look accidentally placed on someone else's PR.\n- 2: Bugs, crashing bugs, backend weird-to-find or missing things.\n- 3: Features, complex backend discovery, many attempts at fixing this bug because of PR reviewers.\n- 4: Complex, weird-to-explain, weird-to-find, non-features, complex backend analysis (few attempts).\n- 5: Same as 4 but with many attempts.\n\nRespond with a single digit only.";
+
+#[tauri::command]
+async fn groove_discover_worktree_unit(
+    app: AppHandle,
+    payload: DiscoverWorktreeUnitPayload,
+) -> DiscoverWorktreeUnitResponse {
+    let request_id = request_id();
+    let fallback_request_id = request_id.clone();
+
+    match tauri::async_runtime::spawn_blocking(move || {
+        groove_discover_worktree_unit_blocking(app, payload, request_id)
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => DiscoverWorktreeUnitResponse {
+            request_id: fallback_request_id,
+            ok: false,
+            unit: None,
+            level: None,
+            raw_claude_output: None,
+            was_new_discovery: false,
+            error: Some(format!(
+                "Failed to run groove discover worker thread: {error}"
+            )),
+        },
+    }
+}
+
+fn groove_discover_worktree_unit_blocking(
+    app: AppHandle,
+    payload: DiscoverWorktreeUnitPayload,
+    request_id: String,
+) -> DiscoverWorktreeUnitResponse {
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return DiscoverWorktreeUnitResponse {
+            request_id,
+            ok: false,
+            unit: None,
+            level: None,
+            raw_claude_output: None,
+            was_new_discovery: false,
+            error: Some("worktree is required.".to_string()),
+        };
+    }
+    let session_id = payload.session_id.trim();
+    if session_id.is_empty() {
+        return DiscoverWorktreeUnitResponse {
+            request_id,
+            ok: false,
+            unit: None,
+            level: None,
+            raw_claude_output: None,
+            was_new_discovery: false,
+            error: Some("sessionId is required.".to_string()),
+        };
+    }
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(value) => value,
+        Err(error) => {
+            return DiscoverWorktreeUnitResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                level: None,
+                raw_claude_output: None,
+                was_new_discovery: false,
+                error: Some(error),
+            };
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return DiscoverWorktreeUnitResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                level: None,
+                raw_claude_output: None,
+                was_new_discovery: false,
+                error: Some(error),
+            };
+        }
+    };
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    let parsed_meta = read_workspace_meta_file(&workspace_json).ok();
+    let effective_root = parsed_meta
+        .as_ref()
+        .map(|meta| effective_workspace_root(&workspace_root, meta))
+        .unwrap_or_else(|| workspace_root.clone());
+    let cwd = {
+        let candidate = effective_root.join(".worktrees").join(worktree);
+        if candidate.is_dir() {
+            candidate
+        } else {
+            effective_root
+        }
+    };
+
+    let resolved_session_id = match resolve_existing_claude_session_id(&cwd, session_id) {
+        Some(value) => value,
+        None => {
+            return DiscoverWorktreeUnitResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                level: None,
+                raw_claude_output: None,
+                was_new_discovery: false,
+                error: Some("No Claude session for this worktree.".to_string()),
+            };
+        }
+    };
+
+    let claude_bin = resolve_claude_code_bin();
+    eprintln!(
+        "[groove-discover] running claude --resume {} (stored={}) -p '...' --output-format text in {}",
+        resolved_session_id,
+        session_id,
+        cwd.display(),
+    );
+
+    let output = Command::new(&claude_bin)
+        .args([
+            "--resume",
+            &resolved_session_id,
+            "-p",
+            DISCOVER_PROMPT,
+            "--output-format",
+            "text",
+        ])
+        .current_dir(&cwd)
+        .output();
+
+    let raw = match output {
+        Ok(out) if out.status.success() => {
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return DiscoverWorktreeUnitResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                level: None,
+                raw_claude_output: Some(if stdout.is_empty() { stderr } else { stdout }),
+                was_new_discovery: false,
+                error: Some(format!(
+                    "Claude exited with status {:?}",
+                    out.status.code(),
+                )),
+            };
+        }
+        Err(error) => {
+            return DiscoverWorktreeUnitResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                level: None,
+                raw_claude_output: None,
+                was_new_discovery: false,
+                error: Some(format!("Failed to spawn claude: {error}")),
+            };
+        }
+    };
+
+    let level = parse_claude_difficulty(&raw);
+    eprintln!(
+        "[groove-discover] worktree={} raw={:?} parsed_level={}",
+        worktree, raw, level,
+    );
+
+    // Read the freshest meta, roll the unit at the discovered level, and
+    // persist the unit on the worktree's record.
+    let mut meta = match read_workspace_meta_file(&workspace_json) {
+        Ok(meta) => meta,
+        Err(error) => {
+            return DiscoverWorktreeUnitResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                level: Some(level),
+                raw_claude_output: Some(raw),
+                was_new_discovery: false,
+                error: Some(error),
+            };
+        }
+    };
+
+    let unit = roll_worktree_unit_with_level(level);
+
+    // If a new bug, register it in the workspace's `known_bugs` bestiary.
+    let was_new_discovery = unit.kind == WorktreeUnitKind::Bug
+        && !unit.name.is_empty()
+        && !meta.known_bugs.contains(&unit.name);
+    if was_new_discovery {
+        meta.known_bugs.push(unit.name.clone());
+    }
+
+    let record = meta
+        .worktree_records
+        .entry(worktree.to_string())
+        .or_insert_with(|| WorktreeRecord {
+            id: Uuid::new_v4().to_string(),
+            created_at: now_iso(),
+            claude_session_started: false,
+            state: default_worktree_state(),
+            unit: None,
+            summaries: Vec::new(),
+            comments: Vec::new(),
+        });
+    record.unit = Some(unit.clone());
+    meta.updated_at = now_iso();
+
+    if let Err(error) = write_workspace_meta_file(&workspace_json, &meta) {
+        return DiscoverWorktreeUnitResponse {
+            request_id,
+            ok: false,
+            unit: None,
+            level: Some(level),
+            raw_claude_output: Some(raw),
+            was_new_discovery: false,
+            error: Some(error),
+        };
+    }
+
+    let patched_unit = unit.clone();
+    let patched_worktree = worktree.to_string();
+    let patched_updated_at = meta.updated_at.clone();
+    patch_workspace_context_cache(&app, &workspace_root, |response| {
+        let Some(meta) = response.workspace_meta.as_mut() else {
+            return;
+        };
+        if let Some(record) = meta.worktree_records.get_mut(&patched_worktree) {
+            record.unit = Some(patched_unit);
+        }
+        meta.updated_at = patched_updated_at;
+    });
+
+    DiscoverWorktreeUnitResponse {
+        request_id,
+        ok: true,
+        unit: Some(unit),
+        level: Some(level),
+        raw_claude_output: Some(raw),
+        was_new_discovery,
+        error: None,
+    }
 }

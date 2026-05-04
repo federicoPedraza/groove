@@ -24,7 +24,7 @@ import {
   SoundWaveform,
   type SoundWaveformStatus,
 } from "@/src/components/ui/sound-waveform";
-import { SOFT_GREEN_BUTTON_CLASSES } from "@/src/components/pages/dashboard/constants";
+import { SOFT_GREEN_BUTTON_CLASSES } from "@/src/components/pages/barracks/constants";
 import type { ClaudeCodeSoundSettings, SoundLibraryEntry } from "@/src/lib/ipc";
 import { globalSettingsUpdate, soundLibraryImport } from "@/src/lib/ipc";
 import { playCustomSound, playNotificationSound } from "@/src/lib/utils/sound";

@@ -45,11 +45,6 @@ vi.mock(
   }),
 );
 
-vi.mock("@/src/components/pages/help/help-modal", () => ({
-  HelpModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="help-modal" /> : null,
-}));
-
 vi.mock("@/src/lib/toast", () => ({
   toast: {
     success: vi.fn(),
@@ -93,8 +88,12 @@ describe("PageShell helper functions", () => {
 });
 
 describe("PageShell component", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { clearWorkspaceContextStore } = await import(
+      "@/src/lib/workspace-store"
+    );
+    clearWorkspaceContextStore();
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       workspaceRoot: "/test/workspace",

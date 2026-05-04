@@ -148,6 +148,36 @@ fn invalidate_workspace_context_cache(app: &AppHandle, workspace_root: &Path) {
     };
 }
 
+/// Mutates the cached `WorkspaceContextResponse` in place (if any) and
+/// refreshes the signature so the next `try_cached_workspace_context` call
+/// continues to serve the patched response without going through the full
+/// `build_workspace_context` rebuild.
+///
+/// Used by mutation handlers that already know exactly what changed (e.g.,
+/// `workspace_set_worktree_state`) — saves a full re-`scan_workspace_worktrees`
+/// after the mutation.
+fn patch_workspace_context_cache(
+    app: &AppHandle,
+    workspace_root: &Path,
+    patch: impl FnOnce(&mut WorkspaceContextResponse),
+) {
+    let Some(cache_state) = app.try_state::<WorkspaceContextCacheState>() else {
+        return;
+    };
+    let Ok(signature) = workspace_context_signature(app, workspace_root) else {
+        return;
+    };
+    let Ok(mut entries) = cache_state.entries.lock() else {
+        return;
+    };
+    let key = workspace_context_cache_key(workspace_root);
+    let Some(entry) = entries.get_mut(&key) else {
+        return;
+    };
+    patch(&mut entry.response);
+    entry.signature = signature;
+}
+
 fn clear_workspace_context_cache(app: &AppHandle) {
     let Some(cache_state) = app.try_state::<WorkspaceContextCacheState>() else {
         return;

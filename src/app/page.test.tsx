@@ -8,23 +8,28 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-import type { WorktreeRow } from "../components/pages/dashboard/types";
+import type { WorktreeRow } from "../components/pages/barracks/types";
 import type { SummaryRecord } from "@/src/lib/ipc";
-import { buildDashboardWorktreeDetailShortcutActionables } from "./page";
+import { buildBarracksWorktreeDetailShortcutActionables } from "./page";
 
-const { useDashboardStateMock, grooveSummaryMock, useAppLayoutMock } =
+const { useBarracksStateMock, grooveSummaryMock, useAppLayoutMock } =
   vi.hoisted(() => ({
-    useDashboardStateMock: vi.fn(),
+    useBarracksStateMock: vi.fn(),
     grooveSummaryMock: vi.fn(),
     useAppLayoutMock: vi.fn(),
   }));
 
-vi.mock("@/src/components/pages/dashboard/hooks/use-dashboard-state", () => ({
-  useDashboardState: useDashboardStateMock,
+vi.mock("@/src/components/pages/barracks/hooks/use-barracks-state", () => ({
+  useBarracksState: useBarracksStateMock,
 }));
 
 vi.mock("@/src/lib/ipc", () => ({
+  DEFAULT_WORKTREE_STATE: "pending",
+  WORKTREE_STATES: ["pending", "fighting", "wounded", "defeated", "blocked", "forgotten"],
   grooveSummary: grooveSummaryMock,
+  workspaceSetWorktreeState: vi.fn(async () => ({ ok: true })),
+  isGrooveBusinessDisabled: vi.fn(() => false),
+  subscribeToGlobalSettings: vi.fn(() => () => {}),
 }));
 
 vi.mock("@/src/lib/toast", () => ({
@@ -43,23 +48,23 @@ vi.mock("@/src/components/shortcuts/use-shortcut-registration", () => ({
   useShortcutRegistration: vi.fn(),
 }));
 
-vi.mock("@/src/components/pages/dashboard/dashboard-header", () => ({
-  DashboardHeader: ({
+vi.mock("@/src/components/pages/barracks/barracks-header", () => ({
+  BarracksHeader: ({
     onRefresh,
     onCreate,
   }: {
     onRefresh: () => void;
     onCreate: () => void;
   }) => (
-    <div data-testid="dashboard-header">
+    <div data-testid="barracks-header">
       <button onClick={onRefresh}>Refresh</button>
       <button onClick={onCreate}>Create</button>
     </div>
   ),
 }));
 
-vi.mock("@/src/components/pages/dashboard/dashboard-modals", () => ({
-  DashboardModals: (props: {
+vi.mock("@/src/components/pages/barracks/barracks-modals", () => ({
+  BarracksModals: (props: {
     onRunCutGrooveAction: (row: WorktreeRow, force: boolean) => void;
     onCloseCurrentWorkspace: () => void;
     onRunCreateWorktreeAction: (options: {
@@ -67,7 +72,7 @@ vi.mock("@/src/components/pages/dashboard/dashboard-modals", () => ({
       base: string;
     }) => void;
   }) => (
-    <div data-testid="dashboard-modals">
+    <div data-testid="barracks-modals">
       <button
         onClick={() =>
           props.onRunCutGrooveAction(
@@ -92,7 +97,7 @@ vi.mock("@/src/components/pages/dashboard/dashboard-modals", () => ({
   ),
 }));
 
-vi.mock("@/src/components/pages/dashboard/summary-viewer-modal", () => ({
+vi.mock("@/src/components/pages/barracks/summary-viewer-modal", () => ({
   SummaryViewerModal: ({
     open,
     onClose,
@@ -116,7 +121,7 @@ vi.mock("@/src/components/pages/dashboard/summary-viewer-modal", () => ({
     ) : null,
 }));
 
-vi.mock("@/src/components/pages/dashboard/worktrees-table", () => ({
+vi.mock("@/src/components/pages/barracks/worktrees-table", () => ({
   WorktreesTable: (props: {
     onSummarizeWorktree: (id: string) => void;
     onSummarizeSection: (key: string, ids: string[]) => void;
@@ -208,9 +213,9 @@ function makeWorktreeRow(worktree: string, branchGuess: string): WorktreeRow {
   } as WorktreeRow;
 }
 
-describe("buildDashboardWorktreeDetailShortcutActionables", () => {
+describe("buildBarracksWorktreeDetailShortcutActionables", () => {
   it("returns per-worktree dropdowns directly at root", () => {
-    const items = buildDashboardWorktreeDetailShortcutActionables(
+    const items = buildBarracksWorktreeDetailShortcutActionables(
       [
         makeWorktreeRow("alpha", "feature/alpha"),
         makeWorktreeRow("beta", "feature/beta"),
@@ -221,10 +226,10 @@ describe("buildDashboardWorktreeDetailShortcutActionables", () => {
 
     expect(items).toHaveLength(2);
     expect(items.map((item) => item.id)).toEqual([
-      "dashboard.worktree-details.alpha",
-      "dashboard.worktree-details.beta",
+      "barracks.worktree-details.alpha",
+      "barracks.worktree-details.beta",
     ]);
-    expect(items.some((item) => item.id === "dashboard.worktree-details")).toBe(
+    expect(items.some((item) => item.id === "barracks.worktree-details")).toBe(
       false,
     );
   });
@@ -233,7 +238,7 @@ describe("buildDashboardWorktreeDetailShortcutActionables", () => {
     const navigate = vi.fn();
     const runPlayGrooveAction = vi.fn(async () => {});
     const row = makeWorktreeRow("alpha", "feature/alpha");
-    const [item] = buildDashboardWorktreeDetailShortcutActionables(
+    const [item] = buildBarracksWorktreeDetailShortcutActionables(
       [row],
       navigate,
       runPlayGrooveAction,
@@ -256,7 +261,7 @@ describe("buildDashboardWorktreeDetailShortcutActionables", () => {
   });
 
   it("returns empty array for empty input", () => {
-    const items = buildDashboardWorktreeDetailShortcutActionables(
+    const items = buildBarracksWorktreeDetailShortcutActionables(
       [],
       vi.fn(),
       vi.fn(async () => {}),
@@ -267,7 +272,7 @@ describe("buildDashboardWorktreeDetailShortcutActionables", () => {
   it("encodes worktree names with special characters in navigation path", () => {
     const navigate = vi.fn();
     const row = makeWorktreeRow("feat/my branch", "feature/my-branch");
-    const [item] = buildDashboardWorktreeDetailShortcutActionables(
+    const [item] = buildBarracksWorktreeDetailShortcutActionables(
       [row],
       navigate,
       vi.fn(async () => {}),
@@ -287,7 +292,7 @@ describe("buildDashboardWorktreeDetailShortcutActionables", () => {
   });
 
   it("uses worktree name as label and branchGuess as description", () => {
-    const items = buildDashboardWorktreeDetailShortcutActionables(
+    const items = buildBarracksWorktreeDetailShortcutActionables(
       [makeWorktreeRow("my-tree", "main")],
       vi.fn(),
       vi.fn(async () => {}),
@@ -298,7 +303,7 @@ describe("buildDashboardWorktreeDetailShortcutActionables", () => {
   });
 
   it("sets item type to dropdown with two sub-items", () => {
-    const items = buildDashboardWorktreeDetailShortcutActionables(
+    const items = buildBarracksWorktreeDetailShortcutActionables(
       [makeWorktreeRow("alpha", "feature/alpha")],
       vi.fn(),
       vi.fn(async () => {}),
@@ -314,7 +319,7 @@ describe("buildDashboardWorktreeDetailShortcutActionables", () => {
   });
 });
 
-function makeDashboardState(overrides: Record<string, unknown> = {}) {
+function makeBarracksState(overrides: Record<string, unknown> = {}) {
   return {
     activeWorkspace: null,
     worktreeRows: [],
@@ -378,16 +383,16 @@ describe("Home component", () => {
   });
 
   it("renders nothing for content area when no workspace is active", async () => {
-    useDashboardStateMock.mockReturnValue(makeDashboardState());
+    useBarracksStateMock.mockReturnValue(makeBarracksState());
     const { default: Home } = await import("./page");
     render(<Home />);
-    expect(screen.getByTestId("dashboard-modals")).toBeTruthy();
-    expect(screen.queryByTestId("dashboard-header")).toBeNull();
+    expect(screen.getByTestId("barracks-modals")).toBeTruthy();
+    expect(screen.queryByTestId("barracks-header")).toBeNull();
   });
 
-  it("renders dashboard content when workspace is active", async () => {
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+  it("renders barracks content when workspace is active", async () => {
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -425,13 +430,13 @@ describe("Home component", () => {
     );
     const { default: Home } = await import("./page");
     render(<Home />);
-    expect(screen.getByTestId("dashboard-header")).toBeTruthy();
+    expect(screen.getByTestId("barracks-header")).toBeTruthy();
     expect(screen.getByTestId("worktrees-table")).toBeTruthy();
   });
 
   it("shows no .worktrees directory message", async () => {
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -454,8 +459,8 @@ describe("Home component", () => {
   });
 
   it("shows empty worktrees message when directory exists but no rows", async () => {
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -478,8 +483,8 @@ describe("Home component", () => {
   });
 
   it("shows status and error messages", async () => {
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -505,8 +510,8 @@ describe("Home component", () => {
 
   it("calls refreshWorktrees when header refresh is clicked", async () => {
     const refreshMock = vi.fn();
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -537,8 +542,8 @@ describe("Home component", () => {
       ok: true,
       summaries: [{ ok: true, summary: "test" }],
     });
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -577,8 +582,8 @@ describe("Home component", () => {
       error: "Failed",
       summaries: [],
     });
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -614,8 +619,8 @@ describe("Home component", () => {
       ok: true,
       summaries: [{ ok: false, error: "unavailable" }],
     });
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -652,8 +657,8 @@ describe("Home component", () => {
       ok: true,
       summaries: [{ ok: true }],
     });
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -691,8 +696,8 @@ describe("Home component", () => {
       ok: true,
       summaries: [{ ok: false }],
     });
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -727,8 +732,8 @@ describe("Home component", () => {
   it("handles summarize exception", async () => {
     const { toast } = await import("@/src/lib/toast");
     grooveSummaryMock.mockRejectedValue(new Error("network"));
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -759,8 +764,8 @@ describe("Home component", () => {
   });
 
   it("opens and closes summary viewer modal", async () => {
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -803,8 +808,8 @@ describe("Home component", () => {
   });
 
   it("opens section summary viewer", async () => {
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -840,8 +845,8 @@ describe("Home component", () => {
   it("calls window.confirm for forget all deleted worktrees", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const forgetMock = vi.fn();
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -872,8 +877,8 @@ describe("Home component", () => {
   it("does not forget deleted worktrees when confirm is cancelled", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
     const forgetMock = vi.fn();
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -904,8 +909,8 @@ describe("Home component", () => {
     const setIsCreateModalOpenMock = vi.fn();
     const setCreateBranchMock = vi.fn();
     const setCreateBaseMock = vi.fn();
-    useDashboardStateMock.mockReturnValue(
-      makeDashboardState({
+    useBarracksStateMock.mockReturnValue(
+      makeBarracksState({
         activeWorkspace: {
           workspaceRoot: "/repo",
           workspaceMeta: {
@@ -947,8 +952,8 @@ describe("Home component", () => {
           capturedOptions = options;
         },
       );
-      useDashboardStateMock.mockReturnValue(
-        makeDashboardState({
+      useBarracksStateMock.mockReturnValue(
+        makeBarracksState({
           activeWorkspace: {
             workspaceRoot: "/repo",
             workspaceMeta: {
@@ -1040,9 +1045,9 @@ describe("Home component", () => {
   });
 
   describe("WorktreesTable callback wrappers", () => {
-    function renderDashboardWithTable(overrides: Record<string, unknown> = {}) {
-      useDashboardStateMock.mockReturnValue(
-        makeDashboardState({
+    function renderBarracksWithTable(overrides: Record<string, unknown> = {}) {
+      useBarracksStateMock.mockReturnValue(
+        makeBarracksState({
           activeWorkspace: {
             workspaceRoot: "/repo",
             workspaceMeta: {
@@ -1078,7 +1083,7 @@ describe("Home component", () => {
 
     it("calls copyBranchName when onCopyBranchName is triggered", async () => {
       const copyBranchNameMock = vi.fn();
-      renderDashboardWithTable({ copyBranchName: copyBranchNameMock });
+      renderBarracksWithTable({ copyBranchName: copyBranchNameMock });
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Copy Branch"));
@@ -1089,7 +1094,7 @@ describe("Home component", () => {
 
     it("calls runRestoreAction when onRestoreAction is triggered", async () => {
       const runRestoreActionMock = vi.fn();
-      renderDashboardWithTable({ runRestoreAction: runRestoreActionMock });
+      renderBarracksWithTable({ runRestoreAction: runRestoreActionMock });
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Restore"));
@@ -1100,7 +1105,7 @@ describe("Home component", () => {
 
     it("calls setCutConfirmRow when onCutConfirm is triggered", async () => {
       const setCutConfirmRowMock = vi.fn();
-      renderDashboardWithTable({ setCutConfirmRow: setCutConfirmRowMock });
+      renderBarracksWithTable({ setCutConfirmRow: setCutConfirmRowMock });
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Cut Confirm"));
@@ -1111,7 +1116,7 @@ describe("Home component", () => {
 
     it("calls runStopAction when onStopAction is triggered", async () => {
       const runStopActionMock = vi.fn();
-      renderDashboardWithTable({ runStopAction: runStopActionMock });
+      renderBarracksWithTable({ runStopAction: runStopActionMock });
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Stop"));
@@ -1122,7 +1127,7 @@ describe("Home component", () => {
 
     it("calls runPlayGrooveAction when onPlayAction is triggered", async () => {
       const runPlayGrooveActionMock = vi.fn();
-      renderDashboardWithTable({
+      renderBarracksWithTable({
         runPlayGrooveAction: runPlayGrooveActionMock,
       });
       const { default: Home } = await import("./page");
@@ -1135,7 +1140,7 @@ describe("Home component", () => {
 
     it("calls runOpenWorktreeTerminalAction when onOpenTerminalAction is triggered", async () => {
       const runOpenWorktreeTerminalActionMock = vi.fn();
-      renderDashboardWithTable({
+      renderBarracksWithTable({
         runOpenWorktreeTerminalAction: runOpenWorktreeTerminalActionMock,
       });
       const { default: Home } = await import("./page");
@@ -1145,12 +1150,12 @@ describe("Home component", () => {
     });
   });
 
-  describe("DashboardModals callback wrappers", () => {
-    function renderDashboardWithModals(
+  describe("BarracksModals callback wrappers", () => {
+    function renderBarracksWithModals(
       overrides: Record<string, unknown> = {},
     ) {
-      useDashboardStateMock.mockReturnValue(
-        makeDashboardState({
+      useBarracksStateMock.mockReturnValue(
+        makeBarracksState({
           activeWorkspace: null,
           ...overrides,
         }),
@@ -1159,7 +1164,7 @@ describe("Home component", () => {
 
     it("calls runCutGrooveAction when onRunCutGrooveAction is triggered", async () => {
       const runCutGrooveActionMock = vi.fn();
-      renderDashboardWithModals({ runCutGrooveAction: runCutGrooveActionMock });
+      renderBarracksWithModals({ runCutGrooveAction: runCutGrooveActionMock });
       const { default: Home } = await import("./page");
       render(<Home />);
       fireEvent.click(screen.getByText("Modal Cut"));
@@ -1171,7 +1176,7 @@ describe("Home component", () => {
 
     it("calls closeCurrentWorkspace when onCloseCurrentWorkspace is triggered", async () => {
       const closeCurrentWorkspaceMock = vi.fn();
-      renderDashboardWithModals({
+      renderBarracksWithModals({
         closeCurrentWorkspace: closeCurrentWorkspaceMock,
       });
       const { default: Home } = await import("./page");
@@ -1182,7 +1187,7 @@ describe("Home component", () => {
 
     it("calls runCreateWorktreeAction when onRunCreateWorktreeAction is triggered", async () => {
       const runCreateWorktreeActionMock = vi.fn();
-      renderDashboardWithModals({
+      renderBarracksWithModals({
         runCreateWorktreeAction: runCreateWorktreeActionMock,
       });
       const { default: Home } = await import("./page");

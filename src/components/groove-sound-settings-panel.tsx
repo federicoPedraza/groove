@@ -16,7 +16,7 @@ import {
   SoundWaveform,
   type SoundWaveformStatus,
 } from "@/src/components/ui/sound-waveform";
-import { SOFT_GREEN_BUTTON_CLASSES } from "@/src/components/pages/dashboard/constants";
+import { SOFT_GREEN_BUTTON_CLASSES } from "@/src/components/pages/barracks/constants";
 import type {
   GrooveSoundSettings,
   GrooveSoundHookType,

@@ -441,7 +441,7 @@ function AppNavigation({
     if (!hasOpenWorkspace) {
       return;
     }
-    void refreshMotherduckStatus();
+    void refreshMotherduckStatus(workspaceRootForRefresh);
   }, [hasOpenWorkspace, workspaceRootForRefresh]);
   const homeLabel = hasOpenWorkspace
     ? grooveBusiness.label("barracks")

@@ -33,7 +33,7 @@ export function MotherduckIntegrationPanel({
     if (!workspaceRoot) {
       return;
     }
-    void refreshMotherduckStatus();
+    void refreshMotherduckStatus(workspaceRoot);
   }, [workspaceRoot]);
 
   const tokenPresent = motherduckSnapshot.tokenPresent;
@@ -61,7 +61,7 @@ export function MotherduckIntegrationPanel({
             size="sm"
             disabled={!workspaceRoot || motherduckSnapshot.isLoading}
             onClick={() => {
-              void refreshMotherduckStatus();
+              void refreshMotherduckStatus(workspaceRoot);
             }}
           >
             <RefreshCw aria-hidden="true" className="size-4" />
@@ -100,7 +100,7 @@ export function MotherduckIntegrationPanel({
         }}
         onSettingsSaved={(message) => {
           setStatusMessage(message);
-          void refreshMotherduckStatus();
+          void refreshMotherduckStatus(workspaceRoot);
         }}
       />
     </div>

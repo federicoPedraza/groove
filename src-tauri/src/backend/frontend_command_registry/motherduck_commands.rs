@@ -81,9 +81,31 @@ fn motherduck_settings_for_active_workspace(
 }
 
 #[tauri::command]
-fn motherduck_get_status(app: AppHandle) -> MotherduckStatusResponse {
+async fn motherduck_get_status(app: AppHandle) -> MotherduckStatusResponse {
     let request_id = request_id();
+    let fallback_request_id = request_id.clone();
 
+    match tauri::async_runtime::spawn_blocking(move || {
+        motherduck_get_status_blocking(app, request_id)
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => MotherduckStatusResponse {
+            request_id: fallback_request_id,
+            ok: false,
+            token_present: false,
+            default_database: None,
+            workspace_root: None,
+            error: Some(format!("Failed to run MotherDuck status worker: {}", error)),
+        },
+    }
+}
+
+fn motherduck_get_status_blocking(
+    app: AppHandle,
+    request_id: String,
+) -> MotherduckStatusResponse {
     match motherduck_settings_for_active_workspace(&app) {
         Ok((workspace_root, Some(settings))) => MotherduckStatusResponse {
             request_id,

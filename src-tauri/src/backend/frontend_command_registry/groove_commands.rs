@@ -1391,7 +1391,8 @@ fn groove_summary_blocking(
     if let Ok(mut workspace_meta) = read_workspace_meta_file(&workspace_json) {
         let now = now_iso();
 
-        // Store individual summaries in each worktree record
+        // Store individual summaries in each worktree record. Re-summarizing the
+        // same session replaces the existing entry rather than appending.
         for entry in &summaries {
             if !entry.ok {
                 continue;
@@ -1404,6 +1405,9 @@ fn groove_summary_blocking(
             };
             if let Some(record) = workspace_meta.worktree_records.get_mut(worktree_name) {
                 let (one_liner, content) = parse_summary_parts(summary_text);
+                record
+                    .summaries
+                    .retain(|existing| existing.worktree_ids != vec![entry.session_id.clone()]);
                 record.summaries.push(SummaryRecord {
                     worktree_ids: vec![entry.session_id.clone()],
                     created_at: now.clone(),
@@ -1413,14 +1417,21 @@ fn groove_summary_blocking(
             }
         }
 
-        // Store compiled summary at workspace level
+        // Store compiled summary at workspace level. Replace prior entry for the
+        // same set of sessions so re-summarizing doesn't grow the list.
         if let Some(ref compiled_text) = compiled_summary {
-            let involved_ids: Vec<String> = summaries
+            let mut involved_ids: Vec<String> = summaries
                 .iter()
                 .filter(|s| s.ok)
                 .map(|s| s.session_id.clone())
                 .collect();
+            involved_ids.sort();
             let (one_liner, content) = parse_summary_parts(compiled_text);
+            workspace_meta.summaries.retain(|existing| {
+                let mut existing_ids = existing.worktree_ids.clone();
+                existing_ids.sort();
+                existing_ids != involved_ids
+            });
             workspace_meta.summaries.push(SummaryRecord {
                 worktree_ids: involved_ids,
                 created_at: now,
@@ -1664,6 +1675,11 @@ Do not include file lists or trivia.\n\n# git status --porcelain\n{}\n\n{}",
 
     if let Ok(mut workspace_meta) = read_workspace_meta_file(&workspace_json) {
         if let Some(record) = workspace_meta.worktree_records.get_mut(trimmed_worktree) {
+            // Replace any prior uncommitted comment for this worktree; only one
+            // can be active at a time. Committed comments are preserved.
+            record
+                .comments
+                .retain(|existing| existing.state != CommentState::Uncommitted);
             record.comments.push(new_record.clone());
             workspace_meta.updated_at = now_iso();
             let _ = write_workspace_meta_file(&workspace_json, &workspace_meta);

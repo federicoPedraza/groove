@@ -200,7 +200,7 @@ fn motherduck_run_query(
     let effective_limit = if row_limit == 0 {
         MOTHERDUCK_QUERY_DEFAULT_ROW_LIMIT
     } else {
-        row_limit
+        row_limit.min(MOTHERDUCK_QUERY_DEFAULT_ROW_LIMIT)
     };
 
     let started_at = Instant::now();
@@ -269,13 +269,110 @@ fn motherduck_run_query(
 }
 
 fn motherduck_value_to_string(value: &duckdb::types::Value) -> String {
-    use duckdb::types::Value;
+    use duckdb::types::{TimeUnit, Value};
+
+    fn timestamp_to_iso(unit: TimeUnit, raw: i64) -> String {
+        let nanos: i128 = match unit {
+            TimeUnit::Second => (raw as i128) * 1_000_000_000,
+            TimeUnit::Millisecond => (raw as i128) * 1_000_000,
+            TimeUnit::Microsecond => (raw as i128) * 1_000,
+            TimeUnit::Nanosecond => raw as i128,
+        };
+        match OffsetDateTime::from_unix_timestamp_nanos(nanos)
+            .ok()
+            .and_then(|odt| odt.format(&Rfc3339).ok())
+        {
+            Some(formatted) => formatted,
+            None => format!("{raw}"),
+        }
+    }
+
+    fn date32_to_iso(days: i32) -> String {
+        let seconds = (days as i64).saturating_mul(86_400);
+        match OffsetDateTime::from_unix_timestamp(seconds).ok() {
+            Some(odt) => {
+                let date = odt.date();
+                format!(
+                    "{:04}-{:02}-{:02}",
+                    date.year(),
+                    u8::from(date.month()),
+                    date.day()
+                )
+            }
+            None => format!("{days}"),
+        }
+    }
+
+    fn time64_to_string(unit: TimeUnit, raw: i64) -> String {
+        let total_nanos = match unit {
+            TimeUnit::Second => (raw as i128) * 1_000_000_000,
+            TimeUnit::Millisecond => (raw as i128) * 1_000_000,
+            TimeUnit::Microsecond => (raw as i128) * 1_000,
+            TimeUnit::Nanosecond => raw as i128,
+        };
+        let total_seconds = total_nanos / 1_000_000_000;
+        let nanos = (total_nanos.rem_euclid(1_000_000_000)) as u32;
+        let hours = (total_seconds / 3600).rem_euclid(24);
+        let minutes = (total_seconds / 60).rem_euclid(60);
+        let seconds = total_seconds.rem_euclid(60);
+        if nanos == 0 {
+            format!("{hours:02}:{minutes:02}:{seconds:02}")
+        } else {
+            format!("{hours:02}:{minutes:02}:{seconds:02}.{nanos:09}")
+        }
+    }
+
     match value {
         Value::Null => "NULL".to_string(),
         Value::Boolean(v) => v.to_string(),
+        Value::TinyInt(v) => v.to_string(),
+        Value::SmallInt(v) => v.to_string(),
+        Value::Int(v) => v.to_string(),
+        Value::BigInt(v) => v.to_string(),
+        Value::HugeInt(v) => v.to_string(),
+        Value::UTinyInt(v) => v.to_string(),
+        Value::USmallInt(v) => v.to_string(),
+        Value::UInt(v) => v.to_string(),
+        Value::UBigInt(v) => v.to_string(),
+        Value::Float(v) => v.to_string(),
+        Value::Double(v) => v.to_string(),
+        Value::Decimal(v) => v.to_string(),
         Value::Text(v) => v.clone(),
+        Value::Enum(v) => v.clone(),
         Value::Blob(v) => format!("<blob:{} bytes>", v.len()),
-        other => format!("{:?}", other),
+        Value::Date32(days) => date32_to_iso(*days),
+        Value::Time64(unit, raw) => time64_to_string(*unit, *raw),
+        Value::Timestamp(unit, raw) => timestamp_to_iso(*unit, *raw),
+        Value::Interval {
+            months,
+            days,
+            nanos,
+        } => format!("{months}mo {days}d {nanos}ns"),
+        Value::List(items) | Value::Array(items) => {
+            let inner: Vec<String> = items.iter().map(motherduck_value_to_string).collect();
+            format!("[{}]", inner.join(", "))
+        }
+        Value::Struct(map) => {
+            let inner: Vec<String> = map
+                .iter()
+                .map(|(k, v)| format!("{k}: {}", motherduck_value_to_string(v)))
+                .collect();
+            format!("{{{}}}", inner.join(", "))
+        }
+        Value::Map(map) => {
+            let inner: Vec<String> = map
+                .iter()
+                .map(|(k, v)| {
+                    format!(
+                        "{}: {}",
+                        motherduck_value_to_string(k),
+                        motherduck_value_to_string(v)
+                    )
+                })
+                .collect();
+            format!("{{{}}}", inner.join(", "))
+        }
+        Value::Union(inner) => motherduck_value_to_string(inner),
     }
 }
 

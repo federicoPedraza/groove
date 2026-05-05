@@ -6,7 +6,7 @@ import type { GlobalSettings } from "@/src/lib/ipc";
 const globalSettingsSnapshotRef = vi.hoisted(() => ({
   current: {
     telemetryEnabled: true,
-    disableGrooveLoadingSection: false,
+    disableGrooveBusiness: false,
     showFps: false,
     alwaysShowDiagnosticsSidebar: false,
     periodicRerenderEnabled: false,

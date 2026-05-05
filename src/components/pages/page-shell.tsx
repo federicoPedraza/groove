@@ -13,7 +13,6 @@ import { useLocation } from "react-router-dom";
 import { AppNavigation } from "@/src/components/app-navigation";
 import { DiagnosticsSystemSidebar } from "@/src/components/pages/diagnostics/diagnostics-system-sidebar";
 import { Button } from "@/src/components/ui/button";
-import { HelpModal } from "@/src/components/pages/help/help-modal";
 import { toast } from "@/src/lib/toast";
 import {
   diagnosticsGetSystemOverview,
@@ -31,6 +30,10 @@ import {
   type DiagnosticsSystemOverviewResponse,
   type GrooveBinCheckStatus,
 } from "@/src/lib/ipc";
+import {
+  ensureWorkspaceContext,
+  refreshWorkspaceContext,
+} from "@/src/lib/workspace-store";
 
 const RECENT_DIRECTORIES_STORAGE_KEY = "groove:recent-directories";
 const MAX_RECENT_DIRECTORIES = 5;
@@ -93,9 +96,6 @@ export type PageShellProps = {
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 const NAVIGATION_START_MARKER_KEY = "__grooveNavigationTelemetryStart";
 
-let shellWorkspaceGetActivePromise: Promise<
-  Awaited<ReturnType<typeof workspaceGetActive>>
-> | null = null;
 let shellGrooveBinStatusPromise: Promise<
   Awaited<ReturnType<typeof grooveBinStatus>>
 > | null = null;
@@ -164,12 +164,7 @@ function getIsAlwaysShowDiagnosticsSidebarEnabledSnapshot(): boolean {
 async function loadShellWorkspaceGetActive(): Promise<
   Awaited<ReturnType<typeof workspaceGetActive>>
 > {
-  if (!shellWorkspaceGetActivePromise) {
-    shellWorkspaceGetActivePromise = workspaceGetActive().finally(() => {
-      shellWorkspaceGetActivePromise = null;
-    });
-  }
-  return shellWorkspaceGetActivePromise;
+  return ensureWorkspaceContext();
 }
 
 async function loadShellGrooveBinStatus(): Promise<
@@ -203,7 +198,6 @@ export function PageShell({
   const [grooveBinStatusState, setGrooveBinStatusState] =
     useState<GrooveBinCheckStatus | null>(null);
   const [isRepairingGrooveBin, setIsRepairingGrooveBin] = useState(false);
-  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [recentDirectories, setRecentDirectories] = useState<string[]>([]);
   const [currentFps, setCurrentFps] = useState<number | null>(null);
   const [diagnosticsOverview, setDiagnosticsOverview] =
@@ -424,16 +418,18 @@ export function PageShell({
     }
   }, []);
 
-  const refreshDiagnosticsSanityWarning =
-    useCallback(async (): Promise<void> => {
+  const refreshDiagnosticsSanityWarning = useCallback(
+    async (options?: { force?: boolean }): Promise<void> => {
       if (!hasOpenWorkspace) {
         setHasDiagnosticsSanityWarning(false);
         return;
       }
 
       try {
-        const workspaceResult = await workspaceGetActive();
-        if (!workspaceResult.ok || !workspaceResult.workspaceRoot) {
+        const workspaceResult = options?.force
+          ? await refreshWorkspaceContext()
+          : await ensureWorkspaceContext();
+        if (!workspaceResult || !workspaceResult.ok || !workspaceResult.workspaceRoot) {
           setHasDiagnosticsSanityWarning(false);
           return;
         }
@@ -450,24 +446,32 @@ export function PageShell({
       } catch {
         setHasDiagnosticsSanityWarning(false);
       }
-    }, [hasOpenWorkspace]);
+    },
+    [hasOpenWorkspace],
+  );
 
-  const refreshActiveWorkspaceDirectoryName =
-    useCallback(async (): Promise<void> => {
+  const refreshActiveWorkspaceDirectoryName = useCallback(
+    async (options?: { force?: boolean }): Promise<void> => {
       if (!hasOpenWorkspace) {
         setActiveWorkspaceDirectoryName(null);
         return;
       }
 
       try {
-        const workspaceResult = await workspaceGetActive();
+        const workspaceResult = options?.force
+          ? await refreshWorkspaceContext()
+          : await ensureWorkspaceContext();
         setActiveWorkspaceDirectoryName(
-          getActiveWorkspaceDirectoryName(workspaceResult),
+          workspaceResult
+            ? getActiveWorkspaceDirectoryName(workspaceResult)
+            : null,
         );
       } catch {
         setActiveWorkspaceDirectoryName(null);
       }
-    }, [hasOpenWorkspace]);
+    },
+    [hasOpenWorkspace],
+  );
 
   const refreshActiveWorkspaceDirectoryNameRef = useRef(
     refreshActiveWorkspaceDirectoryName,
@@ -489,11 +493,11 @@ export function PageShell({
       }
     };
 
-    const refreshIfOpen = (): void => {
+    const refreshIfOpen = (options?: { force?: boolean }): void => {
       if (isClosed) {
         return;
       }
-      void refreshActiveWorkspaceDirectoryNameRef.current();
+      void refreshActiveWorkspaceDirectoryNameRef.current(options);
     };
 
     refreshIfOpen();
@@ -501,8 +505,8 @@ export function PageShell({
     void (async () => {
       try {
         const [unlistenReady, unlistenChange] = await Promise.all([
-          listenWorkspaceReady(refreshIfOpen),
-          listenWorkspaceChange(refreshIfOpen),
+          listenWorkspaceReady(() => refreshIfOpen({ force: true })),
+          listenWorkspaceChange(() => refreshIfOpen({ force: true })),
         ]);
 
         if (isClosed) {
@@ -573,11 +577,11 @@ export function PageShell({
       }
     };
 
-    const refreshIfOpen = (): void => {
+    const refreshIfOpen = (options?: { force?: boolean }): void => {
       if (isClosed) {
         return;
       }
-      void refreshDiagnosticsSanityWarningRef.current();
+      void refreshDiagnosticsSanityWarningRef.current(options);
     };
 
     refreshIfOpen();
@@ -585,8 +589,8 @@ export function PageShell({
     void (async () => {
       try {
         const [unlistenReady, unlistenChange] = await Promise.all([
-          listenWorkspaceReady(refreshIfOpen),
-          listenWorkspaceChange(refreshIfOpen),
+          listenWorkspaceReady(() => refreshIfOpen({ force: true })),
+          listenWorkspaceChange(() => refreshIfOpen({ force: true })),
         ]);
 
         if (isClosed) {
@@ -679,8 +683,6 @@ export function PageShell({
           <AppNavigation
             hasOpenWorkspace={hasOpenWorkspace}
             hasDiagnosticsSanityWarning={hasDiagnosticsSanityWarning}
-            isHelpOpen={isHelpModalOpen}
-            onHelpClick={() => setIsHelpModalOpen(true)}
             pageSidebar={resolvedNavigationSidebar}
           />
         )}
@@ -786,7 +788,6 @@ export function PageShell({
           FPS {currentFps ?? "--"}
         </div>
       )}
-      <HelpModal open={isHelpModalOpen} onOpenChange={setIsHelpModalOpen} />
     </main>
   );
 }

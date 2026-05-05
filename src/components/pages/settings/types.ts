@@ -8,7 +8,7 @@ export type WorkspaceMeta = {
   defaultTerminal?: DefaultTerminal;
   terminalCustomCommand?: string | null;
   telemetryEnabled?: boolean;
-  disableGrooveLoadingSection?: boolean;
+  disableGrooveBusiness?: boolean;
   showFps?: boolean;
   playGrooveCommand?: string;
   openTerminalAtWorktreeCommand?: string | null;

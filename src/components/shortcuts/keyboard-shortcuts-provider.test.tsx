@@ -24,7 +24,7 @@ const {
   getGlobalSettingsSnapshotMock: vi.fn(),
   globalSettingsSnapshot: {
     telemetryEnabled: true,
-    disableGrooveLoadingSection: false,
+    disableGrooveBusiness: false,
     showFps: false,
     alwaysShowDiagnosticsSidebar: false,
     periodicRerenderEnabled: false,
@@ -101,12 +101,12 @@ function ExplicitRegistrationFixture() {
       return;
     }
 
-    context.register("registration-dashboard", "/", {
+    context.register("registration-barracks", "/", {
       worktreeDetailActionables: [
         {
-          id: "dashboard-worktree-list",
+          id: "barracks-worktree-list",
           type: "button",
-          label: "Dashboard worktree list",
+          label: "Barracks worktree list",
           run: () => {},
         },
       ],
@@ -123,7 +123,7 @@ function ExplicitRegistrationFixture() {
     });
 
     return () => {
-      context.unregister("registration-dashboard");
+      context.unregister("registration-barracks");
       context.unregister("registration-detail");
     };
   }, [context]);
@@ -136,7 +136,11 @@ describe("KeyboardShortcutsProvider launcher modes", () => {
     vi.restoreAllMocks();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    const { clearWorkspaceContextStore } = await import(
+      "@/src/lib/workspace-store"
+    );
+    clearWorkspaceContextStore();
     getGlobalSettingsSnapshotMock.mockImplementation(
       () => globalSettingsSnapshot,
     );
@@ -187,7 +191,7 @@ describe("KeyboardShortcutsProvider launcher modes", () => {
     expect(screen.queryByText("Refresh worktrees")).toBeNull();
   });
 
-  it("keeps leader+p bound to dashboard worktree list across routes", () => {
+  it("keeps leader+p bound to barracks worktree list across routes", () => {
     render(
       <MemoryRouter initialEntries={["/worktrees/alpha"]}>
         <KeyboardShortcutsProvider>
@@ -200,11 +204,11 @@ describe("KeyboardShortcutsProvider launcher modes", () => {
     fireEvent.keyDown(document, { key: "p" });
 
     expect(screen.getByText("Worktree details")).toBeTruthy();
-    expect(screen.getByText("Dashboard worktree list")).toBeTruthy();
+    expect(screen.getByText("Barracks worktree list")).toBeTruthy();
     expect(screen.queryByText("Detail-only action")).toBeNull();
   });
 
-  it("shows global worktree details on non-dashboard routes before dashboard mounts", async () => {
+  it("shows global worktree details on non-barracks routes before barracks mounts", async () => {
     workspaceGetActiveMock.mockResolvedValue({
       ok: true,
       rows: [
@@ -474,8 +478,8 @@ describe("KeyboardShortcutsProvider launcher modes", () => {
       useShortcutRegistration({
         commands: [
           {
-            id: "goDashboard",
-            label: "Go to Dashboard override",
+            id: "goBarracks",
+            label: "Go to Barracks override",
             description: "Override",
             run: pageCommandRun,
           },
@@ -492,10 +496,10 @@ describe("KeyboardShortcutsProvider launcher modes", () => {
       </MemoryRouter>,
     );
 
-    // Bind goDashboard to a key
+    // Bind goBarracks to a key
     globalSettingsSnapshot.keyboardLeaderBindings = {
       ...globalSettingsSnapshot.keyboardLeaderBindings,
-      goDashboard: "d",
+      goBarracks: "d",
     };
 
     fireEvent.keyDown(document, { key: " " });

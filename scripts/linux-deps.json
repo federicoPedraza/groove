@@ -72,7 +72,7 @@
       "packages": {
         "apt": "libayatana-appindicator3-dev",
         "pacman": "libayatana-appindicator",
-        "dnf": "libappindicator-gtk3-devel",
+        "dnf": "libayatana-appindicator-gtk3-devel",
         "zypper": null
       },
       "notes": "On openSUSE, may not be available — tray icon will be disabled"

@@ -11,7 +11,7 @@ import type { GlobalSettings, WorkspaceContextResponse } from "@/src/lib/ipc";
 
 const defaultGlobalSettings: GlobalSettings = {
   telemetryEnabled: false,
-  disableGrooveLoadingSection: false,
+  disableGrooveBusiness: false,
   showFps: false,
   alwaysShowDiagnosticsSidebar: false,
   periodicRerenderEnabled: false,
@@ -51,7 +51,7 @@ const {
 const globalSettingsSnapshotRef = vi.hoisted(() => ({
   current: {
     telemetryEnabled: false,
-    disableGrooveLoadingSection: false,
+    disableGrooveBusiness: false,
     showFps: false,
     alwaysShowDiagnosticsSidebar: false,
     periodicRerenderEnabled: false,
@@ -405,7 +405,7 @@ describe("SettingsPage", () => {
       screen.getByRole("button", { name: /Toggle Groove settings/ }),
     ).toBeInTheDocument();
     expect(screen.getByText("Enable telemetry")).toBeInTheDocument();
-    expect(screen.getByText("Disable monkey")).toBeInTheDocument();
+    expect(screen.getByText("Disable groove business")).toBeInTheDocument();
     expect(screen.getByText("Show FPS")).toBeInTheDocument();
     expect(screen.getByText("Trigger periodic re-renders")).toBeInTheDocument();
     expect(
@@ -901,15 +901,17 @@ describe("SettingsPage", () => {
     });
   });
 
-  it("toggles disable monkey checkbox and calls globalSettingsUpdate", async () => {
+  it("toggles disable groove business checkbox and calls globalSettingsUpdate", async () => {
     mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Disable monkey")).toBeInTheDocument();
+      expect(screen.getByText("Disable groove business")).toBeInTheDocument();
     });
 
-    const monkeyLabel = screen.getByText("Disable monkey").closest("label");
-    const checkbox = monkeyLabel!.querySelector(
+    const grooveBusinessLabel = screen
+      .getByText("Disable groove business")
+      .closest("label");
+    const checkbox = grooveBusinessLabel!.querySelector(
       "[role='checkbox']",
     ) as HTMLElement;
 
@@ -919,7 +921,7 @@ describe("SettingsPage", () => {
     });
 
     expect(globalSettingsUpdateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ disableGrooveLoadingSection: true }),
+      expect.objectContaining({ disableGrooveBusiness: true }),
     );
   });
 
@@ -1093,7 +1095,7 @@ describe("SettingsPage", () => {
     });
   });
 
-  it("reverts disable monkey on update failure", async () => {
+  it("reverts disable groove business on update failure", async () => {
     mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
@@ -1102,8 +1104,10 @@ describe("SettingsPage", () => {
       error: "Monkey update failed",
     });
 
-    const monkeyLabel = screen.getByText("Disable monkey").closest("label");
-    const checkbox = monkeyLabel!.querySelector(
+    const grooveBusinessLabel = screen
+      .getByText("Disable groove business")
+      .closest("label");
+    const checkbox = grooveBusinessLabel!.querySelector(
       "[role='checkbox']",
     ) as HTMLElement;
 
@@ -1114,19 +1118,21 @@ describe("SettingsPage", () => {
 
     await waitFor(() => {
       expect(globalSettingsUpdateMock).toHaveBeenCalledWith(
-        expect.objectContaining({ disableGrooveLoadingSection: true }),
+        expect.objectContaining({ disableGrooveBusiness: true }),
       );
     });
   });
 
-  it("reverts disable monkey on update exception", async () => {
+  it("reverts disable groove business on update exception", async () => {
     mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
 
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
 
-    const monkeyLabel = screen.getByText("Disable monkey").closest("label");
-    const checkbox = monkeyLabel!.querySelector(
+    const grooveBusinessLabel = screen
+      .getByText("Disable groove business")
+      .closest("label");
+    const checkbox = grooveBusinessLabel!.querySelector(
       "[role='checkbox']",
     ) as HTMLElement;
 
@@ -1137,7 +1143,7 @@ describe("SettingsPage", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Failed to update Groove loading section visibility."),
+        screen.getByText("Failed to update groove business visibility."),
       ).toBeInTheDocument();
     });
   });

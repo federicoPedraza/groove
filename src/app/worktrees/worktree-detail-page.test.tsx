@@ -9,21 +9,23 @@ const { grooveTerminalOpenMock } = vi.hoisted(() => ({
 
 vi.mock("@/src/lib/ipc", () => ({
   grooveTerminalOpen: grooveTerminalOpenMock,
+  isGrooveBusinessDisabled: vi.fn(() => false),
+  subscribeToGlobalSettings: vi.fn(() => () => {}),
 }));
 
-vi.mock("@/src/components/pages/dashboard/hooks/use-dashboard-state", () => ({
-  useDashboardState: vi.fn(),
+vi.mock("@/src/components/pages/barracks/hooks/use-barracks-state", () => ({
+  useBarracksState: vi.fn(),
 }));
 
 vi.mock("@/src/components/pages/use-app-layout", () => ({
   useAppLayout: vi.fn(),
 }));
 
-vi.mock("@/src/components/pages/dashboard/dashboard-modals", () => ({
-  DashboardModals: () => <div data-testid="dashboard-modals" />,
+vi.mock("@/src/components/pages/barracks/barracks-modals", () => ({
+  BarracksModals: () => <div data-testid="barracks-modals" />,
 }));
 
-vi.mock("@/src/components/pages/dashboard/worktree-row-actions", () => ({
+vi.mock("@/src/components/pages/barracks/worktree-row-actions", () => ({
   WorktreeRowActions: ({
     onOpenTerminal,
     row,
@@ -61,11 +63,11 @@ vi.mock("@/src/lib/toast", () => ({
   },
 }));
 
-import { useDashboardState } from "@/src/components/pages/dashboard/hooks/use-dashboard-state";
+import { useBarracksState } from "@/src/components/pages/barracks/hooks/use-barracks-state";
 
-const mockUseDashboardState = vi.mocked(useDashboardState);
+const mockUseBarracksState = vi.mocked(useBarracksState);
 
-function createDefaultDashboardState(overrides: Record<string, unknown> = {}) {
+function createDefaultBarracksState(overrides: Record<string, unknown> = {}) {
   return {
     activeWorkspace: null,
     worktreeRows: [],
@@ -110,7 +112,7 @@ function createDefaultDashboardState(overrides: Record<string, unknown> = {}) {
     mutedWorktrees: new Set<string>(),
     toggleWorktreeMute: vi.fn(),
     ...overrides,
-  } as unknown as ReturnType<typeof useDashboardState>;
+  } as unknown as ReturnType<typeof useBarracksState>;
 }
 
 // Import at top level since mocks are hoisted
@@ -120,7 +122,7 @@ function renderWithRoute(
   worktreeParam: string,
   overrides: Record<string, unknown> = {},
 ) {
-  mockUseDashboardState.mockReturnValue(createDefaultDashboardState(overrides));
+  mockUseBarracksState.mockReturnValue(createDefaultBarracksState(overrides));
 
   return render(
     <MemoryRouter initialEntries={[`/worktrees/${worktreeParam}`]}>
@@ -247,11 +249,11 @@ describe("WorktreeDetailPage", () => {
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
   });
 
-  it("renders dashboard modals", () => {
+  it("renders barracks modals", () => {
     renderWithRoute("feature-1", {
       activeWorkspace: { workspaceRoot: "/test" },
     });
-    expect(screen.getByTestId("dashboard-modals")).toBeInTheDocument();
+    expect(screen.getByTestId("barracks-modals")).toBeInTheDocument();
   });
 
   it("calls grooveTerminalOpen when open terminal is clicked", async () => {

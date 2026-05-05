@@ -1,16 +1,7 @@
 "use client";
 
 import { Link, useLocation } from "react-router-dom";
-import {
-  Activity,
-  CircleHelp,
-  Network,
-  PanelLeft,
-  Settings,
-  TreeDeciduous,
-  Trees,
-  TriangleAlert,
-} from "lucide-react";
+import { Coins, PanelLeft, TreeDeciduous, TriangleAlert } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -32,7 +23,6 @@ import {
   SidebarContent,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   sidebarMenuButtonClassName,
 } from "@/src/components/ui/sidebar";
 import {
@@ -41,6 +31,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/src/components/ui/tooltip";
+import { useGrooveBusiness } from "@/src/lib/groove-business";
 import { cn } from "@/src/lib/utils";
 import {
   getNotifiedWorktreesSnapshot,
@@ -57,8 +48,8 @@ import {
   type MascotDefinition,
 } from "@/src/lib/utils/mascots";
 import {
-  grooveTerminalActiveWorktrees,
-  isGrooveLoadingSectionDisabled,
+  DEFAULT_WORKTREE_STATE,
+  isGrooveBusinessDisabled,
   isShowFpsEnabled,
   isTelemetryEnabled,
   listenGrooveTerminalLifecycle,
@@ -66,9 +57,26 @@ import {
   listenWorkspaceReady,
   subscribeToGlobalSettings,
   type WorkspaceRow,
-  workspaceGetActive,
+  type WorktreeState,
+  workspaceSetWorktreeState,
 } from "@/src/lib/ipc";
+import { WorktreeStateContextMenu } from "@/src/components/pages/barracks/state-selector";
+import {
+  getMotherduckStoreSnapshot,
+  refreshMotherduckStatus,
+  subscribeToMotherduckStore,
+} from "@/src/lib/motherduck-store";
+import { toast } from "@/src/lib/toast";
 import { getActiveWorktreeRows } from "@/src/lib/utils/worktree/status";
+import {
+  applyOptimisticWorktreeState,
+  ensureWorkspaceContext,
+  getWorkspaceContextStoreSnapshot,
+  refreshActiveTerminalWorktrees,
+  refreshWorkspaceContext,
+  subscribeToWorkspaceContextStore,
+  type WorkspaceContextStoreSnapshot,
+} from "@/src/lib/workspace-store";
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 const NAVIGATION_START_MARKER_KEY = "__grooveNavigationTelemetryStart";
@@ -95,8 +103,6 @@ function clearNavigationStartMarker(): void {
 type AppNavigationProps = {
   hasOpenWorkspace: boolean;
   hasDiagnosticsSanityWarning: boolean;
-  isHelpOpen: boolean;
-  onHelpClick: () => void;
   pageSidebar?: ReactNode | ((args: { collapsed: boolean }) => ReactNode);
 };
 
@@ -121,8 +127,27 @@ const IDLE_CLICK_COUNT_FOR_FALLING = 5;
 
 type GrooveSpriteMode = "idle" | "falling";
 
-let cachedNavigationWorktrees: WorkspaceRow[] = [];
-let hasCachedNavigationWorktrees = false;
+function deriveNavigationDataFromStore(
+  snapshot: WorkspaceContextStoreSnapshot,
+): {
+  rows: WorkspaceRow[];
+  states: Record<string, WorktreeState>;
+} {
+  const context = snapshot.context;
+  const rows = normalizeWorkspaceRows(
+    (context as { rows?: unknown } | null)?.rows,
+  );
+  const records = context?.workspaceMeta?.worktreeRecords ?? {};
+  const states: Record<string, WorktreeState> = {};
+  for (const [worktreeName, record] of Object.entries(records)) {
+    states[worktreeName] = record.state ?? DEFAULT_WORKTREE_STATE;
+  }
+  const knownActiveRows = getActiveWorktreeRows(
+    rows,
+    snapshot.activeTerminalWorktrees,
+  );
+  return { rows: knownActiveRows, states };
+}
 
 function isWorkspaceRow(value: unknown): value is WorkspaceRow {
   if (!value || typeof value !== "object") {
@@ -190,8 +215,8 @@ function getIsShowFpsEnabledSnapshot(): boolean {
   return isShowFpsEnabled();
 }
 
-function getIsGrooveLoadingSectionDisabledSnapshot(): boolean {
-  return isGrooveLoadingSectionDisabled();
+function getIsGrooveBusinessDisabledSnapshot(): boolean {
+  return isGrooveBusinessDisabled();
 }
 
 function GrooveLoadingSprite({
@@ -362,35 +387,68 @@ function getDecodedWorktreeFromPathname(pathname: string): string | null {
 function AppNavigation({
   hasOpenWorkspace,
   hasDiagnosticsSanityWarning,
-  isHelpOpen,
-  onHelpClick,
   pageSidebar,
 }: AppNavigationProps) {
   const { pathname } = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [navigationWorktrees, setNavigationWorktrees] = useState<
-    WorkspaceRow[]
-  >(() => (hasCachedNavigationWorktrees ? cachedNavigationWorktrees : []));
+  const workspaceContextStoreSnapshot = useSyncExternalStore(
+    subscribeToWorkspaceContextStore,
+    getWorkspaceContextStoreSnapshot,
+    getWorkspaceContextStoreSnapshot,
+  );
+  const { rows: navigationWorktrees, states: navigationWorktreeStates } =
+    useMemo(
+      () => deriveNavigationDataFromStore(workspaceContextStoreSnapshot),
+      [workspaceContextStoreSnapshot],
+    );
   const shouldShowFps = useSyncExternalStore(
     subscribeToGlobalSettings,
     getIsShowFpsEnabledSnapshot,
     getIsShowFpsEnabledSnapshot,
   );
-  const shouldHideGrooveLoadingSection = useSyncExternalStore(
+  const shouldDisableGrooveBusiness = useSyncExternalStore(
     subscribeToGlobalSettings,
-    getIsGrooveLoadingSectionDisabledSnapshot,
-    getIsGrooveLoadingSectionDisabledSnapshot,
+    getIsGrooveBusinessDisabledSnapshot,
+    getIsGrooveBusinessDisabledSnapshot,
   );
+  const grooveBusiness = useGrooveBusiness();
+  const WildernessIcon = grooveBusiness.Icon("wilderness");
+  const BarracksIcon = grooveBusiness.Icon("barracks");
+  const SituationRoomIcon = grooveBusiness.Icon("situationRoom");
+  const BestiaryIcon = grooveBusiness.Icon("bestiary");
+  const IntelligenceIcon = grooveBusiness.Icon("intelligence");
+  const StrongholdIcon = grooveBusiness.Icon("stronghold");
 
   const isHomeActive = pathname === "/";
   const isWorktreesActive =
     pathname === "/worktrees" || pathname.startsWith("/worktrees/");
   const isDiagnosticsActive = pathname === "/diagnostics";
+  const isBestiaryActive = pathname === "/bestiary";
+  const isIntelligenceActive = pathname === "/intelligence";
   const isSettingsActive = pathname === "/settings";
-  const isHelpActive = isHelpOpen;
-  const homeLabel = hasOpenWorkspace ? "Dashboard" : "Home";
-  const appNameLabel = "GROOVE";
+
+  const motherduckSnapshot = useSyncExternalStore(
+    subscribeToMotherduckStore,
+    getMotherduckStoreSnapshot,
+    getMotherduckStoreSnapshot,
+  );
+  const showIntelligenceLink =
+    hasOpenWorkspace && motherduckSnapshot.tokenPresent;
+  const workspaceRootForRefresh =
+    workspaceContextStoreSnapshot.context?.workspaceRoot ?? null;
+  useEffect(() => {
+    if (!hasOpenWorkspace) {
+      return;
+    }
+    void refreshMotherduckStatus(workspaceRootForRefresh);
+  }, [hasOpenWorkspace, workspaceRootForRefresh]);
+  const homeLabel = hasOpenWorkspace
+    ? grooveBusiness.label("barracks")
+    : grooveBusiness.label("home");
+  const goldCount =
+    workspaceContextStoreSnapshot.context?.workspaceMeta?.gold ?? 0;
+  const goldCountLabel = goldCount.toLocaleString();
   const hasActiveNavigationWorktrees = navigationWorktrees.length > 0;
   const notifiedWorktrees = useSyncExternalStore(
     subscribeToNotifiedWorktrees,
@@ -432,59 +490,41 @@ function AppNavigation({
       mascotColorClassName: getMascotColorClassNames(mascotAssignment.color),
     };
   }, [inspectedWorktree]);
-  const refreshNavigationWorktrees = useCallback(async () => {
-    if (!hasOpenWorkspace) {
-      setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
-      cachedNavigationWorktrees = [];
-      hasCachedNavigationWorktrees = false;
-      return;
-    }
-
-    try {
-      const workspaceResult = await workspaceGetActive();
-      if (!workspaceResult.ok) {
-        setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
+  const refreshNavigationWorktrees = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!hasOpenWorkspace) {
         return;
       }
-
-      const workspaceRows = normalizeWorkspaceRows(
-        (workspaceResult as { rows?: unknown }).rows,
-      );
-      if (workspaceRows.length === 0) {
-        setNavigationWorktrees([]);
-        cachedNavigationWorktrees = [];
-        hasCachedNavigationWorktrees = true;
-        return;
+      try {
+        const workspaceResult = options?.force
+          ? await refreshWorkspaceContext()
+          : await ensureWorkspaceContext();
+        if (
+          !workspaceResult ||
+          !workspaceResult.ok ||
+          !workspaceResult.workspaceMeta
+        ) {
+          return;
+        }
+        const workspaceRows = normalizeWorkspaceRows(
+          (workspaceResult as { rows?: unknown }).rows,
+        );
+        const knownWorktrees = workspaceRows
+          .filter((workspaceRow) => workspaceRow.status !== "deleted")
+          .map((workspaceRow) => workspaceRow.worktree);
+        if (knownWorktrees.length === 0) {
+          return;
+        }
+        await refreshActiveTerminalWorktrees({
+          workspaceMeta: workspaceResult.workspaceMeta,
+          knownWorktrees,
+        });
+      } catch {
+        /* swallow — store keeps the previous snapshot */
       }
-
-      const knownWorktrees = workspaceRows
-        .filter((workspaceRow) => workspaceRow.status !== "deleted")
-        .map((workspaceRow) => workspaceRow.worktree);
-
-      const runtimeResult = await grooveTerminalActiveWorktrees({
-        rootName: workspaceResult.workspaceMeta?.rootName,
-        knownWorktrees,
-        workspaceMeta: workspaceResult.workspaceMeta,
-      });
-
-      const activeWorktreeSet =
-        runtimeResult.ok && Array.isArray(runtimeResult.worktrees)
-          ? new Set(runtimeResult.worktrees)
-          : new Set<string>();
-
-      const activeRows = getActiveWorktreeRows(
-        workspaceRows,
-        activeWorktreeSet,
-      );
-      setNavigationWorktrees(activeRows);
-      cachedNavigationWorktrees = activeRows;
-      hasCachedNavigationWorktrees = true;
-    } catch {
-      setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
-      cachedNavigationWorktrees = [];
-      hasCachedNavigationWorktrees = true;
-    }
-  }, [hasOpenWorkspace]);
+    },
+    [hasOpenWorkspace],
+  );
 
   useEffect(() => {
     syncActiveWorktreeMascotAssignments(
@@ -495,17 +535,28 @@ function AppNavigation({
   const refreshNavigationWorktreesRef = useRef(refreshNavigationWorktrees);
   refreshNavigationWorktreesRef.current = refreshNavigationWorktrees;
 
+  const handleSetNavigationWorktreeState = useCallback(
+    (worktree: string, state: WorktreeState) => {
+      applyOptimisticWorktreeState(worktree, state);
+      void workspaceSetWorktreeState({ worktree, state })
+        .then((response) => {
+          if (!response.ok) {
+            toast.error(response.error ?? "Failed to update worktree state.");
+          }
+          void refreshNavigationWorktreesRef.current({ force: true });
+        })
+        .catch(() => {
+          toast.error("Failed to update worktree state.");
+          void refreshNavigationWorktreesRef.current({ force: true });
+        });
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!hasOpenWorkspace) {
-      setNavigationWorktrees((prev) => (prev.length === 0 ? prev : []));
       return;
     }
-
-    if (hasCachedNavigationWorktrees) {
-      setNavigationWorktrees(cachedNavigationWorktrees);
-      return;
-    }
-
     void refreshNavigationWorktreesRef.current();
   }, [hasOpenWorkspace]);
 
@@ -532,13 +583,13 @@ function AppNavigation({
         const [unlistenReady, unlistenChange, unlistenTerminalLifecycle] =
           await Promise.all([
             listenWorkspaceReady(() => {
-              void refreshNavigationWorktreesRef.current();
+              void refreshNavigationWorktreesRef.current({ force: true });
             }),
             listenWorkspaceChange(() => {
-              void refreshNavigationWorktreesRef.current();
+              void refreshNavigationWorktreesRef.current({ force: true });
             }),
             listenGrooveTerminalLifecycle(() => {
-              void refreshNavigationWorktreesRef.current();
+              void refreshNavigationWorktreesRef.current({ force: true });
             }),
           ]);
 
@@ -600,7 +651,7 @@ function AppNavigation({
       <div className="hidden shrink-0 md:sticky md:top-4 md:flex md:self-start md:flex-col md:gap-4">
         <Sidebar collapsed={isSidebarCollapsed}>
           <SidebarHeader>
-            {!shouldHideGrooveLoadingSection && (
+            {!shouldDisableGrooveBusiness && (
               <div className="flex items-center justify-center">
                 <TooltipProvider>
                   <Tooltip>
@@ -633,18 +684,43 @@ function AppNavigation({
             <div
               className={cn(
                 "flex items-center justify-between gap-2",
-                !shouldHideGrooveLoadingSection && "mt-4",
+                !shouldDisableGrooveBusiness && "mt-4",
               )}
             >
-              {!isSidebarCollapsed && (
-                <div className="px-2">
-                  <span
-                    className="block max-w-[10rem] truncate text-sm font-bold text-foreground"
-                    title={appNameLabel}
-                  >
-                    {appNameLabel}
-                  </span>
+              {grooveBusiness.isBusiness ? (
+                <div
+                  className={cn(
+                    "flex items-center text-sm font-bold tracking-widest text-foreground",
+                    isSidebarCollapsed ? "justify-center px-0" : "px-2",
+                  )}
+                  aria-label="Groove"
+                >
+                  {isSidebarCollapsed ? "G" : "GROOVE"}
                 </div>
+              ) : (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div
+                        className={cn(
+                          "flex items-center gap-1.5 text-sm font-bold text-yellow-500",
+                          isSidebarCollapsed ? "px-0" : "px-2",
+                        )}
+                        aria-label={`Gold: ${goldCountLabel}`}
+                      >
+                        <Coins aria-hidden="true" className="size-4 shrink-0" />
+                        {!isSidebarCollapsed && (
+                          <span className="tabular-nums">{goldCountLabel}</span>
+                        )}
+                      </div>
+                    </TooltipTrigger>
+                    {isSidebarCollapsed && (
+                      <TooltipContent side="right">
+                        {goldCountLabel}
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
               )}
               <SidebarCollapseButton
                 collapsed={isSidebarCollapsed}
@@ -667,8 +743,13 @@ function AppNavigation({
                         recordNavigationStart("/worktrees");
                       }}
                     >
-                      <Trees aria-hidden="true" className="size-4 shrink-0" />
-                      {!isSidebarCollapsed && <span>Worktrees</span>}
+                      <WildernessIcon
+                        aria-hidden="true"
+                        className="size-4 shrink-0"
+                      />
+                      {!isSidebarCollapsed && (
+                        <span>{grooveBusiness.label("wilderness")}</span>
+                      )}
                     </Link>
                     {!isSidebarCollapsed ? (
                       <div className="ml-2 grid gap-1 border-l border-border/70 pl-2">
@@ -681,43 +762,79 @@ function AppNavigation({
                               );
                             const worktreeColorClassName =
                               getMascotColorClassNames(mascotAssignment.color);
+                            const currentState =
+                              navigationWorktreeStates[workspaceRow.worktree] ??
+                              DEFAULT_WORKTREE_STATE;
 
                             return (
-                              <Link
+                              <WorktreeStateContextMenu
                                 key={workspaceRow.path}
-                                to={worktreeRoute}
-                                className={sidebarMenuButtonClassName({
-                                  isActive: pathname === worktreeRoute,
-                                  collapsed: false,
-                                  className: "h-8 text-xs",
-                                })}
-                                onClick={() => {
-                                  recordNavigationStart(worktreeRoute);
-                                }}
-                                title={titleLabel}
-                              >
-                                <span className="relative shrink-0">
-                                  <TreeDeciduous
-                                    aria-hidden="true"
-                                    className={cn(
-                                      "size-3.5 shrink-0",
-                                      worktreeColorClassName,
-                                    )}
-                                  />
-                                  {notifiedWorktrees.has(
+                                worktree={workspaceRow.worktree}
+                                currentState={currentState}
+                                onSelect={(nextState) => {
+                                  handleSetNavigationWorktreeState(
                                     workspaceRow.worktree,
-                                  ) && (
-                                    <span className="absolute -right-1 -top-1 size-2 rounded-full bg-red-500" />
-                                  )}
-                                </span>
-                                <span className="truncate">{displayLabel}</span>
-                              </Link>
+                                    nextState,
+                                  );
+                                }}
+                              >
+                                <Link
+                                  to={worktreeRoute}
+                                  className={sidebarMenuButtonClassName({
+                                    isActive: pathname === worktreeRoute,
+                                    collapsed: false,
+                                    className: "h-8 text-xs",
+                                  })}
+                                  onClick={() => {
+                                    recordNavigationStart(worktreeRoute);
+                                  }}
+                                  title={titleLabel}
+                                >
+                                  <span className="relative shrink-0">
+                                    <TreeDeciduous
+                                      aria-hidden="true"
+                                      className={cn(
+                                        "size-3.5 shrink-0",
+                                        worktreeColorClassName,
+                                      )}
+                                    />
+                                    {notifiedWorktrees.has(
+                                      workspaceRow.worktree,
+                                    ) && (
+                                      <span className="absolute -right-1 -top-1 size-2 rounded-full bg-red-500" />
+                                    )}
+                                  </span>
+                                  <span className="truncate">
+                                    {displayLabel}
+                                  </span>
+                                </Link>
+                              </WorktreeStateContextMenu>
                             );
                           },
                         )}
                       </div>
                     ) : null}
                   </>
+                )}
+                {showIntelligenceLink && (
+                  <Link
+                    to="/intelligence"
+                    className={sidebarMenuButtonClassName({
+                      isActive: isIntelligenceActive,
+                      collapsed: isSidebarCollapsed,
+                    })}
+                    onClick={() => {
+                      recordNavigationStart("/intelligence");
+                    }}
+                  >
+                    <IntelligenceIcon
+                      aria-hidden="true"
+                      className="size-4 shrink-0"
+                    />
+                    {!isSidebarCollapsed && (
+                      <span>{grooveBusiness.label("intelligence")}</span>
+                    )}
+                  </Link>
                 )}
                 <Link
                   to="/"
@@ -729,7 +846,10 @@ function AppNavigation({
                     recordNavigationStart("/");
                   }}
                 >
-                  <Network aria-hidden="true" className="size-4 shrink-0" />
+                  <BarracksIcon
+                    aria-hidden="true"
+                    className="size-4 shrink-0"
+                  />
                   {!isSidebarCollapsed && <span>{homeLabel}</span>}
                 </Link>
                 {hasOpenWorkspace && (
@@ -746,7 +866,7 @@ function AppNavigation({
                       recordNavigationStart("/diagnostics");
                     }}
                   >
-                    <Activity
+                    <SituationRoomIcon
                       aria-hidden="true"
                       className={cn(
                         "size-4 shrink-0",
@@ -755,7 +875,9 @@ function AppNavigation({
                           "text-amber-600",
                       )}
                     />
-                    {!isSidebarCollapsed && <span>Diagnostics</span>}
+                    {!isSidebarCollapsed && (
+                      <span>{grooveBusiness.label("situationRoom")}</span>
+                    )}
                     {hasDiagnosticsSanityWarning && !isSidebarCollapsed ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -773,6 +895,26 @@ function AppNavigation({
                     ) : null}
                   </Link>
                 )}
+                {hasOpenWorkspace && !grooveBusiness.isBusiness && (
+                  <Link
+                    to="/bestiary"
+                    className={sidebarMenuButtonClassName({
+                      isActive: isBestiaryActive,
+                      collapsed: isSidebarCollapsed,
+                    })}
+                    onClick={() => {
+                      recordNavigationStart("/bestiary");
+                    }}
+                  >
+                    <BestiaryIcon
+                      aria-hidden="true"
+                      className="size-4 shrink-0"
+                    />
+                    {!isSidebarCollapsed && (
+                      <span>{grooveBusiness.label("bestiary")}</span>
+                    )}
+                  </Link>
+                )}
                 <Link
                   to="/settings"
                   className={cn(
@@ -786,24 +928,14 @@ function AppNavigation({
                     recordNavigationStart("/settings");
                   }}
                 >
-                  <Settings aria-hidden="true" className="size-4 shrink-0" />
-                  {!isSidebarCollapsed && <span>Settings</span>}
+                  <StrongholdIcon
+                    aria-hidden="true"
+                    className="size-4 shrink-0"
+                  />
+                  {!isSidebarCollapsed && (
+                    <span>{grooveBusiness.label("stronghold")}</span>
+                  )}
                 </Link>
-                {hasOpenWorkspace && (
-                  <SidebarMenuButton
-                    type="button"
-                    className={cn("relative")}
-                    isActive={isHelpActive}
-                    collapsed={isSidebarCollapsed}
-                    onClick={onHelpClick}
-                  >
-                    <CircleHelp
-                      aria-hidden="true"
-                      className="size-4 shrink-0"
-                    />
-                    {!isSidebarCollapsed && <span>Help</span>}
-                  </SidebarMenuButton>
-                )}
               </SidebarMenu>
             </TooltipProvider>
           </SidebarContent>
@@ -835,8 +967,11 @@ function AppNavigation({
                       setIsMobileSidebarOpen(false);
                     }}
                   >
-                    <Trees aria-hidden="true" className="size-4 shrink-0" />
-                    <span>Worktrees</span>
+                    <WildernessIcon
+                      aria-hidden="true"
+                      className="size-4 shrink-0"
+                    />
+                    <span>{grooveBusiness.label("wilderness")}</span>
                   </Link>
                   <div className="ml-2 grid gap-1 border-l border-border/70 pl-2">
                     {navigationWorktreeItems.map(
@@ -848,40 +983,74 @@ function AppNavigation({
                         const worktreeColorClassName = getMascotColorClassNames(
                           mascotAssignment.color,
                         );
+                        const currentState =
+                          navigationWorktreeStates[workspaceRow.worktree] ??
+                          DEFAULT_WORKTREE_STATE;
 
                         return (
-                          <Link
+                          <WorktreeStateContextMenu
                             key={workspaceRow.path}
-                            to={worktreeRoute}
-                            className={sidebarMenuButtonClassName({
-                              isActive: pathname === worktreeRoute,
-                              className: "h-8 text-xs",
-                            })}
-                            onClick={() => {
-                              recordNavigationStart(worktreeRoute);
-                              setIsMobileSidebarOpen(false);
+                            worktree={workspaceRow.worktree}
+                            currentState={currentState}
+                            onSelect={(nextState) => {
+                              handleSetNavigationWorktreeState(
+                                workspaceRow.worktree,
+                                nextState,
+                              );
                             }}
-                            title={titleLabel}
                           >
-                            <span className="relative shrink-0">
-                              <TreeDeciduous
-                                aria-hidden="true"
-                                className={cn(
-                                  "size-3.5 shrink-0",
-                                  worktreeColorClassName,
+                            <Link
+                              to={worktreeRoute}
+                              className={sidebarMenuButtonClassName({
+                                isActive: pathname === worktreeRoute,
+                                className: "h-8 text-xs",
+                              })}
+                              onClick={() => {
+                                recordNavigationStart(worktreeRoute);
+                                setIsMobileSidebarOpen(false);
+                              }}
+                              title={titleLabel}
+                            >
+                              <span className="relative shrink-0">
+                                <TreeDeciduous
+                                  aria-hidden="true"
+                                  className={cn(
+                                    "size-3.5 shrink-0",
+                                    worktreeColorClassName,
+                                  )}
+                                />
+                                {notifiedWorktrees.has(
+                                  workspaceRow.worktree,
+                                ) && (
+                                  <span className="absolute -right-1 -top-1 size-2 rounded-full bg-red-500" />
                                 )}
-                              />
-                              {notifiedWorktrees.has(workspaceRow.worktree) && (
-                                <span className="absolute -right-1 -top-1 size-2 rounded-full bg-red-500" />
-                              )}
-                            </span>
-                            <span className="truncate">{displayLabel}</span>
-                          </Link>
+                              </span>
+                              <span className="truncate">{displayLabel}</span>
+                            </Link>
+                          </WorktreeStateContextMenu>
                         );
                       },
                     )}
                   </div>
                 </>
+              )}
+              {showIntelligenceLink && (
+                <Link
+                  to="/intelligence"
+                  className={sidebarMenuButtonClassName({
+                    isActive: isIntelligenceActive,
+                  })}
+                  onClick={() => {
+                    recordNavigationStart("/intelligence");
+                    setIsMobileSidebarOpen(false);
+                  }}
+                >
+                  <IntelligenceIcon
+                    aria-hidden="true"
+                    className="size-4 shrink-0"
+                  />
+                  <span>{grooveBusiness.label("intelligence")}</span>
+                </Link>
               )}
               <Link
                 to="/"
@@ -893,7 +1062,10 @@ function AppNavigation({
                   setIsMobileSidebarOpen(false);
                 }}
               >
-                <Network aria-hidden="true" className="size-4 shrink-0" />
+                <BarracksIcon
+                  aria-hidden="true"
+                  className="size-4 shrink-0"
+                />
                 <span>{homeLabel}</span>
               </Link>
               {hasOpenWorkspace && (
@@ -907,8 +1079,11 @@ function AppNavigation({
                     setIsMobileSidebarOpen(false);
                   }}
                 >
-                  <Activity aria-hidden="true" className="size-4 shrink-0" />
-                  <span>Diagnostics</span>
+                  <SituationRoomIcon
+                    aria-hidden="true"
+                    className="size-4 shrink-0"
+                  />
+                  <span>{grooveBusiness.label("situationRoom")}</span>
                   {hasDiagnosticsSanityWarning ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -924,6 +1099,24 @@ function AppNavigation({
                   ) : null}
                 </Link>
               )}
+              {hasOpenWorkspace && !grooveBusiness.isBusiness && (
+                <Link
+                  to="/bestiary"
+                  className={sidebarMenuButtonClassName({
+                    isActive: isBestiaryActive,
+                  })}
+                  onClick={() => {
+                    recordNavigationStart("/bestiary");
+                    setIsMobileSidebarOpen(false);
+                  }}
+                >
+                  <BestiaryIcon
+                    aria-hidden="true"
+                    className="size-4 shrink-0"
+                  />
+                  <span>{grooveBusiness.label("bestiary")}</span>
+                </Link>
+              )}
               <Link
                 to="/settings"
                 className={sidebarMenuButtonClassName({
@@ -934,22 +1127,12 @@ function AppNavigation({
                   setIsMobileSidebarOpen(false);
                 }}
               >
-                <Settings aria-hidden="true" className="size-4 shrink-0" />
-                <span>Settings</span>
+                <StrongholdIcon
+                  aria-hidden="true"
+                  className="size-4 shrink-0"
+                />
+                <span>{grooveBusiness.label("stronghold")}</span>
               </Link>
-              {hasOpenWorkspace && (
-                <SidebarMenuButton
-                  type="button"
-                  isActive={isHelpActive}
-                  onClick={() => {
-                    onHelpClick();
-                    setIsMobileSidebarOpen(false);
-                  }}
-                >
-                  <CircleHelp aria-hidden="true" className="size-4 shrink-0" />
-                  <span>Help</span>
-                </SidebarMenuButton>
-              )}
             </SidebarMenu>
           </TooltipProvider>
         </CollapsibleContent>

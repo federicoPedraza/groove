@@ -41,7 +41,7 @@ const DEFAULT_GROOVE_SOUND_SETTINGS: GrooveSoundSettings = {
 
 let latestGlobalSettings: GlobalSettings = {
   telemetryEnabled: true,
-  disableGrooveLoadingSection: false,
+  disableGrooveBusiness: false,
   showFps: false,
   alwaysShowDiagnosticsSidebar: false,
   periodicRerenderEnabled: false,
@@ -154,7 +154,7 @@ function normalizeGlobalSettings(
 ): GlobalSettings {
   return {
     telemetryEnabled: value?.telemetryEnabled !== false,
-    disableGrooveLoadingSection: value?.disableGrooveLoadingSection === true,
+    disableGrooveBusiness: value?.disableGrooveBusiness === true,
     showFps: value?.showFps === true,
     alwaysShowDiagnosticsSidebar: value?.alwaysShowDiagnosticsSidebar === true,
     periodicRerenderEnabled: value?.periodicRerenderEnabled === true,
@@ -245,8 +245,8 @@ export function syncGlobalSettingsFromResult(
   const didChange =
     nextGlobalSettings.telemetryEnabled !==
       latestGlobalSettings.telemetryEnabled ||
-    nextGlobalSettings.disableGrooveLoadingSection !==
-      latestGlobalSettings.disableGrooveLoadingSection ||
+    nextGlobalSettings.disableGrooveBusiness !==
+      latestGlobalSettings.disableGrooveBusiness ||
     nextGlobalSettings.showFps !== latestGlobalSettings.showFps ||
     nextGlobalSettings.alwaysShowDiagnosticsSidebar !==
       latestGlobalSettings.alwaysShowDiagnosticsSidebar ||
@@ -280,8 +280,8 @@ export function isTelemetryEnabled(): boolean {
   return latestGlobalSettings.telemetryEnabled;
 }
 
-export function isGrooveLoadingSectionDisabled(): boolean {
-  return latestGlobalSettings.disableGrooveLoadingSection;
+export function isGrooveBusinessDisabled(): boolean {
+  return latestGlobalSettings.disableGrooveBusiness;
 }
 
 export function isShowFpsEnabled(): boolean {

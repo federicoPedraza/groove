@@ -47,10 +47,46 @@ export type SummaryRecord = {
   oneLiner?: string;
 };
 
+export type CommentState = "uncommitted" | "committed";
+
+export type CommentRecord = {
+  worktreeId: string;
+  createdAt: string;
+  message: string;
+  state: CommentState;
+};
+
+export const WORKTREE_STATES = [
+  "pending",
+  "fighting",
+  "wounded",
+  "defeated",
+  "blocked",
+  "forgotten",
+] as const;
+
+export type WorktreeState = (typeof WORKTREE_STATES)[number];
+
+export const DEFAULT_WORKTREE_STATE: WorktreeState = "pending";
+
+export type WorktreeUnitKind = "bug" | "goldmine" | "gems";
+
+export type WorktreeUnit = {
+  kind: WorktreeUnitKind;
+  level: 1 | 2 | 3 | 4 | 5;
+  reward: number;
+  name: string;
+  rewarded?: boolean;
+};
+
 export type WorktreeRecord = {
   id: string;
   createdAt: string;
+  claudeSessionStarted?: boolean;
+  state?: WorktreeState;
+  unit?: WorktreeUnit;
   summaries?: SummaryRecord[];
+  comments?: CommentRecord[];
 };
 
 export type WorkspaceMeta = {
@@ -63,7 +99,7 @@ export type WorkspaceMeta = {
   openTerminalAtWorktreeCommand?: string | null;
   runLocalCommand?: string | null;
   telemetryEnabled?: boolean;
-  disableGrooveLoadingSection?: boolean;
+  disableGrooveBusiness?: boolean;
   showFps?: boolean;
   playGrooveCommand?: string;
   worktreeSymlinkPaths?: string[];
@@ -73,6 +109,14 @@ export type WorkspaceMeta = {
   worktreeRecords?: Record<string, WorktreeRecord>;
   summaries?: SummaryRecord[];
   rootDirectory?: string | null;
+  gold?: number;
+  defeatedCount?: number;
+  /**
+   * Bug names that have ever been rolled in this workspace. Populated
+   * whenever the Discover flow produces a `Bug` unit. Surfaces a
+   * "bestiary" of encountered creatures.
+   */
+  knownBugs?: string[];
 };
 
 export type WorkspaceRow = {
@@ -161,7 +205,7 @@ export type GrooveSoundSettings = {
 
 export type GlobalSettings = {
   telemetryEnabled: boolean;
-  disableGrooveLoadingSection: boolean;
+  disableGrooveBusiness: boolean;
   showFps: boolean;
   alwaysShowDiagnosticsSidebar: boolean;
   periodicRerenderEnabled: boolean;
@@ -176,7 +220,7 @@ export type GlobalSettings = {
 
 export type GlobalSettingsUpdatePayload = {
   telemetryEnabled?: boolean;
-  disableGrooveLoadingSection?: boolean;
+  disableGrooveBusiness?: boolean;
   showFps?: boolean;
   alwaysShowDiagnosticsSidebar?: boolean;
   periodicRerenderEnabled?: boolean;
@@ -200,7 +244,7 @@ export type WorkspaceTerminalSettingsPayload = {
   defaultTerminal: DefaultTerminal;
   terminalCustomCommand?: string | null;
   telemetryEnabled?: boolean;
-  disableGrooveLoadingSection?: boolean;
+  disableGrooveBusiness?: boolean;
   showFps?: boolean;
 };
 
@@ -223,6 +267,32 @@ export type WorkspaceCommandSettingsPayload = {
 
 export type WorkspaceWorktreeSymlinkPathsPayload = {
   worktreeSymlinkPaths: string[];
+};
+
+export type SetWorktreeStatePayload = {
+  worktree: string;
+  state: WorktreeState;
+};
+
+export type ClaimWorktreeRewardPayload = {
+  worktree: string;
+};
+
+export type ClaimWorktreeRewardResponse = {
+  requestId?: string;
+  ok: boolean;
+  unit?: WorktreeUnit;
+  gold?: number;
+  error?: string;
+};
+
+export type SetWorktreeStateResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  worktree?: string;
+  record?: WorktreeRecord;
+  error?: string;
 };
 
 export type WorkspaceBrowseEntriesPayload = {

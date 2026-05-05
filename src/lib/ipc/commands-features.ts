@@ -25,11 +25,23 @@ import type {
   OpenCodeCancelResponse,
 } from "./types-opencode";
 import type {
+  MotherduckStatusResponse,
+  MotherduckSetTokenPayload,
+  MotherduckMutationResponse,
+  MotherduckTestResponse,
+  MotherduckQueryPayload,
+  MotherduckQueryResponse,
+} from "./types-motherduck";
+import type {
+  GitCommandResponse,
+  GitCommitPayload,
   GitCurrentBranchPayload,
   GitCurrentBranchResponse,
   GitListBranchesPayload,
   GitListBranchesResponse,
 } from "./types-git";
+
+type GitPathPayload = { path: string };
 import type {
   GrooveTerminalOpenPayload,
   GrooveTerminalWritePayload,
@@ -60,6 +72,16 @@ export function gitListBranches(
   return invokeCommand<GitListBranchesResponse>("git_list_branches", {
     payload,
   });
+}
+
+export function gitCommit(
+  payload: GitCommitPayload,
+): Promise<GitCommandResponse> {
+  return invokeCommand<GitCommandResponse>("git_commit", { payload });
+}
+
+export function gitAdd(payload: GitPathPayload): Promise<GitCommandResponse> {
+  return invokeCommand<GitCommandResponse>("git_add", { payload });
 }
 
 export function globalSettingsGet(): Promise<GlobalSettingsResponse> {
@@ -276,6 +298,40 @@ export function cancelOpencodeFlow(
 ): Promise<OpenCodeCancelResponse> {
   return invokeCommand<OpenCodeCancelResponse>("cancel_opencode_flow", {
     runId,
+  });
+}
+
+export function motherduckGetStatus(): Promise<MotherduckStatusResponse> {
+  return invokeCommand<MotherduckStatusResponse>(
+    "motherduck_get_status",
+    undefined,
+    {
+      intent: "background",
+    },
+  );
+}
+
+export function motherduckSetToken(
+  payload: MotherduckSetTokenPayload,
+): Promise<MotherduckMutationResponse> {
+  return invokeCommand<MotherduckMutationResponse>("motherduck_set_token", {
+    payload,
+  });
+}
+
+export function motherduckClearToken(): Promise<MotherduckMutationResponse> {
+  return invokeCommand<MotherduckMutationResponse>("motherduck_clear_token");
+}
+
+export function motherduckTest(): Promise<MotherduckTestResponse> {
+  return invokeCommand<MotherduckTestResponse>("motherduck_test");
+}
+
+export function motherduckQuery(
+  payload: MotherduckQueryPayload,
+): Promise<MotherduckQueryResponse> {
+  return invokeCommand<MotherduckQueryResponse>("motherduck_query", {
+    payload,
   });
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { SOFT_RED_BUTTON_CLASSES } from "@/src/components/pages/diagnostics/constants";
-import { SOFT_RED_BUTTON_CLASSES as DASHBOARD_SOFT_RED_BUTTON_CLASSES } from "@/src/components/pages/dashboard/constants";
+import { SOFT_RED_BUTTON_CLASSES as DASHBOARD_SOFT_RED_BUTTON_CLASSES } from "@/src/components/pages/barracks/constants";
 
 describe("diagnostics constants", () => {
   it("re-exports SOFT_RED_BUTTON_CLASSES from dashboard constants", () => {

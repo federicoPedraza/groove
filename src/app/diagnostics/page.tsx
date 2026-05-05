@@ -29,7 +29,7 @@ import {
 import {
   READY_STATUS_CLASSES,
   PAUSED_STATUS_CLASSES,
-} from "@/src/components/pages/dashboard/constants";
+} from "@/src/components/pages/barracks/constants";
 import {
   Tooltip,
   TooltipContent,
@@ -53,12 +53,15 @@ import {
   type WorkspaceGitignoreSanityResponse,
   type WorkspaceMeta,
   type WorkspaceTermSanityResponse,
-  workspaceGetActive,
   workspaceGitignoreSanityApply,
   workspaceGitignoreSanityCheck,
   workspaceTermSanityApply,
   workspaceTermSanityCheck,
 } from "@/src/lib/ipc";
+import {
+  ensureWorkspaceContext,
+  refreshWorkspaceContext,
+} from "@/src/lib/workspace-store";
 
 const UI_TELEMETRY_PREFIX = "[ui-telemetry]";
 
@@ -142,8 +145,8 @@ export default function DiagnosticsPage() {
           setGitignoreSanityStatusMessage(null);
         }
 
-        const workspace = await workspaceGetActive();
-        if (!workspace.ok || !workspace.workspaceRoot) {
+        const workspace = await ensureWorkspaceContext();
+        if (!workspace || !workspace.ok || !workspace.workspaceRoot) {
           clearGitignoreSanityState();
           setWorkspaceMeta(null);
           return;
@@ -180,7 +183,7 @@ export default function DiagnosticsPage() {
       setGitignoreSanityStatusMessage(null);
       setGitignoreSanityErrorMessage(null);
 
-      const workspace = await workspaceGetActive();
+      const workspace = await refreshWorkspaceContext();
       if (!workspace.ok || !workspace.workspaceRoot) {
         clearGitignoreSanityState();
         return;

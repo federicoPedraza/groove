@@ -25,17 +25,15 @@ export function getRelativeAgeGroupLabel(timestamp: Date, now: Date): string {
   if (dayDiff === 1) {
     return "Yesterday";
   }
-  if (
-    now.getFullYear() === timestamp.getFullYear() &&
-    now.getMonth() === timestamp.getMonth()
-  ) {
-    return `${String(dayDiff)} days ago`;
-  }
-
   const monthDiff =
     (now.getFullYear() - timestamp.getFullYear()) * 12 +
     (now.getMonth() - timestamp.getMonth());
-  if (monthDiff > 0 && now.getFullYear() === timestamp.getFullYear()) {
+
+  if (now.getFullYear() === timestamp.getFullYear() && monthDiff <= 1) {
+    return `${String(dayDiff)} days ago`;
+  }
+
+  if (monthDiff > 1 && now.getFullYear() === timestamp.getFullYear()) {
     return `${String(monthDiff)} months ago`;
   }
 

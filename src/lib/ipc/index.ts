@@ -1,5 +1,6 @@
 export * from "./types-core";
 export * from "./types-opencode";
+export * from "./types-motherduck";
 export * from "./types-commands";
 export * from "./types-terminal";
 export * from "./types-git";
@@ -10,7 +11,7 @@ export {
 } from "./telemetry";
 export {
   isTelemetryEnabled,
-  isGrooveLoadingSectionDisabled,
+  isGrooveBusinessDisabled,
   isShowFpsEnabled,
   isAlwaysShowDiagnosticsSidebarEnabled,
   isPeriodicRerenderEnabled,

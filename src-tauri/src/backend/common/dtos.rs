@@ -132,7 +132,8 @@ struct WorkspaceMetaContext {
     default_terminal: Option<String>,
     terminal_custom_command: Option<String>,
     telemetry_enabled: Option<bool>,
-    disable_groove_loading_section: Option<bool>,
+    #[serde(alias = "disableGrooveLoadingSection")]
+    disable_groove_business: Option<bool>,
     show_fps: Option<bool>,
     play_groove_command: Option<String>,
     open_terminal_at_worktree_command: Option<String>,
@@ -410,6 +411,68 @@ struct SummaryRecord {
     one_liner: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum CommentState {
+    Uncommitted,
+    Committed,
+}
+
+fn default_comment_state() -> CommentState {
+    CommentState::Uncommitted
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommentRecord {
+    worktree_id: String,
+    created_at: String,
+    message: String,
+    #[serde(default = "default_comment_state")]
+    state: CommentState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum WorktreeState {
+    Pending,
+    Fighting,
+    // Backward-compat: older workspace.json files have "trial" — map to wounded.
+    #[serde(alias = "trial")]
+    Wounded,
+    // Backward-compat: older "done" → defeated.
+    #[serde(alias = "done")]
+    Defeated,
+    Blocked,
+    // Backward-compat: older "archived" → forgotten.
+    #[serde(alias = "archived")]
+    Forgotten,
+}
+
+fn default_worktree_state() -> WorktreeState {
+    WorktreeState::Pending
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum WorktreeUnitKind {
+    Bug,
+    Goldmine,
+    Gems,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorktreeUnit {
+    kind: WorktreeUnitKind,
+    level: u8,
+    reward: u32,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    rewarded: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WorktreeRecord {
@@ -417,8 +480,14 @@ struct WorktreeRecord {
     created_at: String,
     #[serde(default)]
     claude_session_started: bool,
+    #[serde(default = "default_worktree_state")]
+    state: WorktreeState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    unit: Option<WorktreeUnit>,
     #[serde(default)]
     summaries: Vec<SummaryRecord>,
+    #[serde(default)]
+    comments: Vec<CommentRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -434,8 +503,8 @@ struct WorkspaceMeta {
     terminal_custom_command: Option<String>,
     #[serde(default = "default_true")]
     telemetry_enabled: bool,
-    #[serde(default)]
-    disable_groove_loading_section: bool,
+    #[serde(default, alias = "disableGrooveLoadingSection")]
+    disable_groove_business: bool,
     #[serde(default)]
     show_fps: bool,
     #[serde(default = "default_play_groove_command")]
@@ -458,6 +527,15 @@ struct WorkspaceMeta {
     summaries: Vec<SummaryRecord>,
     #[serde(default)]
     root_directory: Option<String>,
+    #[serde(default)]
+    gold: u64,
+    #[serde(default)]
+    defeated_count: u64,
+    /// Bug names that have ever been rolled in this workspace. Populated
+    /// whenever Discover produces a `Bug` unit; used by the UI as a
+    /// "bestiary" of encountered creatures.
+    #[serde(default)]
+    known_bugs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -621,7 +699,7 @@ struct WorkspaceTerminalSettingsPayload {
     default_terminal: String,
     terminal_custom_command: Option<String>,
     telemetry_enabled: Option<bool>,
-    disable_groove_loading_section: Option<bool>,
+    disable_groove_business: Option<bool>,
     show_fps: Option<bool>,
 }
 
@@ -658,6 +736,13 @@ struct WorkspaceWorktreeSymlinkPathsPayload {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SetWorktreeStatePayload {
+    worktree: String,
+    state: WorktreeState,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct OpencodeSettingsUpdatePayload {
     enabled: bool,
     #[serde(default)]
@@ -687,7 +772,7 @@ struct WorkspaceBrowseEntriesPayload {
 #[serde(rename_all = "camelCase")]
 struct GlobalSettingsUpdatePayload {
     telemetry_enabled: Option<bool>,
-    disable_groove_loading_section: Option<bool>,
+    disable_groove_business: Option<bool>,
     show_fps: Option<bool>,
     always_show_diagnostics_sidebar: Option<bool>,
     periodic_rerender_enabled: Option<bool>,
@@ -939,6 +1024,53 @@ struct GrooveSummaryPayload {
     session_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DiscoverWorktreeUnitPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: String,
+    session_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaimWorktreeRewardPayload {
+    worktree: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaimWorktreeRewardResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unit: Option<WorktreeUnit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gold: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiscoverWorktreeUnitResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unit: Option<WorktreeUnit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    level: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_claude_output: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    was_new_discovery: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GrooveSummaryResponse {
@@ -948,6 +1080,49 @@ struct GrooveSummaryResponse {
     summaries: Vec<GrooveSummaryEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     compiled_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveCommentPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveCommentResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    comment: Option<CommentRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveCommentMarkCommittedPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: String,
+    created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveCommentMarkCommittedResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    comment: Option<CommentRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -1074,6 +1249,21 @@ struct WorkspaceTerminalSettingsResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct SetWorktreeStateResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    worktree: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    record: Option<WorktreeRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkspaceBrowseEntry {
     name: String,
     path: String,
@@ -1190,8 +1380,8 @@ impl Default for GrooveSoundSettings {
 struct GlobalSettings {
     #[serde(default = "default_true")]
     telemetry_enabled: bool,
-    #[serde(default)]
-    disable_groove_loading_section: bool,
+    #[serde(default, alias = "disableGrooveLoadingSection")]
+    disable_groove_business: bool,
     #[serde(default)]
     show_fps: bool,
     #[serde(default)]

@@ -812,8 +812,8 @@ fn global_settings_update(
     if let Some(telemetry_enabled) = payload.telemetry_enabled {
         global_settings.telemetry_enabled = telemetry_enabled;
     }
-    if let Some(disable_groove_loading_section) = payload.disable_groove_loading_section {
-        global_settings.disable_groove_loading_section = disable_groove_loading_section;
+    if let Some(disable_groove_business) = payload.disable_groove_business {
+        global_settings.disable_groove_business = disable_groove_business;
     }
     if let Some(show_fps) = payload.show_fps {
         global_settings.show_fps = show_fps;
@@ -1540,8 +1540,8 @@ fn workspace_update_terminal_settings(
     if let Some(telemetry_enabled) = payload.telemetry_enabled {
         workspace_meta.telemetry_enabled = telemetry_enabled;
     }
-    if let Some(disable_groove_loading_section) = payload.disable_groove_loading_section {
-        workspace_meta.disable_groove_loading_section = disable_groove_loading_section;
+    if let Some(disable_groove_business) = payload.disable_groove_business {
+        workspace_meta.disable_groove_business = disable_groove_business;
     }
     if let Some(show_fps) = payload.show_fps {
         workspace_meta.show_fps = show_fps;
@@ -1887,6 +1887,188 @@ fn workspace_mark_onboarding_configured(
         ok: true,
         workspace_root: Some(workspace_root.display().to_string()),
         workspace_meta: Some(workspace_meta),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn workspace_set_worktree_state(
+    app: AppHandle,
+    payload: SetWorktreeStatePayload,
+) -> SetWorktreeStateResponse {
+    let request_id = request_id();
+
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return SetWorktreeStateResponse {
+            request_id,
+            ok: false,
+            workspace_root: None,
+            worktree: None,
+            record: None,
+            error: Some("worktree must be a non-empty string.".to_string()),
+        };
+    }
+
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return SetWorktreeStateResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                worktree: Some(worktree.to_string()),
+                record: None,
+                error: Some("No active workspace selected.".to_string()),
+            }
+        }
+        Err(error) => {
+            return SetWorktreeStateResponse {
+                request_id,
+                ok: false,
+                workspace_root: None,
+                worktree: Some(worktree.to_string()),
+                record: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match validate_workspace_root_path(&persisted_root) {
+        Ok(root) => root,
+        Err(error) => {
+            return SetWorktreeStateResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(persisted_root),
+                worktree: Some(worktree.to_string()),
+                record: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let record = match set_worktree_state(&workspace_root, worktree, payload.state) {
+        Ok(record) => record,
+        Err(error) => {
+            return SetWorktreeStateResponse {
+                request_id,
+                ok: false,
+                workspace_root: Some(workspace_root.display().to_string()),
+                worktree: Some(worktree.to_string()),
+                record: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let worktree_key = worktree.to_string();
+    let patched_record = record.clone();
+    let patched_updated_at = now_iso();
+    patch_workspace_context_cache(&app, &workspace_root, |response| {
+        let Some(meta) = response.workspace_meta.as_mut() else {
+            return;
+        };
+        meta.worktree_records.insert(worktree_key, patched_record);
+        // Frontend hook compares workspace_meta by `updated_at`; bump it so
+        // the patched cache hit isn't deduplicated as "unchanged".
+        meta.updated_at = patched_updated_at;
+    });
+
+    SetWorktreeStateResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        worktree: Some(worktree.to_string()),
+        record: Some(record),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn workspace_claim_worktree_reward(
+    app: AppHandle,
+    payload: ClaimWorktreeRewardPayload,
+) -> ClaimWorktreeRewardResponse {
+    let request_id = request_id();
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return ClaimWorktreeRewardResponse {
+            request_id,
+            ok: false,
+            unit: None,
+            gold: None,
+            error: Some("worktree must be a non-empty string.".to_string()),
+        };
+    }
+
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return ClaimWorktreeRewardResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                gold: None,
+                error: Some("No active workspace selected.".to_string()),
+            }
+        }
+        Err(error) => {
+            return ClaimWorktreeRewardResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                gold: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match validate_workspace_root_path(&persisted_root) {
+        Ok(root) => root,
+        Err(error) => {
+            return ClaimWorktreeRewardResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                gold: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let (record, gold) = match claim_worktree_reward(&workspace_root, worktree) {
+        Ok(result) => result,
+        Err(error) => {
+            return ClaimWorktreeRewardResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                gold: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let patched_record = record.clone();
+    let patched_worktree = worktree.to_string();
+    let patched_gold = gold;
+    patch_workspace_context_cache(&app, &workspace_root, |response| {
+        let Some(meta) = response.workspace_meta.as_mut() else {
+            return;
+        };
+        if let Some(record) = meta.worktree_records.get_mut(&patched_worktree) {
+            *record = patched_record;
+        }
+        meta.gold = patched_gold;
+        meta.updated_at = now_iso();
+    });
+
+    ClaimWorktreeRewardResponse {
+        request_id,
+        ok: true,
+        unit: record.unit,
+        gold: Some(gold),
         error: None,
     }
 }

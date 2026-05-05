@@ -28,9 +28,9 @@ import {
   listenWorkspaceChange,
   listenWorkspaceReady,
   subscribeToGlobalSettings,
-  workspaceGetActive,
   type WorkspaceRow,
 } from "@/src/lib/ipc";
+import { ensureWorkspaceContext } from "@/src/lib/workspace-store";
 import {
   OPEN_ACTION_LAUNCHER_COMMAND_ID,
   OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID,
@@ -110,8 +110,8 @@ export function KeyboardShortcutsProvider({
     "actions" | "worktree-details"
   >("actions");
   const [
-    dashboardWorktreeDetailActionables,
-    setDashboardWorktreeDetailActionables,
+    barracksWorktreeDetailActionables,
+    setBarracksWorktreeDetailActionables,
   ] = useState<ActionLauncherItem[]>([]);
   const [
     fallbackWorktreeDetailActionables,
@@ -127,7 +127,7 @@ export function KeyboardShortcutsProvider({
       registration: ShortcutRegistration,
     ) => {
       if (pathname === "/") {
-        setDashboardWorktreeDetailActionables(
+        setBarracksWorktreeDetailActionables(
           registration.worktreeDetailActionables ?? [],
         );
       }
@@ -186,9 +186,9 @@ export function KeyboardShortcutsProvider({
         },
       },
       {
-        id: "goDashboard",
-        label: "Go to Dashboard",
-        description: "Navigate to dashboard.",
+        id: "goBarracks",
+        label: "Go to Barracks",
+        description: "Navigate to barracks.",
         run: () => {
           navigate("/");
         },
@@ -259,8 +259,8 @@ export function KeyboardShortcutsProvider({
   }, [currentEntries, globalCommands]);
 
   const worktreeDetailsLauncherItems = useMemo<ActionLauncherItem[]>(() => {
-    if (dashboardWorktreeDetailActionables.length > 0) {
-      return dashboardWorktreeDetailActionables;
+    if (barracksWorktreeDetailActionables.length > 0) {
+      return barracksWorktreeDetailActionables;
     }
 
     if (fallbackWorktreeDetailActionables.length > 0) {
@@ -270,7 +270,7 @@ export function KeyboardShortcutsProvider({
     return currentEntries.flatMap((entry) => entry.worktreeDetailActionables);
   }, [
     currentEntries,
-    dashboardWorktreeDetailActionables,
+    barracksWorktreeDetailActionables,
     fallbackWorktreeDetailActionables,
   ]);
 
@@ -279,8 +279,8 @@ export function KeyboardShortcutsProvider({
 
   const refreshFallbackWorktreeDetailActionables = useCallback(async () => {
     try {
-      const workspaceResult = await workspaceGetActive();
-      if (!workspaceResult.ok) {
+      const workspaceResult = await ensureWorkspaceContext();
+      if (!workspaceResult || !workspaceResult.ok) {
         setFallbackWorktreeDetailActionables((prev) =>
           prev.length === 0 ? prev : [],
         );

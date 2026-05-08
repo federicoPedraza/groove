@@ -33,6 +33,22 @@ import type {
   MotherduckQueryResponse,
 } from "./types-motherduck";
 import type {
+  DoctrineReportRequest,
+  DoctrineReportResponse,
+  DoctrineResultRequest,
+  DoctrineResultResponse,
+  DoctrineListResponse,
+  DoctrineSetActiveRequest,
+  DoctrineSetActiveResponse,
+} from "./types-doctrine";
+import type {
+  IntelligenceQueryListResponse,
+  IntelligenceQuerySaveRequest,
+  IntelligenceQuerySaveResponse,
+  IntelligenceQueryDeleteRequest,
+  IntelligenceQueryDeleteResponse,
+} from "./types-intelligence";
+import type {
   GitCommandResponse,
   GitCommitPayload,
   GitCurrentBranchPayload,
@@ -333,6 +349,64 @@ export function motherduckQuery(
   return invokeCommand<MotherduckQueryResponse>("motherduck_query", {
     payload,
   });
+}
+
+export function doctrineGenerateReport(
+  payload: DoctrineReportRequest = {},
+): Promise<DoctrineReportResponse> {
+  return invokeCommand<DoctrineReportResponse>("doctrine_generate_report", {
+    payload,
+  });
+}
+
+export function doctrineGenerateResult(
+  payload: DoctrineResultRequest,
+): Promise<DoctrineResultResponse> {
+  return invokeCommand<DoctrineResultResponse>("doctrine_generate_result", {
+    payload,
+  });
+}
+
+export function doctrineList(): Promise<DoctrineListResponse> {
+  return invokeCommand<DoctrineListResponse>(
+    "doctrine_list",
+    undefined,
+    { intent: "background" },
+  );
+}
+
+export function doctrineSetActive(
+  payload: DoctrineSetActiveRequest,
+): Promise<DoctrineSetActiveResponse> {
+  return invokeCommand<DoctrineSetActiveResponse>("doctrine_set_active", {
+    payload,
+  });
+}
+
+export function intelligenceQueryList(): Promise<IntelligenceQueryListResponse> {
+  return invokeCommand<IntelligenceQueryListResponse>(
+    "intelligence_query_list",
+    undefined,
+    { intent: "background" },
+  );
+}
+
+export function intelligenceQuerySave(
+  payload: IntelligenceQuerySaveRequest,
+): Promise<IntelligenceQuerySaveResponse> {
+  return invokeCommand<IntelligenceQuerySaveResponse>(
+    "intelligence_query_save",
+    { payload },
+  );
+}
+
+export function intelligenceQueryDelete(
+  payload: IntelligenceQueryDeleteRequest,
+): Promise<IntelligenceQueryDeleteResponse> {
+  return invokeCommand<IntelligenceQueryDeleteResponse>(
+    "intelligence_query_delete",
+    { payload },
+  );
 }
 
 export function listenGrooveTerminalOutput(

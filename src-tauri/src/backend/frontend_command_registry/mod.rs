@@ -20,4 +20,7 @@ include!("../opencode_integration/opencode_runtime.rs");
 include!("opencode_commands.rs");
 include!("../motherduck_database/motherduck_runtime.rs");
 include!("motherduck_commands.rs");
+include!("../doctrine_intelligence/doctrine_runtime.rs");
+include!("../intelligence_queries/intelligence_queries_runtime.rs");
+include!("intelligence_commands.rs");
 include!("command_entry.rs");

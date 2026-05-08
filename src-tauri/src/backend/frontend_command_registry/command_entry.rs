@@ -122,7 +122,14 @@ pub(crate) fn run() {
             motherduck_set_token,
             motherduck_clear_token,
             motherduck_test,
-            motherduck_query
+            motherduck_query,
+            doctrine_generate_report,
+            doctrine_generate_result,
+            doctrine_list,
+            doctrine_set_active,
+            intelligence_query_list,
+            intelligence_query_save,
+            intelligence_query_delete
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

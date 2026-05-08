@@ -25,3 +25,5 @@ base64 = "0.22.1"
 rand = "0.8"
 duckdb = { version = "1", features = ["bundled"] }
 anyhow = "1"
+tiktoken-rs = "0.11"
+once_cell = "1"

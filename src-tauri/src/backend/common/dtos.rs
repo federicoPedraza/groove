@@ -463,6 +463,13 @@ enum WorktreeUnitKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorktreeLootEntry {
+    item_id: String,
+    rarity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorktreeUnit {
     kind: WorktreeUnitKind,
     level: u8,
@@ -471,6 +478,15 @@ struct WorktreeUnit {
     name: String,
     #[serde(default)]
     rewarded: bool,
+    /// `false` (or absent) means "not looted yet" — the player still has to
+    /// open the looting interface to roll and collect items. Decoupled from
+    /// `rewarded` so gold and loot are two independent steps.
+    #[serde(default)]
+    looted: bool,
+    /// Empty until the player triggers the loot step. Loot is rolled lazily
+    /// in `loot_worktree` (0..=3 items), not at unit creation time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    loot: Vec<WorktreeLootEntry>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -536,6 +552,10 @@ struct WorkspaceMeta {
     /// "bestiary" of encountered creatures.
     #[serde(default)]
     known_bugs: Vec<String>,
+    /// Item-id → count of items collected over the workspace's lifetime.
+    /// Bumped on reward claim alongside `gold`.
+    #[serde(default)]
+    inventory: HashMap<String, u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1050,6 +1070,27 @@ struct ClaimWorktreeRewardResponse {
     unit: Option<WorktreeUnit>,
     #[serde(skip_serializing_if = "Option::is_none")]
     gold: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LootWorktreePayload {
+    worktree: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LootWorktreeResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unit: Option<WorktreeUnit>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    loot: Vec<WorktreeLootEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inventory: Option<HashMap<String, u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }

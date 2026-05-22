@@ -608,13 +608,166 @@ fn roll_worktree_unit_with_level(level: u8) -> WorktreeUnit {
         WorktreeUnitKind::Goldmine => GOLDMINE_UNIT_NAME.to_string(),
         WorktreeUnitKind::Bug => pick_bug_name(),
     };
+    // Loot is now rolled lazily by `loot_worktree` when the player triggers
+    // the looting step — not at unit creation time. This keeps the bounty
+    // (gold) and loot (items) decoupled.
     WorktreeUnit {
         kind,
         level,
         reward,
         name,
         rewarded: false,
+        looted: false,
+        loot: Vec::new(),
     }
+}
+
+// --- Loot rolling ----------------------------------------------------------
+//
+// Builds a per-roll candidate pool from the loot tables (see
+// loot_tables.rs), weights candidates by rarity, and draws `n` items
+// independently (duplicates allowed). Lives next to
+// `roll_worktree_unit_with_level` so the unit and its loot are rolled
+// in one shot and persist together on `WorktreeUnit.loot`.
+
+const LOOT_BASE_WEIGHT_COMMON: u32 = 50;
+const LOOT_BASE_WEIGHT_UNCOMMON: u32 = 25;
+const LOOT_BASE_WEIGHT_RARE: u32 = 15;
+const LOOT_BASE_WEIGHT_EPIC: u32 = 8;
+const LOOT_BASE_WEIGHT_LEGENDARY: u32 = 2;
+
+#[derive(Debug, Clone, Copy)]
+struct LootRarityWeights {
+    common: u32,
+    uncommon: u32,
+    rare: u32,
+    epic: u32,
+    legendary: u32,
+}
+
+impl LootRarityWeights {
+    const fn base() -> Self {
+        Self {
+            common: LOOT_BASE_WEIGHT_COMMON,
+            uncommon: LOOT_BASE_WEIGHT_UNCOMMON,
+            rare: LOOT_BASE_WEIGHT_RARE,
+            epic: LOOT_BASE_WEIGHT_EPIC,
+            legendary: LOOT_BASE_WEIGHT_LEGENDARY,
+        }
+    }
+
+    fn weight_for(&self, rarity: LootRarity) -> u32 {
+        match rarity {
+            LootRarity::Common => self.common,
+            LootRarity::Uncommon => self.uncommon,
+            LootRarity::Rare => self.rare,
+            LootRarity::Epic => self.epic,
+            LootRarity::Legendary => self.legendary,
+        }
+    }
+}
+
+fn loot_weights_for(kind: WorktreeUnitKind, level: u8) -> LootRarityWeights {
+    let level = level.clamp(1, 5) as u32;
+    // Higher level → small bump to rare/epic/legendary so level-5 fights
+    // are the meaningful place to hunt iconics.
+    let level_factor = level.saturating_sub(1); // 0..=4
+    let mut w = LootRarityWeights::base();
+    w.rare = w.rare.saturating_add(level_factor * 2);
+    w.epic = w.epic.saturating_add(level_factor);
+    w.legendary = w.legendary.saturating_add(level_factor / 2);
+
+    match kind {
+        WorktreeUnitKind::Bug => w,
+        WorktreeUnitKind::Goldmine => LootRarityWeights {
+            common: w.common,
+            uncommon: w.uncommon,
+            rare: w.rare,
+            epic: ((w.epic as f64) * 1.5).round() as u32,
+            legendary: w.legendary,
+        },
+        WorktreeUnitKind::Gems => LootRarityWeights {
+            common: w.common,
+            uncommon: w.uncommon,
+            rare: w.rare.saturating_mul(2),
+            epic: w.epic.saturating_mul(3),
+            legendary: w.legendary.saturating_mul(4),
+        },
+    }
+}
+
+/// Per-roll loot count: uniform random in `0..=3`, ignoring kind and level.
+/// "Sometimes a unit drops nothing" is intentional — the player only learns
+/// the count when they open the looting modal.
+fn loot_count_for<R: rand::Rng + ?Sized>(rng: &mut R) -> usize {
+    rng.gen_range(0..=3)
+}
+
+fn build_loot_pool(kind: WorktreeUnitKind, bug_name: &str) -> Vec<LootEntry> {
+    let mut pool: Vec<LootEntry> = Vec::new();
+    pool.extend_from_slice(UNIVERSAL_ITEMS);
+
+    match kind {
+        WorktreeUnitKind::Bug => {
+            if let Some(kingdom) = kingdom_for_bug_name(bug_name) {
+                pool.extend_from_slice(kingdom.pool());
+            }
+            if let Some((iconic_id, iconic_rarity)) = iconic_for_bug_name(bug_name) {
+                pool.push((iconic_id, iconic_rarity));
+            }
+        }
+        WorktreeUnitKind::Goldmine | WorktreeUnitKind::Gems => {
+            pool.extend_from_slice(VEILWOOD_ITEMS);
+            pool.extend_from_slice(EMBERFORGE_ITEMS);
+            pool.extend_from_slice(TIDEHOLLOW_ITEMS);
+            pool.extend_from_slice(VOIDSPIRE_ITEMS);
+        }
+    }
+
+    pool
+}
+
+fn pick_loot_entry(
+    pool: &[LootEntry],
+    weights: &LootRarityWeights,
+    rng: &mut impl rand::Rng,
+) -> Option<LootEntry> {
+    let total: u64 = pool
+        .iter()
+        .map(|(_, rarity)| weights.weight_for(*rarity) as u64)
+        .sum();
+    if total == 0 {
+        return None;
+    }
+    let mut roll: u64 = rng.gen_range(0..total);
+    for entry in pool {
+        let w = weights.weight_for(entry.1) as u64;
+        if roll < w {
+            return Some(*entry);
+        }
+        roll -= w;
+    }
+    pool.last().copied()
+}
+
+fn roll_loot(kind: WorktreeUnitKind, level: u8, bug_name: &str) -> Vec<WorktreeLootEntry> {
+    let mut rng = rand::thread_rng();
+    let pool = build_loot_pool(kind, bug_name);
+    if pool.is_empty() {
+        return Vec::new();
+    }
+    let weights = loot_weights_for(kind, level);
+    let count = loot_count_for(&mut rng);
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        if let Some((id, rarity)) = pick_loot_entry(&pool, &weights, &mut rng) {
+            out.push(WorktreeLootEntry {
+                item_id: id.to_string(),
+                rarity: rarity.as_serde_str().to_string(),
+            });
+        }
+    }
+    out
 }
 
 /// Parses a Claude difficulty response into a level in `1..=5`.
@@ -709,11 +862,12 @@ fn set_worktree_state(
     Ok(updated)
 }
 
-/// Claims the bounty for a defeated worktree: bumps `meta.gold` by the unit's
-/// reward and marks `unit.rewarded = true`. Idempotent — calling twice is a
-/// no-op once the unit is already rewarded.
+/// Claims the gold bounty for a defeated worktree: bumps `meta.gold` by the
+/// unit's reward and marks `unit.rewarded = true`. **Loot is not touched
+/// here** — the player must run `loot_worktree` separately to roll and
+/// collect items.
 ///
-/// Returns `(updated_record, total_gold)` on success.
+/// Returns `(updated_record, total_gold)`.
 fn claim_worktree_reward(
     workspace_root: &Path,
     worktree: &str,
@@ -746,6 +900,59 @@ fn claim_worktree_reward(
     let workspace_json = workspace_root.join(".groove").join("workspace.json");
     write_workspace_meta_file(&workspace_json, &workspace_meta)?;
     Ok((updated_record, total_gold))
+}
+
+/// Loots a defeated worktree: rolls `unit.loot` lazily (0..=3 items),
+/// deposits each into `meta.inventory`, and marks `unit.looted = true`.
+/// Idempotent in the sense that a second call once `looted = true` is
+/// rejected with an error — this prevents double-deposits.
+///
+/// Returns `(updated_record, rolled_loot, inventory_snapshot)`.
+fn loot_worktree(
+    workspace_root: &Path,
+    worktree: &str,
+) -> Result<(WorktreeRecord, Vec<WorktreeLootEntry>, HashMap<String, u32>), String> {
+    let (mut workspace_meta, _) = ensure_workspace_meta(workspace_root)?;
+    let record = workspace_meta
+        .worktree_records
+        .get_mut(worktree)
+        .ok_or_else(|| format!("Worktree {worktree} has no record."))?;
+    if record.state != WorktreeState::Defeated {
+        return Err(format!(
+            "Worktree {worktree} must be defeated before looting."
+        ));
+    }
+    let unit = record
+        .unit
+        .as_mut()
+        .ok_or_else(|| format!("Worktree {worktree} has no unit to loot."))?;
+    if unit.looted {
+        return Err(format!("Worktree {worktree} loot has already been collected."));
+    }
+
+    // Roll lazily on first looting. If a legacy unit already had loot
+    // pre-rolled (old save files from before the split), respect it
+    // instead of re-rolling.
+    if unit.loot.is_empty() {
+        unit.loot = roll_loot(unit.kind, unit.level, &unit.name);
+    }
+    unit.looted = true;
+    let rolled_loot = unit.loot.clone();
+    let updated_record = record.clone();
+
+    for entry in &rolled_loot {
+        let counter = workspace_meta
+            .inventory
+            .entry(entry.item_id.clone())
+            .or_insert(0);
+        *counter = counter.saturating_add(1);
+    }
+    let inventory_snapshot = workspace_meta.inventory.clone();
+    workspace_meta.updated_at = now_iso();
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    write_workspace_meta_file(&workspace_json, &workspace_meta)?;
+    Ok((updated_record, rolled_loot, inventory_snapshot))
 }
 
 /// Walks every directory under `<scan_root>/.worktrees/` and seeds a default
@@ -1514,6 +1721,7 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         gold: 0,
         defeated_count: 0,
         known_bugs: Vec::new(),
+        inventory: HashMap::new(),
     }
 }
 
@@ -2127,7 +2335,22 @@ mod settings_runtime_tests {
         assert_eq!(gold, reward as u64, "gold should match reward");
         let claimed_unit = record.unit.expect("unit present after claim");
         assert!(claimed_unit.rewarded, "unit must be marked rewarded");
+        assert!(
+            !claimed_unit.looted,
+            "claim should NOT mark looted; that's a separate step",
+        );
         assert_eq!(claimed_unit.reward, reward);
+        assert!(
+            claimed_unit.loot.is_empty(),
+            "claim must not roll or expose loot — that happens in loot_worktree",
+        );
+
+        // Inventory must NOT be touched by the gold claim.
+        let (after_meta, _) = ensure_workspace_meta(&workspace_root).expect("re-read");
+        assert!(
+            after_meta.inventory.is_empty(),
+            "inventory must remain empty after a gold-only claim",
+        );
 
         // Second claim is rejected.
         let err = claim_worktree_reward(&workspace_root, "feature/x").err();
@@ -2135,6 +2358,32 @@ mod settings_runtime_tests {
         assert!(
             err.unwrap().contains("already been claimed"),
             "error should mention already claimed",
+        );
+
+        // Looting deposits items and marks looted=true.
+        let (looted_record, rolled_loot, inventory_snapshot) =
+            loot_worktree(&workspace_root, "feature/x").expect("loot");
+        let looted_unit = looted_record.unit.expect("unit present after loot");
+        assert!(looted_unit.looted, "unit must be marked looted");
+        assert_eq!(
+            rolled_loot.len(),
+            looted_unit.loot.len(),
+            "returned loot must mirror the unit's persisted loot",
+        );
+        assert!(rolled_loot.len() <= 3, "loot count must be in 0..=3");
+        let total_count: u32 = inventory_snapshot.values().sum();
+        assert_eq!(
+            total_count as usize,
+            rolled_loot.len(),
+            "inventory total must equal items just deposited",
+        );
+
+        // Second loot is rejected.
+        let err = loot_worktree(&workspace_root, "feature/x").err();
+        assert!(err.is_some(), "second loot should fail");
+        assert!(
+            err.unwrap().contains("already been collected"),
+            "error should mention already collected",
         );
 
         let _ = std::fs::remove_dir_all(&workspace_root);
@@ -2238,5 +2487,133 @@ mod settings_runtime_tests {
         );
 
         let _ = std::fs::remove_dir_all(&workspace_root);
+    }
+
+    #[test]
+    fn roll_loot_for_bug_only_includes_universal_kingdom_and_that_bugs_iconic() {
+        // Ymir is a Veilwood bug with an iconic of `ymir-witnesss-red-ink`.
+        // Over many rolls, every produced item must come from one of:
+        //   - the universal pool
+        //   - the Veilwood kingdom pool
+        //   - the Ymir iconic itself
+        // and never from another kingdom or another bug's iconic.
+        let allowed: HashSet<String> = UNIVERSAL_ITEMS
+            .iter()
+            .map(|(id, _)| (*id).to_string())
+            .chain(VEILWOOD_ITEMS.iter().map(|(id, _)| (*id).to_string()))
+            .chain(std::iter::once("ymir-witnesss-red-ink".to_string()))
+            .collect();
+
+        let forbidden_ids: HashSet<String> = EMBERFORGE_ITEMS
+            .iter()
+            .map(|(id, _)| (*id).to_string())
+            .chain(TIDEHOLLOW_ITEMS.iter().map(|(id, _)| (*id).to_string()))
+            .chain(VOIDSPIRE_ITEMS.iter().map(|(id, _)| (*id).to_string()))
+            .collect();
+
+        for _ in 0..2_000 {
+            let loot = roll_loot(WorktreeUnitKind::Bug, 5, "Ymir");
+            // Loot count is 0..=3 now, so an empty roll is normal — the
+            // pool-membership assertions below still hold vacuously.
+            for entry in &loot {
+                assert!(
+                    allowed.contains(&entry.item_id),
+                    "loot {} not in allowed pool for Ymir",
+                    entry.item_id,
+                );
+                assert!(
+                    !forbidden_ids.contains(&entry.item_id),
+                    "loot {} is from another kingdom — must not appear",
+                    entry.item_id,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn roll_loot_count_is_uniform_zero_to_three() {
+        // Every roll must land in 0..=3 regardless of kind or level. We also
+        // verify the distribution can produce both a zero and a three across
+        // a reasonable sample — flake odds are vanishing (1 - (3/4)^200 ≈ 1
+        // for "saw a zero", same for "saw a three").
+        let mut saw_zero = false;
+        let mut saw_three = false;
+        for _ in 0..400 {
+            for (kind, name) in [
+                (WorktreeUnitKind::Bug, "Omen"),
+                (WorktreeUnitKind::Goldmine, "Goldmine"),
+                (WorktreeUnitKind::Gems, "Gems"),
+            ] {
+                let len = roll_loot(kind, 3, name).len();
+                assert!(len <= 3, "loot count {len} must be ≤ 3 (kind {kind:?})");
+                if len == 0 {
+                    saw_zero = true;
+                }
+                if len == 3 {
+                    saw_three = true;
+                }
+            }
+        }
+        assert!(saw_zero, "expected at least one empty roll over 400 samples");
+        assert!(saw_three, "expected at least one max roll over 400 samples");
+    }
+
+    #[test]
+    fn roll_loot_for_unknown_bug_falls_back_to_universal_only() {
+        // If the bug name doesn't map to any kingdom, only universal items
+        // can drop. (Defensive: shouldn't happen in production since names
+        // come from BUG_NAME_LIBRARY.)
+        let allowed: HashSet<String> = UNIVERSAL_ITEMS
+            .iter()
+            .map(|(id, _)| (*id).to_string())
+            .collect();
+
+        for _ in 0..200 {
+            let loot = roll_loot(WorktreeUnitKind::Bug, 3, "NotARealBug");
+            for entry in &loot {
+                assert!(
+                    allowed.contains(&entry.item_id),
+                    "unknown-bug loot {} must come from universal pool",
+                    entry.item_id,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn iconic_table_covers_every_bug_in_the_library() {
+        for name in BUG_NAME_LIBRARY {
+            assert!(
+                iconic_for_bug_name(name).is_some(),
+                "missing iconic entry for bug {name}",
+            );
+            assert!(
+                kingdom_for_bug_name(name).is_some(),
+                "missing kingdom mapping for bug {name}",
+            );
+        }
+        assert_eq!(ICONIC_ITEMS.len(), BUG_NAME_LIBRARY.len());
+    }
+
+    #[test]
+    fn loot_table_ids_are_unique() {
+        let mut all_ids: Vec<&str> = Vec::new();
+        all_ids.extend(UNIVERSAL_ITEMS.iter().map(|(id, _)| *id));
+        all_ids.extend(VEILWOOD_ITEMS.iter().map(|(id, _)| *id));
+        all_ids.extend(EMBERFORGE_ITEMS.iter().map(|(id, _)| *id));
+        all_ids.extend(TIDEHOLLOW_ITEMS.iter().map(|(id, _)| *id));
+        all_ids.extend(VOIDSPIRE_ITEMS.iter().map(|(id, _)| *id));
+        all_ids.extend(ICONIC_ITEMS.iter().map(|(_, id, _)| *id));
+        let unique: HashSet<&str> = all_ids.iter().copied().collect();
+        assert_eq!(
+            all_ids.len(),
+            unique.len(),
+            "loot table item IDs must be unique across all pools",
+        );
+        assert_eq!(
+            all_ids.len(),
+            12 + 12 * 4 + 100,
+            "expected 160 total IDs across loot tables",
+        );
     }
 }

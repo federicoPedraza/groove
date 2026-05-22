@@ -126,6 +126,7 @@ type WorktreesTableProps = {
   onSetWorktreeState: (worktree: string, state: WorktreeState) => void;
   onDiscoverWorktree: (worktree: string, sessionId: string) => void;
   onClaimWorktreeReward: (worktree: string) => void;
+  onLootWorktree: (worktree: string) => void;
   worktreeComments: Record<string, CommentRecord[]>;
   commentingWorktrees: ReadonlySet<string>;
   onCommentWorktree: (worktree: string) => void;
@@ -163,6 +164,7 @@ export function WorktreesTable({
   onSetWorktreeState,
   onDiscoverWorktree,
   onClaimWorktreeReward,
+  onLootWorktree,
   worktreeComments,
   commentingWorktrees,
   onCommentWorktree,
@@ -437,6 +439,9 @@ export function WorktreesTable({
                   }
                   onReward={() => {
                     onClaimWorktreeReward(row.worktree);
+                  }}
+                  onLoot={() => {
+                    onLootWorktree(row.worktree);
                   }}
                 />
               </div>

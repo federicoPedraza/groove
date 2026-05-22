@@ -1,3 +1,4 @@
+import type { ItemRarity } from "@/src/lib/items/definitions";
 import type { ThemeMode } from "@/src/lib/theme-constants";
 
 export type DefaultTerminal =
@@ -71,12 +72,27 @@ export const DEFAULT_WORKTREE_STATE: WorktreeState = "pending";
 
 export type WorktreeUnitKind = "bug" | "goldmine" | "gems";
 
+export type WorktreeLootEntry = {
+  itemId: string;
+  rarity: ItemRarity;
+};
+
 export type WorktreeUnit = {
   kind: WorktreeUnitKind;
   level: 1 | 2 | 3 | 4 | 5;
   reward: number;
   name: string;
+  /** True once the player has collected the gold bounty. */
   rewarded?: boolean;
+  /**
+   * True once the player has opened the looting interface and rolled +
+   * collected the unit's items. Absent / `false` on units that exist
+   * but haven't been looted yet (including any pre-existing units from
+   * before the gold/loot split — they read as "not looted yet").
+   */
+  looted?: boolean;
+  /** Empty until the player triggers the loot step (rolled lazily). */
+  loot?: readonly WorktreeLootEntry[];
 };
 
 export type WorktreeRecord = {
@@ -117,6 +133,11 @@ export type WorkspaceMeta = {
    * "bestiary" of encountered creatures.
    */
   knownBugs?: string[];
+  /**
+   * Item-id → count of items collected over the workspace's lifetime.
+   * Bumped when a worktree's reward is claimed (alongside gold).
+   */
+  inventory?: Record<string, number>;
 };
 
 export type WorkspaceRow = {
@@ -283,6 +304,19 @@ export type ClaimWorktreeRewardResponse = {
   ok: boolean;
   unit?: WorktreeUnit;
   gold?: number;
+  error?: string;
+};
+
+export type LootWorktreePayload = {
+  worktree: string;
+};
+
+export type LootWorktreeResponse = {
+  requestId?: string;
+  ok: boolean;
+  unit?: WorktreeUnit;
+  loot?: readonly WorktreeLootEntry[];
+  inventory?: Record<string, number>;
   error?: string;
 };
 

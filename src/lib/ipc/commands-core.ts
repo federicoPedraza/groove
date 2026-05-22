@@ -20,6 +20,8 @@ import type {
   SetWorktreeStateResponse,
   ClaimWorktreeRewardPayload,
   ClaimWorktreeRewardResponse,
+  LootWorktreePayload,
+  LootWorktreeResponse,
 } from "./types-core";
 import type {
   GrooveRestorePayload,
@@ -342,6 +344,14 @@ export function workspaceClaimWorktreeReward(
     "workspace_claim_worktree_reward",
     { payload },
   );
+}
+
+export function workspaceLootWorktree(
+  payload: LootWorktreePayload,
+): Promise<LootWorktreeResponse> {
+  return invokeCommand<LootWorktreeResponse>("workspace_loot_worktree", {
+    payload,
+  });
 }
 
 export function workspaceListSymlinkEntries(

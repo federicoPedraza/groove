@@ -2,6 +2,7 @@ include!("../common/prelude.rs");
 include!("../common/constants.rs");
 include!("../common/dtos.rs");
 include!("../pty_terminal_sessions/session_runtime.rs");
+include!("../workspace_metadata_settings/loot_tables.rs");
 include!("../workspace_metadata_settings/settings_runtime.rs");
 include!("../workspace_discovery_context/discovery_runtime.rs");
 include!("../common/process_command.rs");

@@ -58,6 +58,7 @@ pub(crate) fn run() {
             workspace_update_worktree_symlink_paths,
             workspace_set_worktree_state,
             workspace_claim_worktree_reward,
+            workspace_loot_worktree,
             workspace_list_symlink_entries,
             workspace_open_terminal,
             workspace_open_workspace_terminal,

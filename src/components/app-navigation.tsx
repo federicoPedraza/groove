@@ -417,6 +417,7 @@ function AppNavigation({
   const BarracksIcon = grooveBusiness.Icon("barracks");
   const SituationRoomIcon = grooveBusiness.Icon("situationRoom");
   const BestiaryIcon = grooveBusiness.Icon("bestiary");
+  const InventoryIcon = grooveBusiness.Icon("inventory");
   const IntelligenceIcon = grooveBusiness.Icon("intelligence");
   const StrongholdIcon = grooveBusiness.Icon("stronghold");
 
@@ -425,6 +426,7 @@ function AppNavigation({
     pathname === "/worktrees" || pathname.startsWith("/worktrees/");
   const isDiagnosticsActive = pathname === "/diagnostics";
   const isBestiaryActive = pathname === "/bestiary";
+  const isInventoryActive = pathname === "/inventory";
   const isIntelligenceActive = pathname === "/intelligence";
   const isSettingsActive = pathname === "/settings";
 
@@ -915,6 +917,26 @@ function AppNavigation({
                     )}
                   </Link>
                 )}
+                {hasOpenWorkspace && (
+                  <Link
+                    to="/inventory"
+                    className={sidebarMenuButtonClassName({
+                      isActive: isInventoryActive,
+                      collapsed: isSidebarCollapsed,
+                    })}
+                    onClick={() => {
+                      recordNavigationStart("/inventory");
+                    }}
+                  >
+                    <InventoryIcon
+                      aria-hidden="true"
+                      className="size-4 shrink-0"
+                    />
+                    {!isSidebarCollapsed && (
+                      <span>{grooveBusiness.label("inventory")}</span>
+                    )}
+                  </Link>
+                )}
                 <Link
                   to="/settings"
                   className={cn(
@@ -1115,6 +1137,24 @@ function AppNavigation({
                     className="size-4 shrink-0"
                   />
                   <span>{grooveBusiness.label("bestiary")}</span>
+                </Link>
+              )}
+              {hasOpenWorkspace && (
+                <Link
+                  to="/inventory"
+                  className={sidebarMenuButtonClassName({
+                    isActive: isInventoryActive,
+                  })}
+                  onClick={() => {
+                    recordNavigationStart("/inventory");
+                    setIsMobileSidebarOpen(false);
+                  }}
+                >
+                  <InventoryIcon
+                    aria-hidden="true"
+                    className="size-4 shrink-0"
+                  />
+                  <span>{grooveBusiness.label("inventory")}</span>
                 </Link>
               )}
               <Link

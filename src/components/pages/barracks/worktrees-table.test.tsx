@@ -99,6 +99,7 @@ function renderWorktreesTable(options: {
       onSetWorktreeState={() => {}}
       onDiscoverWorktree={() => {}}
       onClaimWorktreeReward={() => {}}
+      onLootWorktree={() => {}}
       worktreeComments={{}}
       commentingWorktrees={new Set<string>()}
       onCommentWorktree={() => {}}
@@ -546,6 +547,7 @@ describe("WorktreesTable", () => {
         onSetWorktreeState={() => {}}
         onDiscoverWorktree={() => {}}
         onClaimWorktreeReward={() => {}}
+      onLootWorktree={() => {}}
         worktreeComments={{}}
         commentingWorktrees={new Set<string>()}
         onCommentWorktree={() => {}}
@@ -607,6 +609,7 @@ describe("WorktreesTable", () => {
         onSetWorktreeState={() => {}}
         onDiscoverWorktree={() => {}}
         onClaimWorktreeReward={() => {}}
+      onLootWorktree={() => {}}
         worktreeComments={{}}
         commentingWorktrees={new Set<string>()}
         onCommentWorktree={() => {}}

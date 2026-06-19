@@ -51,7 +51,7 @@ jobs:
           ls -la sidecars
 
       - name: Publish rolling release (sidecars-latest)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: sidecars-latest
           name: Groove Sidecars (rolling)

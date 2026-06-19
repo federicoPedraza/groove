@@ -34,6 +34,7 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "git_list_branches",
   "git_ahead_behind",
   "git_list_file_states",
+  "git_diff",
   "gh_detect_repo",
   "gh_auth_status",
   "gh_check_branch_pr",
@@ -60,6 +61,8 @@ const UNTRACKED_COMMANDS = new Set<string>([
   "repair_opencode_integration",
   "run_opencode_flow",
   "cancel_opencode_flow",
+  "assistant_validate_mcp",
+  "assistant_rules_list",
 ]);
 
 const NON_DEDUPED_COMMANDS = new Set<string>(["groove_terminal_write"]);

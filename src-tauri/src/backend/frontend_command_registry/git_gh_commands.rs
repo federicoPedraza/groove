@@ -1097,6 +1097,266 @@ fn git_commit(payload: GitCommitPayload) -> GitCommandResponse {
     }
 }
 
+fn parse_unified_diff(diff_text: &str) -> Vec<GitDiffFile> {
+    let mut files: Vec<GitDiffFile> = Vec::new();
+    let mut current_file: Option<GitDiffFile> = None;
+    let mut current_hunk: Option<GitDiffHunk> = None;
+    let mut pending_old_path: Option<String> = None;
+    let mut pending_new_path: Option<String> = None;
+    let mut pending_status: Option<String> = None;
+    let mut pending_binary = false;
+
+    let flush_hunk = |file: &mut GitDiffFile, hunk: &mut Option<GitDiffHunk>| {
+        if let Some(h) = hunk.take() {
+            file.hunks.push(h);
+        }
+    };
+
+    let flush_file = |files: &mut Vec<GitDiffFile>,
+                      current_file: &mut Option<GitDiffFile>,
+                      current_hunk: &mut Option<GitDiffHunk>| {
+        if let Some(mut f) = current_file.take() {
+            flush_hunk(&mut f, current_hunk);
+            files.push(f);
+        }
+    };
+
+    for line in diff_text.split('\n') {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            flush_file(&mut files, &mut current_file, &mut current_hunk);
+
+            let (old_token, new_token) =
+                if let Some((a, b)) = rest.split_once(" b/") {
+                    (a.trim_start_matches("a/").to_string(), b.to_string())
+                } else {
+                    let trimmed = rest.trim();
+                    (trimmed.to_string(), trimmed.to_string())
+                };
+
+            current_file = Some(GitDiffFile {
+                file_path: new_token.clone(),
+                old_path: if old_token == new_token { None } else { Some(old_token) },
+                status: "modified".to_string(),
+                additions: 0,
+                deletions: 0,
+                binary: false,
+                hunks: Vec::new(),
+            });
+            pending_old_path = None;
+            pending_new_path = None;
+            pending_status = None;
+            pending_binary = false;
+            continue;
+        }
+
+        if line.starts_with("new file mode") {
+            pending_status = Some("added".to_string());
+            continue;
+        }
+        if line.starts_with("deleted file mode") {
+            pending_status = Some("deleted".to_string());
+            continue;
+        }
+        if line.starts_with("rename from ") {
+            pending_old_path = Some(line.trim_start_matches("rename from ").to_string());
+            pending_status = Some("renamed".to_string());
+            continue;
+        }
+        if line.starts_with("rename to ") {
+            pending_new_path = Some(line.trim_start_matches("rename to ").to_string());
+            continue;
+        }
+        if line.starts_with("Binary files ") || line.starts_with("GIT binary patch") {
+            pending_binary = true;
+            continue;
+        }
+        if line.starts_with("--- ") {
+            if let Some(file) = current_file.as_mut() {
+                if let Some(status) = pending_status.take() {
+                    file.status = status;
+                }
+                if let Some(old_path) = pending_old_path.take() {
+                    file.old_path = Some(old_path);
+                }
+                if pending_binary {
+                    file.binary = true;
+                    pending_binary = false;
+                }
+            }
+            continue;
+        }
+        if line.starts_with("+++ ") {
+            if let Some(file) = current_file.as_mut() {
+                if let Some(new_path) = pending_new_path.take() {
+                    file.file_path = new_path;
+                }
+            }
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("@@") {
+            if let Some(file) = current_file.as_mut() {
+                flush_hunk(file, &mut current_hunk);
+            }
+            let end = rest.find("@@").unwrap_or(rest.len());
+            let header_inner = &rest[..end];
+            let header = format!("@@{}@@", header_inner);
+            let mut old_start = 0u32;
+            let mut old_lines = 1u32;
+            let mut new_start = 0u32;
+            let mut new_lines = 1u32;
+            for token in header_inner.split_whitespace() {
+                if let Some(value) = token.strip_prefix('-') {
+                    let (start, lines) = parse_hunk_range(value);
+                    old_start = start;
+                    old_lines = lines;
+                } else if let Some(value) = token.strip_prefix('+') {
+                    let (start, lines) = parse_hunk_range(value);
+                    new_start = start;
+                    new_lines = lines;
+                }
+            }
+            current_hunk = Some(GitDiffHunk {
+                header,
+                old_start,
+                old_lines,
+                new_start,
+                new_lines,
+                lines: Vec::new(),
+            });
+            continue;
+        }
+
+        if current_hunk.is_some() {
+            let (kind, content) = if let Some(rest) = line.strip_prefix('+') {
+                ("add", rest.to_string())
+            } else if let Some(rest) = line.strip_prefix('-') {
+                ("remove", rest.to_string())
+            } else if let Some(rest) = line.strip_prefix(' ') {
+                ("context", rest.to_string())
+            } else if line.starts_with('\\') {
+                continue;
+            } else {
+                continue;
+            };
+            if let Some(file) = current_file.as_mut() {
+                if kind == "add" {
+                    file.additions += 1;
+                } else if kind == "remove" {
+                    file.deletions += 1;
+                }
+            }
+            if let Some(hunk) = current_hunk.as_mut() {
+                hunk.lines.push(GitDiffLine {
+                    kind: kind.to_string(),
+                    content,
+                });
+            }
+        }
+    }
+
+    flush_file(&mut files, &mut current_file, &mut current_hunk);
+    files
+}
+
+fn parse_hunk_range(value: &str) -> (u32, u32) {
+    if let Some((start, lines)) = value.split_once(',') {
+        (
+            start.parse::<u32>().unwrap_or(0),
+            lines.parse::<u32>().unwrap_or(0),
+        )
+    } else {
+        (value.parse::<u32>().unwrap_or(0), 1)
+    }
+}
+
+#[tauri::command]
+fn git_diff(payload: GitPathPayload) -> GitDiffResponse {
+    let request_id = request_id();
+    let worktree_path = match validate_git_worktree_path(&payload.path) {
+        Ok(path) => path,
+        Err(error) => {
+            return GitDiffResponse {
+                request_id,
+                ok: false,
+                path: None,
+                files: Vec::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let diff_result = run_git_command_at_path(
+        &worktree_path,
+        &["diff", "HEAD", "--no-color", "--unified=3"],
+    );
+
+    if let Some(error) = diff_result.error.clone() {
+        return GitDiffResponse {
+            request_id,
+            ok: false,
+            path: Some(worktree_path.display().to_string()),
+            files: Vec::new(),
+            error: Some(error),
+        };
+    }
+
+    let mut files = if diff_result.exit_code == Some(0) || diff_result.exit_code == Some(1) {
+        parse_unified_diff(&diff_result.stdout)
+    } else {
+        Vec::new()
+    };
+
+    let untracked_result = run_git_command_at_path(
+        &worktree_path,
+        &["ls-files", "--others", "--exclude-standard"],
+    );
+    if untracked_result.error.is_none() && untracked_result.exit_code == Some(0) {
+        for line in untracked_result.stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let untracked_diff = run_git_command_at_path(
+                &worktree_path,
+                &[
+                    "diff",
+                    "--no-color",
+                    "--no-index",
+                    "--unified=3",
+                    "/dev/null",
+                    trimmed,
+                ],
+            );
+            let parsed = parse_unified_diff(&untracked_diff.stdout);
+            if let Some(mut file) = parsed.into_iter().next() {
+                file.file_path = trimmed.to_string();
+                file.old_path = None;
+                file.status = "untracked".to_string();
+                files.push(file);
+            } else {
+                files.push(GitDiffFile {
+                    file_path: trimmed.to_string(),
+                    old_path: None,
+                    status: "untracked".to_string(),
+                    additions: 0,
+                    deletions: 0,
+                    binary: false,
+                    hunks: Vec::new(),
+                });
+            }
+        }
+    }
+
+    GitDiffResponse {
+        request_id,
+        ok: true,
+        path: Some(worktree_path.display().to_string()),
+        files,
+        error: None,
+    }
+}
+
 #[tauri::command]
 fn open_external_url(url: String) -> ExternalUrlOpenResponse {
     let request_id = request_id();

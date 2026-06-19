@@ -1247,6 +1247,14 @@ fn ensure_claude_hooks(worktree_path: &Path, worktree_name: &str) {
     };
 
     if let Some(obj) = settings.as_object_mut() {
+        // Auto-approve this project's .mcp.json servers so a freshly-played
+        // Claude Code session boots straight to its prompt instead of stopping
+        // on the "New MCP server found" trust modal — which would otherwise
+        // steal focus and swallow an injected first prompt.
+        obj.insert(
+            "enableAllProjectMcpServers".to_string(),
+            serde_json::Value::Bool(true),
+        );
         let hooks = obj.entry("hooks").or_insert(serde_json::json!({}));
         if let Some(hooks_obj) = hooks.as_object_mut() {
             hooks_obj.insert(
@@ -1641,6 +1649,96 @@ fn read_worktree_tombstone(
         .get(&workspace_key)
         .and_then(|workspace_tombstones| workspace_tombstones.get(worktree))
         .cloned())
+}
+
+fn record_running_groove(app: &AppHandle, record: &RunningGrooveRecord) -> Result<(), String> {
+    let mut state = read_persisted_worktree_execution_state(app)?;
+    let workspace_key = workspace_root_storage_key(Path::new(&record.workspace_root));
+    state
+        .running_by_workspace
+        .entry(workspace_key)
+        .or_default()
+        .insert(record.worktree.clone(), record.clone());
+    write_persisted_worktree_execution_state(app, &state)
+}
+
+fn clear_running_groove(
+    app: &AppHandle,
+    workspace_root: &Path,
+    worktree: &str,
+) -> Result<(), String> {
+    let mut state = read_persisted_worktree_execution_state(app)?;
+    let workspace_key = workspace_root_storage_key(workspace_root);
+    let mut changed = false;
+    let mut workspace_running_empty = false;
+
+    if let Some(workspace_running) = state.running_by_workspace.get_mut(&workspace_key) {
+        if workspace_running.remove(worktree).is_some() {
+            changed = true;
+        }
+        workspace_running_empty = workspace_running.is_empty();
+    }
+
+    if workspace_running_empty {
+        state.running_by_workspace.remove(&workspace_key);
+        changed = true;
+    }
+
+    if changed {
+        write_persisted_worktree_execution_state(app, &state)?;
+    }
+
+    Ok(())
+}
+
+/// Clears the running record for a worktree only if it was created by the given
+/// session. This keeps a still-open manual terminal (a different session) from
+/// clearing a play record, and is a safe no-op when nothing is recorded.
+fn clear_running_groove_if_session_matches(
+    app: &AppHandle,
+    workspace_root: &Path,
+    worktree: &str,
+    session_id: &str,
+) -> Result<(), String> {
+    let mut state = read_persisted_worktree_execution_state(app)?;
+    let workspace_key = workspace_root_storage_key(workspace_root);
+    let mut changed = false;
+    let mut workspace_running_empty = false;
+
+    if let Some(workspace_running) = state.running_by_workspace.get_mut(&workspace_key) {
+        let matches = workspace_running
+            .get(worktree)
+            .map(|record| record.session_id == session_id)
+            .unwrap_or(false);
+        if matches {
+            workspace_running.remove(worktree);
+            changed = true;
+        }
+        workspace_running_empty = workspace_running.is_empty();
+    }
+
+    if changed && workspace_running_empty {
+        state.running_by_workspace.remove(&workspace_key);
+    }
+
+    if changed {
+        write_persisted_worktree_execution_state(app, &state)?;
+    }
+
+    Ok(())
+}
+
+fn read_running_grooves(
+    app: &AppHandle,
+    workspace_root: &Path,
+) -> Result<Vec<RunningGrooveRecord>, String> {
+    let state = read_persisted_worktree_execution_state(app)?;
+    let workspace_key = workspace_root_storage_key(workspace_root);
+    Ok(state
+        .running_by_workspace
+        .get(&workspace_key)
+        .map(|workspace_running| workspace_running.values().cloned().collect())
+        .unwrap_or_default())
 }
 
 fn effective_workspace_root(workspace_root: &Path, workspace_meta: &WorkspaceMeta) -> PathBuf {

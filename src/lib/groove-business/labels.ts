@@ -71,6 +71,7 @@ export const GROOVE_BUSINESS_ICONS: Record<GrooveBusinessLabelKey, IconEntry> =
 
 const WORKTREE_STATE_BUSINESS_LABELS: Record<WorktreeState, string> = {
   pending: "pending",
+  hunting: "on diagnosis",
   fighting: "working",
   wounded: "waiting",
   defeated: "done",

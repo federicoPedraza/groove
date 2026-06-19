@@ -1,5 +1,7 @@
 export const PENDING_STATE_CLASSES =
   "border-slate-800 bg-slate-900 text-white [&>svg]:text-white dark:border-slate-800 dark:bg-slate-900 dark:text-white dark:[&>svg]:text-white";
+export const HUNTING_STATE_CLASSES =
+  "border-sky-800 bg-sky-900 text-white [&>svg]:text-white dark:border-sky-800 dark:bg-sky-900 dark:text-white dark:[&>svg]:text-white";
 export const FIGHTING_STATE_CLASSES =
   "border-orange-800 bg-orange-900 text-white [&>svg]:text-white dark:border-orange-800 dark:bg-orange-900 dark:text-white dark:[&>svg]:text-white";
 export const WOUNDED_STATE_CLASSES =

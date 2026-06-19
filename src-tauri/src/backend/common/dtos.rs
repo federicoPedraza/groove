@@ -109,6 +109,8 @@ struct PersistedWorktreeExecutionState {
     last_executed_at_by_workspace: HashMap<String, HashMap<String, String>>,
     #[serde(default)]
     tombstones_by_workspace: HashMap<String, HashMap<String, WorktreeTombstone>>,
+    #[serde(default)]
+    running_by_workspace: HashMap<String, HashMap<String, RunningGrooveRecord>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -120,6 +122,28 @@ struct WorktreeTombstone {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     branch_name: Option<String>,
     deleted_at: String,
+}
+
+/// A groove that was actively playing an in-app PTY session. Persisted on play
+/// and removed when the session ends cleanly, so survivors after an unexpected
+/// shutdown can be surfaced for recovery on the next launch.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunningGrooveRecord {
+    workspace_root: String,
+    worktree: String,
+    worktree_path: String,
+    command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+    session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pid: Option<u32>,
+    started_at: String,
+    /// Best-effort liveness annotation set only when returned to the frontend;
+    /// never persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    still_running: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -436,6 +460,8 @@ struct CommentRecord {
 #[serde(rename_all = "lowercase")]
 enum WorktreeState {
     Pending,
+    // "On diagnosis" in Groove-business mode — created/triaged, not yet worked.
+    Hunting,
     Fighting,
     // Backward-compat: older workspace.json files have "trial" — map to wounded.
     #[serde(alias = "trial")]
@@ -1030,6 +1056,37 @@ struct GrooveStopResponse {
     pid: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveRecoverableListResponse {
+    request_id: String,
+    ok: bool,
+    grooves: Vec<RunningGrooveRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveRecoverableClearPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    /// Worktrees to clear; an empty list clears every running record for the workspace.
+    #[serde(default)]
+    worktrees: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrooveRecoverableClearResponse {
+    request_id: String,
+    ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -1746,6 +1803,50 @@ struct GitFileStatesResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct GitDiffLine {
+    kind: String,
+    content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitDiffHunk {
+    header: String,
+    old_start: u32,
+    old_lines: u32,
+    new_start: u32,
+    new_lines: u32,
+    lines: Vec<GitDiffLine>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitDiffFile {
+    file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    old_path: Option<String>,
+    status: String,
+    additions: u32,
+    deletions: u32,
+    binary: bool,
+    hunks: Vec<GitDiffHunk>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitDiffResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(default)]
+    files: Vec<GitDiffFile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DiagnosticsStopResponse {
     request_id: String,
     ok: bool,
@@ -1924,4 +2025,55 @@ struct WorkspaceContextSignature {
     workspace_manifest: SnapshotEntry,
     worktrees_dir: SnapshotEntry,
     worktree_execution_state_file: SnapshotEntry,
+}
+
+/// Result of registering Groove's embedded MCP server as an HTTP transport in
+/// Claude Code (`claude mcp add`). `already_connected` distinguishes a no-op
+/// re-add from a fresh registration so the UI can phrase it accurately.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AssistantConnectResponse {
+    request_id: String,
+    ok: bool,
+    already_connected: bool,
+    endpoint: String,
+    scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// Health snapshot for the Assistant settings page. `server_running` is a
+/// direct probe of Groove's local MCP endpoint; `registered_in_claude` and
+/// `claude_connection_ok` come from `claude mcp list` (which live-pings each
+/// configured server). `ok` is the AND of all three.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AssistantValidateResponse {
+    request_id: String,
+    ok: bool,
+    server_running: bool,
+    registered_in_claude: bool,
+    claude_connection_ok: bool,
+    endpoint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// Project + global assistant rules for the Settings → Assistant UI.
+/// `project_workspace` is null when no workspace is open (project rules N/A).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AssistantRulesListResponse {
+    request_id: String,
+    ok: bool,
+    global: Vec<AssistantRule>,
+    project: Vec<AssistantRule>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_workspace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }

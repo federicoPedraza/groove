@@ -61,11 +61,6 @@ import {
   workspaceSetWorktreeState,
 } from "@/src/lib/ipc";
 import { WorktreeStateContextMenu } from "@/src/components/pages/barracks/state-selector";
-import {
-  getMotherduckStoreSnapshot,
-  refreshMotherduckStatus,
-  subscribeToMotherduckStore,
-} from "@/src/lib/motherduck-store";
 import { toast } from "@/src/lib/toast";
 import { getActiveWorktreeRows } from "@/src/lib/utils/worktree/status";
 import {
@@ -430,21 +425,7 @@ function AppNavigation({
   const isIntelligenceActive = pathname === "/intelligence";
   const isSettingsActive = pathname === "/settings";
 
-  const motherduckSnapshot = useSyncExternalStore(
-    subscribeToMotherduckStore,
-    getMotherduckStoreSnapshot,
-    getMotherduckStoreSnapshot,
-  );
-  const showIntelligenceLink =
-    hasOpenWorkspace && motherduckSnapshot.tokenPresent;
-  const workspaceRootForRefresh =
-    workspaceContextStoreSnapshot.context?.workspaceRoot ?? null;
-  useEffect(() => {
-    if (!hasOpenWorkspace) {
-      return;
-    }
-    void refreshMotherduckStatus(workspaceRootForRefresh);
-  }, [hasOpenWorkspace, workspaceRootForRefresh]);
+  const showIntelligenceLink = hasOpenWorkspace;
   const homeLabel = hasOpenWorkspace
     ? grooveBusiness.label("barracks")
     : grooveBusiness.label("home");

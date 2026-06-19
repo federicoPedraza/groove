@@ -25,14 +25,6 @@ import type {
   OpenCodeCancelResponse,
 } from "./types-opencode";
 import type {
-  MotherduckStatusResponse,
-  MotherduckSetTokenPayload,
-  MotherduckMutationResponse,
-  MotherduckTestResponse,
-  MotherduckQueryPayload,
-  MotherduckQueryResponse,
-} from "./types-motherduck";
-import type {
   DoctrineReportRequest,
   DoctrineReportResponse,
   DoctrineResultRequest,
@@ -42,17 +34,11 @@ import type {
   DoctrineSetActiveResponse,
 } from "./types-doctrine";
 import type {
-  IntelligenceQueryListResponse,
-  IntelligenceQuerySaveRequest,
-  IntelligenceQuerySaveResponse,
-  IntelligenceQueryDeleteRequest,
-  IntelligenceQueryDeleteResponse,
-} from "./types-intelligence";
-import type {
   GitCommandResponse,
   GitCommitPayload,
   GitCurrentBranchPayload,
   GitCurrentBranchResponse,
+  GitDiffResponse,
   GitListBranchesPayload,
   GitListBranchesResponse,
 } from "./types-git";
@@ -72,6 +58,12 @@ import type {
   GrooveTerminalActivityResponse,
   GrooveTerminalActiveWorktreesResponse,
 } from "./types-terminal";
+import type {
+  AssistantConnectResponse,
+  AssistantValidateResponse,
+  AssistantRuleScope,
+  AssistantRulesListResponse,
+} from "./types-commands";
 import { invokeCommand } from "./invoke";
 
 export function gitCurrentBranch(
@@ -98,6 +90,14 @@ export function gitCommit(
 
 export function gitAdd(payload: GitPathPayload): Promise<GitCommandResponse> {
   return invokeCommand<GitCommandResponse>("git_add", { payload });
+}
+
+export function gitDiff(payload: GitPathPayload): Promise<GitDiffResponse> {
+  return invokeCommand<GitDiffResponse>(
+    "git_diff",
+    { payload },
+    { intent: "background" },
+  );
 }
 
 export function globalSettingsGet(): Promise<GlobalSettingsResponse> {
@@ -317,40 +317,6 @@ export function cancelOpencodeFlow(
   });
 }
 
-export function motherduckGetStatus(): Promise<MotherduckStatusResponse> {
-  return invokeCommand<MotherduckStatusResponse>(
-    "motherduck_get_status",
-    undefined,
-    {
-      intent: "background",
-    },
-  );
-}
-
-export function motherduckSetToken(
-  payload: MotherduckSetTokenPayload,
-): Promise<MotherduckMutationResponse> {
-  return invokeCommand<MotherduckMutationResponse>("motherduck_set_token", {
-    payload,
-  });
-}
-
-export function motherduckClearToken(): Promise<MotherduckMutationResponse> {
-  return invokeCommand<MotherduckMutationResponse>("motherduck_clear_token");
-}
-
-export function motherduckTest(): Promise<MotherduckTestResponse> {
-  return invokeCommand<MotherduckTestResponse>("motherduck_test");
-}
-
-export function motherduckQuery(
-  payload: MotherduckQueryPayload,
-): Promise<MotherduckQueryResponse> {
-  return invokeCommand<MotherduckQueryResponse>("motherduck_query", {
-    payload,
-  });
-}
-
 export function doctrineGenerateReport(
   payload: DoctrineReportRequest = {},
 ): Promise<DoctrineReportResponse> {
@@ -381,32 +347,6 @@ export function doctrineSetActive(
   return invokeCommand<DoctrineSetActiveResponse>("doctrine_set_active", {
     payload,
   });
-}
-
-export function intelligenceQueryList(): Promise<IntelligenceQueryListResponse> {
-  return invokeCommand<IntelligenceQueryListResponse>(
-    "intelligence_query_list",
-    undefined,
-    { intent: "background" },
-  );
-}
-
-export function intelligenceQuerySave(
-  payload: IntelligenceQuerySaveRequest,
-): Promise<IntelligenceQuerySaveResponse> {
-  return invokeCommand<IntelligenceQuerySaveResponse>(
-    "intelligence_query_save",
-    { payload },
-  );
-}
-
-export function intelligenceQueryDelete(
-  payload: IntelligenceQueryDeleteRequest,
-): Promise<IntelligenceQueryDeleteResponse> {
-  return invokeCommand<IntelligenceQueryDeleteResponse>(
-    "intelligence_query_delete",
-    { payload },
-  );
 }
 
 export function listenGrooveTerminalOutput(
@@ -505,4 +445,48 @@ export function grooveTerminalActiveWorktrees(
     { payload },
     { intent: "background" },
   );
+}
+
+export function assistantConnectTransport(): Promise<AssistantConnectResponse> {
+  return invokeCommand<AssistantConnectResponse>(
+    "assistant_connect_transport",
+    undefined,
+    { intent: "blocking" },
+  );
+}
+
+export function assistantValidateMcp(): Promise<AssistantValidateResponse> {
+  return invokeCommand<AssistantValidateResponse>(
+    "assistant_validate_mcp",
+    undefined,
+    { intent: "background" },
+  );
+}
+
+export function assistantRulesList(): Promise<AssistantRulesListResponse> {
+  return invokeCommand<AssistantRulesListResponse>(
+    "assistant_rules_list",
+    undefined,
+    { intent: "background" },
+  );
+}
+
+export function assistantRuleAdd(
+  scope: AssistantRuleScope,
+  text: string,
+): Promise<AssistantRulesListResponse> {
+  return invokeCommand<AssistantRulesListResponse>("assistant_rule_add", {
+    scope,
+    text,
+  });
+}
+
+export function assistantRuleRemove(
+  scope: AssistantRuleScope,
+  id: string,
+): Promise<AssistantRulesListResponse> {
+  return invokeCommand<AssistantRulesListResponse>("assistant_rule_remove", {
+    scope,
+    id,
+  });
 }

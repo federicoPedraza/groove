@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
+  Bot,
   Check,
   ChevronDown,
   Copy,
@@ -27,7 +28,8 @@ import { CommandsSettingsForm } from "@/src/components/pages/settings/commands-s
 import { WorktreeSymlinkPathsModal } from "@/src/components/pages/settings/worktree-symlink-paths-modal";
 import { OpencodeIntegrationPanel } from "@/src/components/opencode/opencode-integration-panel";
 import { ClaudeCodeIntegrationPanel } from "@/src/components/claudecode/claudecode-integration-panel";
-import { MotherduckIntegrationPanel } from "@/src/components/motherduck/motherduck-integration-panel";
+import { AssistantMcpPanel } from "@/src/components/pages/settings/assistant-mcp-panel";
+import { AssistantRulesPanel } from "@/src/components/pages/settings/assistant-rules-panel";
 import { GrooveSoundSettingsPanel } from "@/src/components/groove-sound-settings-panel";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
 import {
@@ -136,6 +138,7 @@ type SettingsSubpage =
   | "personalization"
   | "workspace"
   | "general"
+  | "assistant"
   | "about";
 
 const SETTINGS_SUBPAGES: {
@@ -147,6 +150,7 @@ const SETTINGS_SUBPAGES: {
   { id: "general", label: "General", shortLabel: "Gen", icon: Settings2 },
   { id: "workspace", label: "Workspace", shortLabel: "Work", icon: FolderOpen },
   { id: "personalization", label: "Personalization", shortLabel: "Style", icon: Palette },
+  { id: "assistant", label: "Assistant", shortLabel: "AI", icon: Bot },
   { id: "about", label: "About", shortLabel: "Info", icon: Info },
 ];
 
@@ -843,9 +847,38 @@ export default function SettingsPage() {
             {activeSubpage === "general" && "Toggles, keyboard shortcuts, and integrations for Groove."}
             {activeSubpage === "workspace" && "Configure commands and paths for the active workspace."}
             {activeSubpage === "personalization" && "Customize the look, feel, and sounds of Groove."}
+            {activeSubpage === "assistant" && "Connect Groove's MCP server to Claude Code and verify the connection."}
             {activeSubpage === "about" && "Information about Groove."}
           </p>
         </div>
+
+        {activeSubpage === "assistant" && (
+          <Collapsible defaultOpen>
+            <Card className="gap-0 py-4">
+              <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
+                    aria-label="Toggle assistant settings"
+                  >
+                    <ChevronDown
+                      aria-hidden="true"
+                      className="size-4 text-muted-foreground transition-transform duration-200"
+                    />
+                    <CardTitle className="text-sm">Claude Code MCP</CardTitle>
+                  </button>
+                </CollapsibleTrigger>
+              </CardHeader>
+              <CollapsibleContent>
+                <CardContent className="space-y-3">
+                  <AssistantMcpPanel />
+                  <AssistantRulesPanel />
+                </CardContent>
+              </CollapsibleContent>
+            </Card>
+          </Collapsible>
+        )}
 
         {isLoading && activeSubpage === "workspace" && (
           <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
@@ -1603,7 +1636,6 @@ export default function SettingsPage() {
                   workspaceRoot={workspaceRoot}
                 />
                 <ClaudeCodeIntegrationPanel />
-                <MotherduckIntegrationPanel workspaceRoot={workspaceRoot} />
               </CardContent>
             </CollapsibleContent>
           </Card>

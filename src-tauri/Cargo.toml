@@ -23,7 +23,7 @@ time = { version = "0.3", features = ["formatting"] }
 portable-pty = "0.9"
 base64 = "0.22.1"
 rand = "0.8"
-duckdb = { version = "1", features = ["bundled"] }
 anyhow = "1"
 tiktoken-rs = "0.11"
 once_cell = "1"
+tiny_http = "0.12"

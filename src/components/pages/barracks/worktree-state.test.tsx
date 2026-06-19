@@ -17,6 +17,7 @@ import {
 
 const ALL_STATES = [
   "pending",
+  "hunting",
   "fighting",
   "wounded",
   "defeated",

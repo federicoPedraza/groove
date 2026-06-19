@@ -62,7 +62,8 @@ npm run check:linux-deps     # Verify Linux Tauri system deps
    - `app_state_management/` — workspace/worktree state
    - `startup_health_checks_binary_validation/` — sidecar validation
    - `frontend_command_registry/` — Tauri command registration (IPC entry points), grouped per domain (`groove_commands.rs`, `terminal_commands.rs`, `events_commands.rs`, etc.)
-   - `motherduck_database/`, `opencode_integration/` — third-party integrations
+   - `opencode_integration/` — third-party integrations
+   - `mcp_worktree_server/` — embedded MCP server (localhost HTTP, default port 4923) exposing worktree/Claude-session tools to external agents
 
    Backend→frontend events are emitted via `app.emit(...)` directly from the relevant module (e.g. `pty_terminal_sessions`, `workspace_discovery_context`, `frontend_command_registry/events_commands.rs`) — there is no central event hub.
 

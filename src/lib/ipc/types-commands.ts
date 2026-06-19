@@ -79,6 +79,44 @@ export type GrooveStopResponse = {
   error?: string;
 };
 
+export type RunningGrooveRecord = {
+  workspaceRoot: string;
+  worktree: string;
+  worktreePath: string;
+  command: string;
+  target?: string;
+  sessionId: string;
+  pid?: number;
+  startedAt: string;
+  stillRunning?: boolean;
+};
+
+export type GrooveRecoverableListPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+};
+
+export type GrooveRecoverableListResponse = {
+  requestId?: string;
+  ok: boolean;
+  grooves: RunningGrooveRecord[];
+  error?: string;
+};
+
+export type GrooveRecoverableClearPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktrees: string[];
+};
+
+export type GrooveRecoverableClearResponse = {
+  requestId?: string;
+  ok: boolean;
+  error?: string;
+};
+
 export type GrooveSummaryPayload = {
   rootName: string;
   knownWorktrees: string[];
@@ -223,5 +261,43 @@ export type DiagnosticsSystemOverviewResponse = {
   requestId?: string;
   ok: boolean;
   overview?: DiagnosticsSystemOverview;
+  error?: string;
+};
+
+export type AssistantConnectResponse = {
+  requestId?: string;
+  ok: boolean;
+  alreadyConnected: boolean;
+  endpoint: string;
+  scope: string;
+  message?: string;
+  error?: string;
+};
+
+export type AssistantValidateResponse = {
+  requestId?: string;
+  ok: boolean;
+  serverRunning: boolean;
+  registeredInClaude: boolean;
+  claudeConnectionOk: boolean;
+  endpoint: string;
+  details?: string;
+  error?: string;
+};
+
+export type AssistantRuleScope = "project" | "global";
+
+export type AssistantRule = {
+  id: string;
+  text: string;
+  createdAt: string;
+};
+
+export type AssistantRulesListResponse = {
+  requestId?: string;
+  ok: boolean;
+  global: AssistantRule[];
+  project: AssistantRule[];
+  projectWorkspace?: string;
   error?: string;
 };

@@ -59,6 +59,7 @@ export type CommentRecord = {
 
 export const WORKTREE_STATES = [
   "pending",
+  "hunting",
   "fighting",
   "wounded",
   "defeated",

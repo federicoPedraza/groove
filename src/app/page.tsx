@@ -9,6 +9,14 @@ import { Dropdown } from "@/src/components/ui/dropdown";
 import { BarracksHeader } from "@/src/components/pages/barracks/barracks-header";
 import { BarracksModals } from "@/src/components/pages/barracks/barracks-modals";
 import { CommentViewerModal } from "@/src/components/pages/barracks/comment-viewer-modal";
+import {
+  LootingModal,
+  type LootingSnapshot,
+} from "@/src/components/pages/barracks/looting-modal";
+import {
+  RewardClaimModal,
+  type RewardClaimSnapshot,
+} from "@/src/components/pages/barracks/reward-claim-modal";
 import { SummaryViewerModal } from "@/src/components/pages/barracks/summary-viewer-modal";
 import { WorktreesTable } from "@/src/components/pages/barracks/worktrees-table";
 import { useBarracksState } from "@/src/components/pages/barracks/hooks/use-barracks-state";
@@ -24,6 +32,7 @@ import {
   grooveDiscoverWorktreeUnit,
   grooveSummary,
   workspaceClaimWorktreeReward,
+  workspaceLootWorktree,
   workspaceSetWorktreeState,
 } from "@/src/lib/ipc";
 import type {
@@ -259,6 +268,9 @@ export default function Home() {
     ],
   );
 
+  const [rewardClaimSnapshot, setRewardClaimSnapshot] =
+    useState<RewardClaimSnapshot | null>(null);
+
   const handleClaimWorktreeReward = useCallback(
     (worktree: string) => {
       void workspaceClaimWorktreeReward({ worktree })
@@ -267,10 +279,40 @@ export default function Home() {
             toast.error(response.error ?? "Failed to claim reward.");
             return;
           }
+          setRewardClaimSnapshot({
+            worktree,
+            unit: response.unit ?? null,
+            gold: response.gold ?? 0,
+          });
           void refreshWorktrees();
         })
         .catch(() => {
           toast.error("Failed to claim reward.");
+        });
+    },
+    [refreshWorktrees],
+  );
+
+  const [lootingSnapshot, setLootingSnapshot] =
+    useState<LootingSnapshot | null>(null);
+
+  const handleLootWorktree = useCallback(
+    (worktree: string) => {
+      void workspaceLootWorktree({ worktree })
+        .then((response) => {
+          if (!response.ok) {
+            toast.error(response.error ?? "Failed to loot worktree.");
+            return;
+          }
+          setLootingSnapshot({
+            worktree,
+            unitName: response.unit?.name ?? worktree,
+            loot: response.loot ?? [],
+          });
+          void refreshWorktrees();
+        })
+        .catch(() => {
+          toast.error("Failed to loot worktree.");
         });
     },
     [refreshWorktrees],
@@ -860,6 +902,7 @@ export default function Home() {
                 newDiscoveryWorktrees={newDiscoveryWorktrees}
                 onDiscoverWorktree={handleDiscoverWorktree}
                 onClaimWorktreeReward={handleClaimWorktreeReward}
+                onLootWorktree={handleLootWorktree}
                 worktreeComments={worktreeComments}
                 commentingWorktrees={commentingWorktrees}
                 onCommentWorktree={handleCommentWorktree}
@@ -959,6 +1002,18 @@ export default function Home() {
         }}
         isAttackPending={attackPendingFor === "single"}
         isAttackAllPending={attackPendingFor === "all"}
+      />
+      <RewardClaimModal
+        snapshot={rewardClaimSnapshot}
+        onClose={() => {
+          setRewardClaimSnapshot(null);
+        }}
+      />
+      <LootingModal
+        snapshot={lootingSnapshot}
+        onClose={() => {
+          setLootingSnapshot(null);
+        }}
       />
     </>
   );

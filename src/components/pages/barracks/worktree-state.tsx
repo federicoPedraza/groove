@@ -5,11 +5,13 @@ import {
   CircleCheck,
   CircleDashed,
   Clock,
+  Crosshair,
   Droplet,
   Hammer,
   Shield,
   ShieldCheck,
   ShieldOff,
+  Stethoscope,
   Swords,
 } from "lucide-react";
 
@@ -18,6 +20,7 @@ import {
   DEFEATED_STATE_CLASSES,
   FIGHTING_STATE_CLASSES,
   FORGOTTEN_STATE_CLASSES,
+  HUNTING_STATE_CLASSES,
   PENDING_STATE_CLASSES,
   WOUNDED_STATE_CLASSES,
 } from "@/src/components/pages/barracks/constants";
@@ -25,6 +28,9 @@ import type { WorktreeState } from "@/src/components/pages/barracks/types";
 import type { GrooveBusinessMode } from "@/src/lib/groove-business";
 
 export function getWorktreeStateBadgeClasses(state: WorktreeState): string {
+  if (state === "hunting") {
+    return HUNTING_STATE_CLASSES;
+  }
   if (state === "fighting") {
     return FIGHTING_STATE_CLASSES;
   }
@@ -44,6 +50,9 @@ export function getWorktreeStateBadgeClasses(state: WorktreeState): string {
 }
 
 export function getWorktreeStateTitle(state: WorktreeState): string {
+  if (state === "hunting") {
+    return "Worktree is on the hunt (on diagnosis).";
+  }
   if (state === "fighting") {
     return "Worktree is in active battle.";
   }
@@ -67,6 +76,9 @@ export function getWorktreeStateIcon(
   mode: GrooveBusinessMode = "groove",
 ) {
   if (mode === "business") {
+    if (state === "hunting") {
+      return <Stethoscope aria-hidden="true" />;
+    }
     if (state === "fighting") {
       return <Hammer aria-hidden="true" />;
     }
@@ -85,6 +97,9 @@ export function getWorktreeStateIcon(
     return <CircleDashed aria-hidden="true" />;
   }
 
+  if (state === "hunting") {
+    return <Crosshair aria-hidden="true" />;
+  }
   if (state === "fighting") {
     return <Swords aria-hidden="true" />;
   }
@@ -104,6 +119,7 @@ export function getWorktreeStateIcon(
 }
 
 export function getWorktreeStateIconColorClass(state: WorktreeState): string {
+  if (state === "hunting") return "text-sky-500";
   if (state === "fighting") return "text-orange-500";
   if (state === "wounded") return "text-rose-500";
   if (state === "defeated") return "text-emerald-500";

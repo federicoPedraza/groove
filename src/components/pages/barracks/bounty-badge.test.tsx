@@ -79,17 +79,34 @@ describe("BountyBadge", () => {
     expect(screen.queryByRole("button", { name: /Discover/ })).toBeNull();
   });
 
-  it("renders nothing once unit.rewarded is true", () => {
+  it("transforms into the looting (Beef) badge once gold is claimed", () => {
     const onReward = vi.fn();
-    const { container } = render(
+    const onLoot = vi.fn();
+    render(
       <BountyBadge
         state="defeated"
         unit={{ ...UNIT, rewarded: true }}
         onReward={onReward}
+        onLoot={onLoot}
+      />,
+    );
+    // The bounty (Coins) button must be gone…
+    expect(screen.queryByRole("button", { name: /Claim bounty/ })).toBeNull();
+    // …and the looting button must take its place.
+    const lootButton = screen.getByRole("button", { name: /Loot/ });
+    fireEvent.click(lootButton);
+    expect(onLoot).toHaveBeenCalledTimes(1);
+    expect(onReward).not.toHaveBeenCalled();
+  });
+
+  it("renders nothing once both rewarded and looted are true", () => {
+    const { container } = render(
+      <BountyBadge
+        state="defeated"
+        unit={{ ...UNIT, rewarded: true, looted: true }}
       />,
     );
     expect(container.firstChild).toBeNull();
-    expect(onReward).not.toHaveBeenCalled();
   });
 
   it("disables the Discover button when no handler is provided", () => {

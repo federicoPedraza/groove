@@ -134,3 +134,42 @@ export type GitBooleanResponse = {
   outputSnippet?: string;
   error?: string;
 };
+
+export type GitDiffLine = {
+  kind: "context" | "add" | "remove";
+  content: string;
+};
+
+export type GitDiffHunk = {
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: GitDiffLine[];
+};
+
+export type GitDiffFileStatus =
+  | "modified"
+  | "added"
+  | "deleted"
+  | "renamed"
+  | "untracked";
+
+export type GitDiffFile = {
+  filePath: string;
+  oldPath?: string;
+  status: GitDiffFileStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  hunks: GitDiffHunk[];
+};
+
+export type GitDiffResponse = {
+  requestId?: string;
+  ok: boolean;
+  path?: string;
+  files: GitDiffFile[];
+  error?: string;
+};

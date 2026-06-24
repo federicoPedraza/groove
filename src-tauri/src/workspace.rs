@@ -60,8 +60,8 @@ pub(crate) fn is_safe_path_token(value: &str) -> bool {
 }
 
 pub(crate) fn validate_known_worktrees(known_worktrees: &[String]) -> Result<Vec<String>, String> {
-    if known_worktrees.len() > 128 {
-        return Err("knownWorktrees is too large (max 128 entries).".to_string());
+    if known_worktrees.len() > 4096 {
+        return Err("knownWorktrees is too large (max 4096 entries).".to_string());
     }
 
     let mut set = HashSet::new();

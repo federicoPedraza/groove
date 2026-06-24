@@ -932,6 +932,7 @@ fn groove_restore(
                 None,
                 false,
                 true,
+                true,
             ) {
                 Ok(session) => {
                     if is_groove_terminal_claude_code_command(command_template) {
@@ -2407,10 +2408,145 @@ fn groove_stop(app: AppHandle, payload: GrooveStopPayload) -> GrooveStopResponse
     };
 
     if response.ok {
+        let _ = clear_running_groove(&app, &workspace_root, worktree);
         invalidate_groove_list_cache_for_workspace(&app, &workspace_root);
     }
 
     response
+}
+
+/// Lists grooves that were playing when Groove last exited but were never cleanly
+/// stopped (i.e. survivors of an unexpected shutdown), so the frontend can offer
+/// to recover them on the next launch.
+#[tauri::command]
+fn groove_recoverable_list(
+    app: AppHandle,
+    payload: WorkspaceEventsPayload,
+) -> GrooveRecoverableListResponse {
+    let request_id = request_id();
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveRecoverableListResponse {
+                request_id,
+                ok: false,
+                grooves: Vec::new(),
+                error: Some(error),
+            };
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return GrooveRecoverableListResponse {
+                request_id,
+                ok: false,
+                grooves: Vec::new(),
+                error: Some(error),
+            };
+        }
+    };
+
+    match read_running_grooves(&app, &workspace_root) {
+        Ok(mut grooves) => {
+            for groove in grooves.iter_mut() {
+                groove.still_running = groove
+                    .pid
+                    .and_then(|pid| i32::try_from(pid).ok())
+                    .map(is_process_running);
+            }
+            grooves.sort_by(|a, b| a.worktree.cmp(&b.worktree));
+            GrooveRecoverableListResponse {
+                request_id,
+                ok: true,
+                grooves,
+                error: None,
+            }
+        }
+        Err(error) => GrooveRecoverableListResponse {
+            request_id,
+            ok: false,
+            grooves: Vec::new(),
+            error: Some(error),
+        },
+    }
+}
+
+/// Removes running-groove records so the recovery prompt does not reappear. An
+/// empty `worktrees` list clears every running record for the workspace.
+#[tauri::command]
+fn groove_recoverable_clear(
+    app: AppHandle,
+    payload: GrooveRecoverableClearPayload,
+) -> GrooveRecoverableClearResponse {
+    let request_id = request_id();
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(value) => value,
+        Err(error) => {
+            return GrooveRecoverableClearResponse {
+                request_id,
+                ok: false,
+                error: Some(error),
+            };
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return GrooveRecoverableClearResponse {
+                request_id,
+                ok: false,
+                error: Some(error),
+            };
+        }
+    };
+
+    let targets: Vec<String> = if payload.worktrees.is_empty() {
+        match read_running_grooves(&app, &workspace_root) {
+            Ok(grooves) => grooves.into_iter().map(|groove| groove.worktree).collect(),
+            Err(error) => {
+                return GrooveRecoverableClearResponse {
+                    request_id,
+                    ok: false,
+                    error: Some(error),
+                };
+            }
+        }
+    } else {
+        payload.worktrees.clone()
+    };
+
+    for worktree in &targets {
+        if let Err(error) = clear_running_groove(&app, &workspace_root, worktree) {
+            return GrooveRecoverableClearResponse {
+                request_id,
+                ok: false,
+                error: Some(error),
+            };
+        }
+    }
+
+    GrooveRecoverableClearResponse {
+        request_id,
+        ok: true,
+        error: None,
+    }
 }
 
 const DISCOVER_PROMPT: &str = "Analyze the work done in this Claude session. Rate its difficulty on a scale 1-5 based on the following cheatsheet, then respond with ONLY a single digit (1, 2, 3, 4, or 5). No words, no punctuation, no explanation.\n\nCheatsheet:\n- 1: UI fixes, fixes that look accidentally placed on someone else's PR.\n- 2: Bugs, crashing bugs, backend weird-to-find or missing things.\n- 3: Features, complex backend discovery, many attempts at fixing this bug because of PR reviewers.\n- 4: Complex, weird-to-explain, weird-to-find, non-features, complex backend analysis (few attempts).\n- 5: Same as 4 but with many attempts.\n\nRespond with a single digit only.";

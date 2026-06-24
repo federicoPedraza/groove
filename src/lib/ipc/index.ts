@@ -1,6 +1,6 @@
 export * from "./types-core";
 export * from "./types-opencode";
-export * from "./types-motherduck";
+export * from "./types-doctrine";
 export * from "./types-commands";
 export * from "./types-terminal";
 export * from "./types-git";

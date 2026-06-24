@@ -32,6 +32,8 @@ pub(crate) fn run() {
                 std::env::set_var("TERM", "xterm-256color");
             }
 
+            start_groove_mcp_server(app.handle().clone());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -58,6 +60,7 @@ pub(crate) fn run() {
             workspace_update_worktree_symlink_paths,
             workspace_set_worktree_state,
             workspace_claim_worktree_reward,
+            workspace_loot_worktree,
             workspace_list_symlink_entries,
             workspace_open_terminal,
             workspace_open_workspace_terminal,
@@ -82,6 +85,7 @@ pub(crate) fn run() {
             git_merge_in_progress,
             git_has_upstream,
             git_list_file_states,
+            git_diff,
             git_stage_files,
             git_unstage_files,
             git_add,
@@ -92,6 +96,8 @@ pub(crate) fn run() {
             groove_restore,
             groove_rm,
             groove_stop,
+            groove_recoverable_list,
+            groove_recoverable_clear,
             groove_summary,
             groove_comment,
             groove_comment_mark_committed,
@@ -118,11 +124,15 @@ pub(crate) fn run() {
             repair_opencode_integration,
             run_opencode_flow,
             cancel_opencode_flow,
-            motherduck_get_status,
-            motherduck_set_token,
-            motherduck_clear_token,
-            motherduck_test,
-            motherduck_query
+            doctrine_generate_report,
+            doctrine_generate_result,
+            doctrine_list,
+            doctrine_set_active,
+            assistant_connect_transport,
+            assistant_validate_mcp,
+            assistant_rules_list,
+            assistant_rule_add,
+            assistant_rule_remove
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

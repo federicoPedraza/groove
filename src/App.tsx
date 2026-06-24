@@ -19,6 +19,7 @@ import {
 const BestiaryPage = lazy(async () => import("@/src/app/bestiary/page"));
 const DiagnosticsPage = lazy(async () => import("@/src/app/diagnostics/page"));
 const IntelligencePage = lazy(async () => import("@/src/app/intelligence/page"));
+const InventoryPage = lazy(async () => import("@/src/app/inventory/page"));
 const SettingsPage = lazy(async () => import("@/src/app/settings/page"));
 const WorktreesPage = lazy(async () => import("@/src/app/worktrees/page"));
 const WorktreeDetailPage = lazy(
@@ -114,6 +115,14 @@ export function App() {
             element={
               <Suspense fallback={<RouteFallback pageName="bestiary" />}>
                 <BestiaryPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="inventory"
+            element={
+              <Suspense fallback={<RouteFallback pageName="inventory" />}>
+                <InventoryPage />
               </Suspense>
             }
           />

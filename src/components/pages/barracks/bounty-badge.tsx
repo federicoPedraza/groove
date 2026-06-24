@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Coins, DiamondPlus, Loader2, Pickaxe } from "lucide-react";
+import { Beef, Coins, DiamondPlus, Loader2, Pickaxe } from "lucide-react";
 
 import {
   Tooltip,
@@ -18,6 +18,7 @@ type BountyBadgeProps = {
   isNewDiscovery?: boolean;
   onDiscover?: () => void;
   onReward?: () => void;
+  onLoot?: () => void;
 };
 
 // 1:1 square "icon badge" sized to match the height of the regular Badge
@@ -31,6 +32,9 @@ const NEUTRAL_INTERACTIVE_CLASSES =
 const GOLD_CLASSES = "border-yellow-500 text-yellow-400";
 const GOLD_INTERACTIVE_CLASSES =
   "hover:text-yellow-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-yellow-500/60 disabled:pointer-events-none disabled:opacity-50";
+const LOOT_CLASSES = "border-rose-500 text-rose-400";
+const LOOT_INTERACTIVE_CLASSES =
+  "hover:text-rose-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rose-500/60 disabled:pointer-events-none disabled:opacity-50";
 
 function NewDiscoveryIndicator() {
   return (
@@ -50,6 +54,7 @@ export function BountyBadge({
   isNewDiscovery = false,
   onDiscover,
   onReward,
+  onLoot,
 }: BountyBadgeProps) {
   const wrap = (node: ReactNode) => {
     if (!isNewDiscovery) return node;
@@ -119,35 +124,61 @@ export function BountyBadge({
     return null;
   }
 
-  // Defeated with a unit that hasn't been claimed yet → clickable bounty.
-  // Once `unit.rewarded` flips true the bounty disappears entirely (the gold
-  // has been moved into `workspace.gold`; the row is done).
-  if (!unit || unit.rewarded === true) {
-    return null;
+  // Defeated with a unit, gold not yet claimed → bounty (Coins).
+  if (unit.rewarded !== true) {
+    const tooltip = String(unit.reward);
+    return wrap(
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                BADGE_BASE_CLASSES,
+                GOLD_CLASSES,
+                GOLD_INTERACTIVE_CLASSES,
+              )}
+              onClick={onReward}
+              disabled={!onReward}
+              aria-label={`Claim bounty ${tooltip}`}
+            >
+              <Coins aria-hidden="true" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{tooltip}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>,
+    );
   }
 
-  const tooltip = String(unit.reward);
+  // Gold already claimed but loot still uncollected → looting badge (Beef).
+  // `looted` may be undefined on units saved before the gold/loot split;
+  // treat that as "not looted yet" per the new schema contract.
+  if (unit.looted !== true) {
+    return wrap(
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                BADGE_BASE_CLASSES,
+                LOOT_CLASSES,
+                LOOT_INTERACTIVE_CLASSES,
+              )}
+              onClick={onLoot}
+              disabled={!onLoot}
+              aria-label="Loot"
+            >
+              <Beef aria-hidden="true" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Loot</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>,
+    );
+  }
 
-  return wrap(
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              BADGE_BASE_CLASSES,
-              GOLD_CLASSES,
-              GOLD_INTERACTIVE_CLASSES,
-            )}
-            onClick={onReward}
-            disabled={!onReward}
-            aria-label={`Claim bounty ${tooltip}`}
-          >
-            <Coins aria-hidden="true" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">{tooltip}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>,
-  );
+  // Both gold claimed and loot collected → row is done, hide.
+  return null;
 }

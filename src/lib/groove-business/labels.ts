@@ -1,5 +1,6 @@
 import {
   Activity,
+  Backpack,
   Bug,
   Castle,
   Database,
@@ -9,6 +10,7 @@ import {
   HeartPlus,
   LandPlot,
   LayoutDashboard,
+  Package,
   PawPrint,
   PencilRuler,
   Settings,
@@ -26,6 +28,7 @@ export type GrooveBusinessLabelKey =
   | "wilderness"
   | "situationRoom"
   | "bestiary"
+  | "inventory"
   | "intelligence"
   | "home"
   | "land";
@@ -47,6 +50,7 @@ export const GROOVE_BUSINESS_LABELS: Record<GrooveBusinessLabelKey, LabelEntry> 
     wilderness: { groove: "Wilderness", business: "Worktrees" },
     situationRoom: { groove: "Situation Room", business: "Diagnostics" },
     bestiary: { groove: "Bestiary", business: "Bugs" },
+    inventory: { groove: "Inventory", business: "Items" },
     intelligence: { groove: "Intelligence", business: "Database" },
     home: { groove: "Home", business: "Home" },
     land: { groove: "Land", business: "Workspace" },
@@ -59,6 +63,7 @@ export const GROOVE_BUSINESS_ICONS: Record<GrooveBusinessLabelKey, IconEntry> =
     wilderness: { groove: FlameKindling, business: Folders },
     situationRoom: { groove: HeartPlus, business: Activity },
     bestiary: { groove: PawPrint, business: Bug },
+    inventory: { groove: Backpack, business: Package },
     intelligence: { groove: PencilRuler, business: Database },
     home: { groove: Swords, business: LayoutDashboard },
     land: { groove: LandPlot, business: Folder },
@@ -66,6 +71,7 @@ export const GROOVE_BUSINESS_ICONS: Record<GrooveBusinessLabelKey, IconEntry> =
 
 const WORKTREE_STATE_BUSINESS_LABELS: Record<WorktreeState, string> = {
   pending: "pending",
+  hunting: "on diagnosis",
   fighting: "working",
   wounded: "waiting",
   defeated: "done",

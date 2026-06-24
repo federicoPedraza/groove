@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
+import { ItemSprite } from "@/src/components/pages/items/item-sprite";
 import {
   Dialog,
   DialogContent,
@@ -7,6 +8,17 @@ import {
   DialogTitle,
 } from "@/src/components/ui/dialog";
 import { getKingdom, type BugDefinition } from "@/src/lib/bestiary/definitions";
+import {
+  getIconicForBug,
+  getKingdomItems,
+  getRarityBadgeClassName,
+  type ItemDefinition,
+  type ItemRarity,
+} from "@/src/lib/items/definitions";
+import {
+  getWorkspaceContextStoreSnapshot,
+  subscribeToWorkspaceContextStore,
+} from "@/src/lib/workspace-store";
 import { cn } from "@/src/lib/utils";
 
 type UnitCardProps = {
@@ -19,6 +31,18 @@ export function UnitCard({ open, definition, onClose }: UnitCardProps) {
   const isOpen = open && definition !== null;
   const kingdom = definition ? getKingdom(definition.kingdom) : null;
   const [isFlipped, setIsFlipped] = useState(false);
+
+  const workspaceSnapshot = useSyncExternalStore(
+    subscribeToWorkspaceContextStore,
+    getWorkspaceContextStoreSnapshot,
+    getWorkspaceContextStoreSnapshot,
+  );
+  const inventory =
+    workspaceSnapshot.context?.workspaceMeta?.inventory ?? null;
+  const kingdomItems = definition ? getKingdomItems(definition.kingdom) : [];
+  const iconic = definition ? getIconicForBug(definition.name) ?? null : null;
+  const iconicOwned =
+    iconic !== null && (inventory?.[iconic.id] ?? 0) > 0;
 
   useEffect(() => {
     if (!isOpen) {
@@ -124,6 +148,14 @@ export function UnitCard({ open, definition, onClose }: UnitCardProps) {
                         {definition.description}
                       </p>
                     </section>
+                    <DropsSection
+                      kingdomLabel={kingdom.label}
+                      subtitleClassName={kingdom.cardSubtitleClassName}
+                      kingdomItems={kingdomItems}
+                      iconic={iconic}
+                      iconicOwned={iconicOwned}
+                      bugName={definition.name}
+                    />
                   </div>
                 </CardFace>
             </button>
@@ -151,5 +183,85 @@ function CardFace({ className, ariaHidden, children }: CardFaceProps) {
     >
       {children}
     </div>
+  );
+}
+
+type DropsSectionProps = {
+  kingdomLabel: string;
+  subtitleClassName: string;
+  kingdomItems: readonly ItemDefinition[];
+  iconic: ItemDefinition | null;
+  iconicOwned: boolean;
+  bugName: string;
+};
+
+function DropsSection({
+  kingdomLabel,
+  subtitleClassName,
+  kingdomItems,
+  iconic,
+  iconicOwned,
+  bugName,
+}: DropsSectionProps) {
+  return (
+    <section className="space-y-2">
+      <h3
+        className={cn(
+          "text-[10px] font-semibold uppercase tracking-[0.18em]",
+          subtitleClassName,
+        )}
+      >
+        Possible drops
+      </h3>
+      <ul className="space-y-1 text-xs leading-tight">
+        {kingdomItems.map((item) => (
+          <li key={item.id} className="flex items-center gap-2">
+            <RarityChip rarity={item.rarity} />
+            <span className="truncate">{item.name}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-center gap-2 rounded-md border-2 border-amber-500/55 bg-amber-500/10 p-1.5">
+        <div className="flex h-10 w-10 items-center justify-center overflow-hidden">
+          {iconic && iconicOwned ? (
+            <ItemSprite sprite={iconic.sprite} scale={0.6} />
+          ) : (
+            <div
+              className="h-7 w-7 rounded-sm bg-foreground/15"
+              aria-hidden="true"
+            />
+          )}
+        </div>
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <div className="flex items-center gap-1.5">
+            <RarityChip rarity={iconic?.rarity ?? "legendary"} />
+            <span className="text-[10px] uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">
+              Iconic
+            </span>
+          </div>
+          <p className="truncate text-xs">
+            {iconic && iconicOwned
+              ? iconic.name
+              : `??? — iconic of ${bugName}`}
+          </p>
+        </div>
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        Drops shared across {kingdomLabel}.
+      </p>
+    </section>
+  );
+}
+
+function RarityChip({ rarity }: { rarity: ItemRarity }) {
+  return (
+    <span
+      className={cn(
+        "inline-block rounded-sm border px-1 text-[9px] uppercase tracking-[0.12em]",
+        getRarityBadgeClassName(rarity),
+      )}
+    >
+      {rarity}
+    </span>
   );
 }

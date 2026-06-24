@@ -375,6 +375,23 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
       },
     },
   },
+  {
+    id: "riso",
+    name: "Riso",
+    idleAnimationMode: "forward-loop",
+    sprites: {
+      idle: {
+        src: "/riso/riso.png",
+        frameCount: 8,
+        frameWidthPx: 107,
+        frameHeightPx: 113,
+        frameYOffsetPx: 0,
+        renderedHeightPx: 113,
+        renderScale: 0.76,
+        animationSpeedMultiplier: 2,
+      },
+    },
+  },
 ];
 
 export const WORKTREE_MASCOT_COLOR_PALETTE: readonly MascotColorDefinition[] = [

@@ -28,6 +28,9 @@ const GITIGNORE_REQUIRED_ENTRIES: [&str; 2] = [".groove/", ".worktrees/"];
 const GROOVE_PLAY_COMMAND_SENTINEL: &str = "__groove_terminal__";
 const GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL: &str = "__groove_terminal_claude__";
 const GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL: &str = "__groove_terminal_open__";
+/// Pseudo-worktree name for terminal sessions rooted at the workspace root
+/// itself (e.g. the Intelligence page) instead of a `.worktrees/` entry.
+const GROOVE_WORKSPACE_TERMINAL_WORKTREE: &str = "__workspace__";
 const GROOVE_TERMINAL_OUTPUT_EVENT: &str = "groove-terminal-output";
 const GROOVE_TERMINAL_LIFECYCLE_EVENT: &str = "groove-terminal-lifecycle";
 const DEFAULT_GROOVE_TERMINAL_COLS: u16 = 120;

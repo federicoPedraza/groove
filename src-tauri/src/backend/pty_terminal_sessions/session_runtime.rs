@@ -399,6 +399,15 @@ fn resolve_terminal_worktree_context(
         return Err("worktree contains unsafe characters or path segments.".to_string());
     }
 
+    // The workspace pseudo-worktree runs at the workspace root itself, so it
+    // has no `.worktrees/` entry to validate against. Known worktrees are
+    // ignored on purpose: a stale (tombstoned) row must not block resolving
+    // the active workspace for a root-level session.
+    if worktree == GROOVE_WORKSPACE_TERMINAL_WORKTREE {
+        let workspace_root = resolve_workspace_root(app, root_name, None, &[], workspace_meta)?;
+        return Ok((workspace_root.clone(), workspace_root));
+    }
+
     let known_worktrees = validate_known_worktrees(known_worktrees)?;
     let workspace_root = resolve_workspace_root(
         app,
@@ -453,6 +462,7 @@ fn open_groove_terminal_session(
     rows: Option<u16>,
     force_restart: bool,
     open_new: bool,
+    record_as_running: bool,
 ) -> Result<GrooveTerminalSession, String> {
     let telemetry_enabled = telemetry_enabled_for_app(app);
     let worktree_key = groove_terminal_session_key(workspace_root, worktree);
@@ -467,15 +477,27 @@ fn open_groove_terminal_session(
     let (program, args) = match open_mode {
         GrooveTerminalOpenMode::Opencode => (resolve_opencode_bin(), Vec::new()),
         GrooveTerminalOpenMode::ClaudeCode => {
-            let (worktree_id, has_started) =
-                register_worktree_record(workspace_root, worktree)?;
-            let args = if has_started {
-                match resolve_existing_claude_session_id(worktree_path, &worktree_id) {
+            let args = if worktree == GROOVE_WORKSPACE_TERMINAL_WORKTREE {
+                // No worktree record for the workspace root; resume its most
+                // recent Claude session when one exists.
+                match resolve_existing_claude_session_id(
+                    worktree_path,
+                    GROOVE_WORKSPACE_TERMINAL_WORKTREE,
+                ) {
                     Some(session_id) => vec!["--resume".to_string(), session_id],
                     None => vec!["--session-id".to_string(), Uuid::new_v4().to_string()],
                 }
             } else {
-                vec!["--session-id".to_string(), worktree_id]
+                let (worktree_id, has_started) =
+                    register_worktree_record(workspace_root, worktree)?;
+                if has_started {
+                    match resolve_existing_claude_session_id(worktree_path, &worktree_id) {
+                        Some(session_id) => vec!["--resume".to_string(), session_id],
+                        None => vec!["--session-id".to_string(), Uuid::new_v4().to_string()],
+                    }
+                } else {
+                    vec!["--session-id".to_string(), worktree_id]
+                }
             };
             (resolve_claude_code_bin(), args)
         }
@@ -656,6 +678,7 @@ fn open_groove_terminal_session(
         );
         format!("Failed to spawn in-app terminal command in Groove terminal: {error}")
     })?;
+    let child_pid = child.process_id();
     drop(pair.slave);
 
     let mut reader = pair.master.try_clone_reader().map_err(|error| {
@@ -720,6 +743,34 @@ fn open_groove_terminal_session(
             .insert(session_id.clone(), session);
     }
 
+    if record_as_running {
+        let record = RunningGrooveRecord {
+            workspace_root: workspace_root_rendered.clone(),
+            worktree: worktree.to_string(),
+            worktree_path: worktree_cwd_rendered.clone(),
+            command: command_rendered.clone(),
+            target: target
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.to_string()),
+            session_id: session_id.clone(),
+            pid: child_pid,
+            started_at: now_iso(),
+            still_running: None,
+        };
+        if let Err(error) = record_running_groove(app, &record) {
+            log_play_telemetry(
+                telemetry_enabled,
+                "terminal.open.record_running_failed",
+                format!(
+                    "worktree={} session_id={} error={error}",
+                    worktree, session_id
+                )
+                .as_str(),
+            );
+        }
+    }
+
     log_play_telemetry(
         telemetry_enabled,
         "terminal.open.created",
@@ -764,6 +815,12 @@ fn open_groove_terminal_session(
                             close_detail = "reason=eof already_closed=true".to_string();
                         }
                     }
+                    let _ = clear_running_groove_if_session_matches(
+                        &app_handle,
+                        Path::new(&workspace_root_clone),
+                        &worktree_clone,
+                        &session_id_clone,
+                    );
                     if let Some(command) = closed_command {
                         let cwd = closed_cwd.unwrap_or_else(|| workspace_root_clone.clone());
                         let _ = app_handle.emit(
@@ -838,6 +895,12 @@ fn open_groove_terminal_session(
                             );
                         }
                     }
+                    let _ = clear_running_groove_if_session_matches(
+                        &app_handle,
+                        Path::new(&workspace_root_clone),
+                        &worktree_clone,
+                        &session_id_clone,
+                    );
                     if let Some(command) = closed_command {
                         let cwd = closed_cwd.unwrap_or_else(|| workspace_root_clone.clone());
                         let _ = app_handle.emit(

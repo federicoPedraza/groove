@@ -11,6 +11,7 @@ import { SummaryViewerModal } from "@/src/components/pages/barracks/summary-view
 import { WorktreeRowActions } from "@/src/components/pages/barracks/worktree-row-actions";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
 import { GrooveWorktreeTerminal } from "@/src/components/pages/worktrees/groove-worktree-terminal";
+import { WorktreeGitChanges } from "@/src/components/pages/worktrees/worktree-git-changes";
 import { Card, CardContent } from "@/src/components/ui/card";
 import { TooltipProvider } from "@/src/components/ui/tooltip";
 import type {
@@ -28,6 +29,7 @@ import {
 } from "@/src/lib/ipc";
 import { toast } from "@/src/lib/toast";
 import { playGrooveHookSound } from "@/src/lib/groove-sound-system";
+import { cn } from "@/src/lib/utils";
 import { deriveWorktreeStatus } from "@/src/lib/utils/worktree/status";
 
 export default function WorktreeDetailPage() {
@@ -98,6 +100,7 @@ export default function WorktreeDetailPage() {
   const [attackPendingFor, setAttackPendingFor] = useState<
     "single" | "all" | null
   >(null);
+  const [isChangesPanelExpanded, setIsChangesPanelExpanded] = useState(false);
 
   const worktreeSummaries = useMemo(() => {
     const records = ipcWorkspaceMeta?.worktreeRecords;
@@ -556,13 +559,33 @@ export default function WorktreeDetailPage() {
 
           {row && status ? (
             workspaceRoot && workspaceMeta ? (
-              <GrooveWorktreeTerminal
-                workspaceRoot={workspaceRoot}
-                workspaceMeta={workspaceMeta}
-                knownWorktrees={knownWorktrees}
-                worktree={row.worktree}
-                runningSessionIds={[]}
-              />
+              <div className="flex min-h-0 flex-col gap-3 lg:flex-row lg:items-stretch">
+                <div className="min-w-0 flex-1">
+                  <GrooveWorktreeTerminal
+                    workspaceRoot={workspaceRoot}
+                    workspaceMeta={workspaceMeta}
+                    knownWorktrees={knownWorktrees}
+                    worktree={row.worktree}
+                    runningSessionIds={[]}
+                  />
+                </div>
+                <div
+                  className={cn(
+                    "flex shrink-0",
+                    isChangesPanelExpanded
+                      ? "w-full lg:w-80 xl:w-96"
+                      : "w-full lg:w-9",
+                  )}
+                >
+                  <WorktreeGitChanges
+                    worktreePath={row.path}
+                    expanded={isChangesPanelExpanded}
+                    onToggleExpanded={() => {
+                      setIsChangesPanelExpanded((value) => !value);
+                    }}
+                  />
+                </div>
+              </div>
             ) : null
           ) : (
             <Card>

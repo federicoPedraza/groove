@@ -12,6 +12,8 @@ import { useLocation } from "react-router-dom";
 
 import { AppNavigation } from "@/src/components/app-navigation";
 import { DiagnosticsSystemSidebar } from "@/src/components/pages/diagnostics/diagnostics-system-sidebar";
+import { useGrooveRecovery } from "@/src/components/pages/barracks/hooks/use-groove-recovery";
+import { RecoverPreviousSessionModal } from "@/src/components/pages/barracks/recover-previous-session-modal";
 import { Button } from "@/src/components/ui/button";
 import { toast } from "@/src/lib/toast";
 import {
@@ -221,6 +223,7 @@ export function PageShell({
     getIsAlwaysShowDiagnosticsSidebarEnabledSnapshot,
     getIsAlwaysShowDiagnosticsSidebarEnabledSnapshot,
   );
+  const grooveRecovery = useGrooveRecovery();
 
   const refreshGrooveBinStatus = useCallback(async (): Promise<void> => {
     try {
@@ -787,6 +790,18 @@ export function PageShell({
         <div className="pointer-events-none fixed right-4 top-4 z-50 rounded border border-border/80 bg-background/90 px-2 py-1 font-mono text-xs text-foreground shadow-sm">
           FPS {currentFps ?? "--"}
         </div>
+      )}
+      {hasOpenWorkspace && (
+        <RecoverPreviousSessionModal
+          open={grooveRecovery.open}
+          grooves={grooveRecovery.grooves}
+          selected={grooveRecovery.selected}
+          loading={grooveRecovery.loading}
+          onToggle={grooveRecovery.toggle}
+          onOpenChange={grooveRecovery.onOpenChange}
+          onDismiss={grooveRecovery.dismiss}
+          onRecover={grooveRecovery.recover}
+        />
       )}
     </main>
   );

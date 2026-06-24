@@ -20,6 +20,8 @@ import type {
   SetWorktreeStateResponse,
   ClaimWorktreeRewardPayload,
   ClaimWorktreeRewardResponse,
+  LootWorktreePayload,
+  LootWorktreeResponse,
 } from "./types-core";
 import type {
   GrooveRestorePayload,
@@ -30,6 +32,10 @@ import type {
   GrooveRmResponse,
   GrooveStopPayload,
   GrooveStopResponse,
+  GrooveRecoverableListPayload,
+  GrooveRecoverableListResponse,
+  GrooveRecoverableClearPayload,
+  GrooveRecoverableClearResponse,
   GrooveSummaryPayload,
   GrooveSummaryResponse,
   GrooveCommentPayload,
@@ -75,6 +81,25 @@ export function grooveStop(
   payload: GrooveStopPayload,
 ): Promise<GrooveStopResponse> {
   return invokeCommand<GrooveStopResponse>("groove_stop", { payload });
+}
+
+export function grooveRecoverableList(
+  payload: GrooveRecoverableListPayload,
+): Promise<GrooveRecoverableListResponse> {
+  return invokeCommand<GrooveRecoverableListResponse>(
+    "groove_recoverable_list",
+    { payload },
+    { intent: "background" },
+  );
+}
+
+export function grooveRecoverableClear(
+  payload: GrooveRecoverableClearPayload,
+): Promise<GrooveRecoverableClearResponse> {
+  return invokeCommand<GrooveRecoverableClearResponse>(
+    "groove_recoverable_clear",
+    { payload },
+  );
 }
 
 export function grooveSummary(
@@ -342,6 +367,14 @@ export function workspaceClaimWorktreeReward(
     "workspace_claim_worktree_reward",
     { payload },
   );
+}
+
+export function workspaceLootWorktree(
+  payload: LootWorktreePayload,
+): Promise<LootWorktreeResponse> {
+  return invokeCommand<LootWorktreeResponse>("workspace_loot_worktree", {
+    payload,
+  });
 }
 
 export function workspaceListSymlinkEntries(

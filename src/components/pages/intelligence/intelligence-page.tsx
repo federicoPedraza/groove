@@ -1,112 +1,117 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { Link } from "react-router-dom";
-import { Loader2, PencilRuler, Play } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { Loader2, PencilRuler, Sparkles, SquareTerminal } from "lucide-react";
 
+import { DoctrineSection } from "@/src/components/pages/intelligence/doctrine-section";
+import { DoctrineTable } from "@/src/components/pages/intelligence/doctrine-table";
+import { GrooveWorktreeTerminal } from "@/src/components/pages/worktrees/groove-worktree-terminal";
 import { Button } from "@/src/components/ui/button";
-import { Input } from "@/src/components/ui/input";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/src/components/ui/table";
-import { motherduckQuery } from "@/src/lib/ipc";
-import type { MotherduckQueryResponse } from "@/src/lib/ipc";
+  grooveTerminalListSessions,
+  grooveTerminalOpen,
+} from "@/src/lib/ipc";
+import { toast } from "@/src/lib/toast";
 import {
-  getMotherduckStoreSnapshot,
-  refreshMotherduckStatus,
-  subscribeToMotherduckStore,
-} from "@/src/lib/motherduck-store";
+  ensureWorkspaceContext,
+  getWorkspaceContextStoreSnapshot,
+  subscribeToWorkspaceContextStore,
+} from "@/src/lib/workspace-store";
 
-const DEFAULT_ROW_LIMIT = 1000;
-const ROW_LIMIT_MIN = 1;
-const ROW_LIMIT_MAX = 10_000;
+/** Pseudo-worktree the backend maps to the workspace root itself. */
+const WORKSPACE_TERMINAL_WORKTREE = "__workspace__";
+
+type WorkspaceOpenMode = "claudeCode" | "plain";
 
 export function IntelligencePage() {
-  const motherduckSnapshot = useSyncExternalStore(
-    subscribeToMotherduckStore,
-    getMotherduckStoreSnapshot,
-    getMotherduckStoreSnapshot,
+  const { context } = useSyncExternalStore(
+    subscribeToWorkspaceContextStore,
+    getWorkspaceContextStoreSnapshot,
+    getWorkspaceContextStoreSnapshot,
   );
 
-  const [sql, setSql] = useState("SELECT current_database(), current_user;");
-  const [rowLimit, setRowLimit] = useState<number>(DEFAULT_ROW_LIMIT);
-  const [isRunning, setIsRunning] = useState(false);
-  const [result, setResult] = useState<MotherduckQueryResponse | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
   useEffect(() => {
-    void refreshMotherduckStatus();
+    void ensureWorkspaceContext();
   }, []);
 
-  const runQuery = useCallback(async () => {
-    const trimmed = sql.trim();
-    if (!trimmed) {
-      setErrorMessage("Enter a SQL statement to run.");
+  const workspaceRoot = context?.workspaceRoot ?? null;
+  const workspaceMeta = context?.workspaceMeta ?? null;
+  const contextRows = context?.rows;
+  const knownWorktrees = useMemo(
+    () =>
+      (contextRows ?? [])
+        .filter((row) => row.status !== "deleted")
+        .map((row) => row.worktree),
+    [contextRows],
+  );
+
+  const [pendingOpenMode, setPendingOpenMode] =
+    useState<WorkspaceOpenMode | null>(null);
+
+  const openSession = useCallback(
+    async (openMode: WorkspaceOpenMode, openNew: boolean) => {
+      if (!workspaceMeta) {
+        toast.error("Select a workspace before opening a terminal.");
+        return;
+      }
+
+      setPendingOpenMode(openMode);
+      try {
+        const result = await grooveTerminalOpen({
+          rootName: workspaceMeta.rootName,
+          knownWorktrees,
+          workspaceMeta,
+          worktree: WORKSPACE_TERMINAL_WORKTREE,
+          openMode,
+          openNew,
+        });
+        if (!result.ok) {
+          toast.error(
+            result.error ?? "Failed to open workspace terminal session.",
+          );
+        }
+      } catch {
+        toast.error("Workspace terminal open request failed.");
+      } finally {
+        setPendingOpenMode(null);
+      }
+    },
+    [knownWorktrees, workspaceMeta],
+  );
+
+  // Auto-start a Claude Code session at the workspace root on first visit;
+  // later visits reattach to whatever sessions are still running.
+  const autoOpenAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (!workspaceMeta || autoOpenAttemptedRef.current) {
       return;
     }
+    autoOpenAttemptedRef.current = true;
 
-    setIsRunning(true);
-    setErrorMessage(null);
-
-    try {
-      const response = await motherduckQuery({
-        sql: trimmed,
-        rowLimit,
-      });
-      setResult(response);
-      if (!response.ok && response.error) {
-        setErrorMessage(response.error);
+    void (async () => {
+      try {
+        const result = await grooveTerminalListSessions({
+          rootName: workspaceMeta.rootName,
+          knownWorktrees,
+          workspaceMeta,
+          worktree: WORKSPACE_TERMINAL_WORKTREE,
+        });
+        if (result.ok && result.sessions.length > 0) {
+          return;
+        }
+      } catch {
+        // Fall through and try to open a fresh session.
       }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Query failed.";
-      setErrorMessage(message);
-      setResult(null);
-    } finally {
-      setIsRunning(false);
-    }
-  }, [sql, rowLimit]);
-
-  const handleSqlKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-      event.preventDefault();
-      void runQuery();
-    }
-  };
-
-  if (motherduckSnapshot.hasLoadedOnce && !motherduckSnapshot.tokenPresent) {
-    return (
-      <section className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6">
-        <header className="flex items-center gap-3">
-          <PencilRuler aria-hidden="true" className="size-6" />
-          <div>
-            <h1 className="text-lg font-semibold">Intelligence</h1>
-            <p className="text-sm text-muted-foreground">
-              Run prompts and queries against your MotherDuck workspace.
-            </p>
-          </div>
-        </header>
-        <div className="rounded-md border border-dashed bg-muted/30 px-4 py-6 text-sm">
-          <p className="font-medium">MotherDuck is not configured.</p>
-          <p className="mt-1 text-muted-foreground">
-            Add a bearer token in{" "}
-            <Link
-              to="/settings"
-              className="font-medium underline underline-offset-2 hover:text-foreground"
-            >
-              Stronghold → Integrations → MotherDuck
-            </Link>{" "}
-            to start querying.
-          </p>
-        </div>
-      </section>
-    );
-  }
+      await openSession("claudeCode", false);
+    })();
+  }, [knownWorktrees, openSession, workspaceMeta]);
 
   return (
     <section className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
@@ -116,122 +121,59 @@ export function IntelligencePage() {
           <div>
             <h1 className="text-lg font-semibold">Intelligence</h1>
             <p className="text-sm text-muted-foreground">
-              {motherduckSnapshot.defaultDatabase
-                ? `Connected via md:${motherduckSnapshot.defaultDatabase}`
-                : "Connected via md: (no default database)"}
+              {workspaceRoot
+                ? `Claude Code at the workspace root: ${workspaceRoot}`
+                : "Terminal sessions at the workspace root."}
             </p>
           </div>
         </div>
-      </header>
-
-      <div className="space-y-2 rounded-md border bg-card p-3">
-        <label
-          htmlFor="intelligence-sql"
-          className="text-xs font-medium text-muted-foreground"
-        >
-          SQL (Cmd/Ctrl + Enter to run)
-        </label>
-        <textarea
-          id="intelligence-sql"
-          className="min-h-32 w-full resize-y rounded-md border bg-background p-2 font-mono text-sm shadow-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-          value={sql}
-          spellCheck={false}
-          onChange={(event) => setSql(event.target.value)}
-          onKeyDown={handleSqlKeyDown}
-          disabled={isRunning}
-          placeholder="SELECT * FROM my_table LIMIT 10;"
-        />
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            Row limit
-            <Input
-              type="number"
-              min={ROW_LIMIT_MIN}
-              max={ROW_LIMIT_MAX}
-              value={rowLimit}
-              disabled={isRunning}
-              className="h-8 w-24"
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                if (Number.isFinite(next)) {
-                  setRowLimit(
-                    Math.min(
-                      ROW_LIMIT_MAX,
-                      Math.max(ROW_LIMIT_MIN, Math.floor(next)),
-                    ),
-                  );
-                }
-              }}
-            />
-          </label>
+        <div className="flex items-center gap-2">
           <Button
             type="button"
             size="sm"
-            disabled={isRunning || sql.trim().length === 0}
-            onClick={() => void runQuery()}
+            variant="outline"
+            disabled={!workspaceMeta || pendingOpenMode !== null}
+            onClick={() => void openSession("plain", true)}
           >
-            {isRunning ? (
+            {pendingOpenMode === "plain" ? (
               <Loader2 aria-hidden="true" className="size-4 animate-spin" />
             ) : (
-              <Play aria-hidden="true" className="size-4" />
+              <SquareTerminal aria-hidden="true" className="size-4" />
             )}
-            <span>{isRunning ? "Running…" : "Run query"}</span>
+            <span>New terminal</span>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!workspaceMeta || pendingOpenMode !== null}
+            onClick={() => void openSession("claudeCode", true)}
+          >
+            {pendingOpenMode === "claudeCode" ? (
+              <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+            ) : (
+              <Sparkles aria-hidden="true" className="size-4" />
+            )}
+            <span>New Claude session</span>
           </Button>
         </div>
-      </div>
+      </header>
 
-      {errorMessage && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {errorMessage}
+      {workspaceRoot && workspaceMeta ? (
+        <GrooveWorktreeTerminal
+          workspaceRoot={workspaceRoot}
+          workspaceMeta={workspaceMeta}
+          knownWorktrees={knownWorktrees}
+          worktree={WORKSPACE_TERMINAL_WORKTREE}
+          runningSessionIds={[]}
+        />
+      ) : (
+        <div className="rounded-md border border-dashed bg-muted/30 px-4 py-6 text-sm text-muted-foreground">
+          Select a workspace to open the Intelligence terminal.
         </div>
       )}
 
-      {result?.ok && (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>
-              {result.rowCount} row{result.rowCount === 1 ? "" : "s"}
-              {result.truncated ? ` (truncated at ${rowLimit})` : ""}
-            </span>
-            {typeof result.latencyMs === "number" && (
-              <span>{result.latencyMs} ms</span>
-            )}
-          </div>
-          {result.columns.length > 0 ? (
-            <div className="overflow-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    {result.columns.map((column, columnIndex) => (
-                      <TableHead key={`${column}-${columnIndex}`}>
-                        {column || `column_${columnIndex}`}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {result.rows.map((row, rowIndex) => (
-                    <TableRow key={rowIndex}>
-                      {row.map((cell, cellIndex) => (
-                        <TableCell
-                          key={cellIndex}
-                          className="font-mono text-xs"
-                        >
-                          {cell}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          ) : (
-            <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-              Query returned no columns.
-            </p>
-          )}
-        </div>
-      )}
+      <DoctrineSection />
+      <DoctrineTable />
     </section>
   );
 }

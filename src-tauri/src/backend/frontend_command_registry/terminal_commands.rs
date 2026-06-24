@@ -283,6 +283,7 @@ fn groove_terminal_open(
         payload.rows,
         payload.force_restart.unwrap_or(false),
         payload.open_new.unwrap_or(false),
+        false,
     ) {
         Ok(session) => GrooveTerminalResponse {
             request_id,
@@ -595,6 +596,12 @@ fn groove_terminal_close(
     let exit_detail = collect_groove_terminal_exit_status(session.child.as_mut());
     let close_detail = format!("reason=requested {kill_detail} {exit_detail}");
     drop(session);
+    let _ = clear_running_groove_if_session_matches(
+        &app,
+        &workspace_root,
+        worktree,
+        &closed_session_id,
+    );
     log_play_telemetry(
         telemetry_enabled,
         "terminal.session.closed",

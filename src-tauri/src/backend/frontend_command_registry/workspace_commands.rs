@@ -2074,6 +2074,101 @@ fn workspace_claim_worktree_reward(
 }
 
 #[tauri::command]
+fn workspace_loot_worktree(
+    app: AppHandle,
+    payload: LootWorktreePayload,
+) -> LootWorktreeResponse {
+    let request_id = request_id();
+    let worktree = payload.worktree.trim();
+    if worktree.is_empty() {
+        return LootWorktreeResponse {
+            request_id,
+            ok: false,
+            unit: None,
+            loot: Vec::new(),
+            inventory: None,
+            error: Some("worktree must be a non-empty string.".to_string()),
+        };
+    }
+
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return LootWorktreeResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                loot: Vec::new(),
+                inventory: None,
+                error: Some("No active workspace selected.".to_string()),
+            }
+        }
+        Err(error) => {
+            return LootWorktreeResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                loot: Vec::new(),
+                inventory: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match validate_workspace_root_path(&persisted_root) {
+        Ok(root) => root,
+        Err(error) => {
+            return LootWorktreeResponse {
+                request_id,
+                ok: false,
+                unit: None,
+                loot: Vec::new(),
+                inventory: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let (record, rolled_loot, inventory_snapshot) =
+        match loot_worktree(&workspace_root, worktree) {
+            Ok(result) => result,
+            Err(error) => {
+                return LootWorktreeResponse {
+                    request_id,
+                    ok: false,
+                    unit: None,
+                    loot: Vec::new(),
+                    inventory: None,
+                    error: Some(error),
+                }
+            }
+        };
+
+    let patched_record = record.clone();
+    let patched_worktree = worktree.to_string();
+    let patched_inventory = inventory_snapshot.clone();
+    patch_workspace_context_cache(&app, &workspace_root, |response| {
+        let Some(meta) = response.workspace_meta.as_mut() else {
+            return;
+        };
+        if let Some(record) = meta.worktree_records.get_mut(&patched_worktree) {
+            *record = patched_record;
+        }
+        meta.inventory = patched_inventory;
+        meta.updated_at = now_iso();
+    });
+
+    LootWorktreeResponse {
+        request_id,
+        ok: true,
+        unit: record.unit,
+        loot: rolled_loot,
+        inventory: Some(inventory_snapshot),
+        error: None,
+    }
+}
+
+#[tauri::command]
 fn workspace_update_worktree_symlink_paths(
     app: AppHandle,
     payload: WorkspaceWorktreeSymlinkPathsPayload,

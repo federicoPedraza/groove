@@ -31,6 +31,7 @@ Instead of constantly branch-switching one folder, Groove gives you one place to
 - [Installation and setup](#installation-and-setup)
 - [Sidecars](#sidecars)
 - [How to use Groove](#how-to-use-groove)
+- [MCP server](#mcp-server)
 - [Settings model](#settings-model)
 - [Quality checks](#quality-checks)
 - [Build and release](#build-and-release)
@@ -326,6 +327,29 @@ Good habits:
 - branch-aligned naming,
 - prune stale worktrees/processes,
 - use context-aware actions instead of manual tab hopping.
+
+---
+
+## MCP server
+
+While the app is running it serves an MCP (Model Context Protocol) endpoint on `http://127.0.0.1:4923/mcp`, so agents like Claude Code can drive worktrees remotely:
+
+```bash
+claude mcp add --transport http groove http://127.0.0.1:4923/mcp
+```
+
+Available tools:
+
+- `list_worktrees` / `search_worktrees` — enumerate or filter worktrees in the active workspace (branch, path, status, Groove state, live terminal sessions).
+- `get_worktree` — full details for one worktree, including summaries, comments, and Claude session info.
+- `create_worktree` — create a new worktree from a branch name (path auto-derived under `.worktrees/`), optionally set its Groove state (e.g. `hunting`), and optionally play it with a first prompt in one call.
+- `play_worktree` / `pause_worktree` — start an in-app terminal session (Claude Code, opencode, run-local, or plain shell) or close a worktree's sessions and stop its groove process.
+- `get_worktree_claude_session` / `read_worktree_session` — resolve a worktree's Claude Code session and read its transcript.
+- `send_worktree_prompt` / `wait_for_worktree_response` — submit a prompt to the live Claude Code terminal and block until the reply lands in the transcript.
+- `read_worktree_terminal` — read the current terminal screen (ANSI-stripped).
+- `list_assistant_rules` / `add_assistant_rule` / `remove_assistant_rule` — persistent rules/memories the assistant follows, at `project` (active workspace, `.groove/assistant-rules.json`) and `global` (device-wide) scope. Current rules are also injected into the MCP `initialize` instructions.
+
+Configuration: `GROOVE_MCP_PORT` overrides the port, `GROOVE_MCP_DISABLED=1` turns the server off. It binds to localhost only.
 
 ---
 

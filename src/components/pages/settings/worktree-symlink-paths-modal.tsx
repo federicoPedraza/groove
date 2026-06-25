@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, Loader2, Plus, Undo2, X } from "lucide-react";
 
 import { Button } from "@/src/components/ui/button";
@@ -62,7 +62,6 @@ export function WorktreeSymlinkPathsModal({
   onOpenChange,
 }: WorktreeSymlinkPathsModalProps) {
   const [draftPaths, setDraftPaths] = useState<string[]>(selectedPaths);
-  const [browsePath, setBrowsePath] = useState("");
   const [entries, setEntries] = useState<WorkspaceBrowseEntry[]>([]);
   const [searchValue, setSearchValue] = useState("");
   const [debouncedSearchValue, setDebouncedSearchValue] = useState("");
@@ -86,13 +85,37 @@ export function WorktreeSymlinkPathsModal({
     }
 
     const debounceTimer = window.setTimeout(() => {
-      setDebouncedSearchValue(searchValue.trim().toLocaleLowerCase());
+      setDebouncedSearchValue(searchValue.trim());
     }, 220);
 
     return () => {
       window.clearTimeout(debounceTimer);
     };
   }, [open, searchValue]);
+
+  // The search box doubles as a path bar: text up to the last "/" selects the
+  // directory to browse, and the trailing segment filters that directory.
+  const { browseDir, nameFilter } = useMemo(() => {
+    const lastSlashIndex = debouncedSearchValue.lastIndexOf("/");
+    if (lastSlashIndex < 0) {
+      return { browseDir: "", nameFilter: debouncedSearchValue };
+    }
+    return {
+      browseDir: debouncedSearchValue
+        .slice(0, lastSlashIndex)
+        .replace(/\/+$/u, ""),
+      nameFilter: debouncedSearchValue.slice(lastSlashIndex + 1),
+    };
+  }, [debouncedSearchValue]);
+
+  // Navigate by rewriting the search box. Folder clicks and the "Up" button
+  // flush the debounced value too so they feel instant, while typed paths
+  // stay debounced through the effect above.
+  const navigateToDirectory = useCallback((directory: string) => {
+    const nextValue = directory ? `${directory}/` : "";
+    setSearchValue(nextValue);
+    setDebouncedSearchValue(nextValue);
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -106,7 +129,7 @@ export function WorktreeSymlinkPathsModal({
     void (async () => {
       try {
         const response = await workspaceListSymlinkEntries({
-          relativePath: browsePath || null,
+          relativePath: browseDir || null,
         });
         if (cancelled) {
           return;
@@ -137,18 +160,19 @@ export function WorktreeSymlinkPathsModal({
     return () => {
       cancelled = true;
     };
-  }, [browsePath, open]);
+  }, [browseDir, open]);
 
   const selectedSet = useMemo(() => new Set(draftPaths), [draftPaths]);
+  const normalizedFilter = nameFilter.trim().toLocaleLowerCase();
   const filteredEntries = useMemo(() => {
-    if (!debouncedSearchValue) {
+    if (!normalizedFilter) {
       return entries;
     }
 
     return entries.filter((entry) =>
-      entry.name.toLocaleLowerCase().includes(debouncedSearchValue),
+      entry.name.toLocaleLowerCase().includes(normalizedFilter),
     );
-  }, [debouncedSearchValue, entries]);
+  }, [normalizedFilter, entries]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -167,15 +191,15 @@ export function WorktreeSymlinkPathsModal({
           <div className="space-y-2 rounded-md border border-dashed p-2">
             <div className="flex items-center justify-between gap-2 px-1">
               <p className="text-xs text-muted-foreground">
-                Browsing: {browsePath || "."}
+                Browsing: {browseDir || "."}
               </p>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                disabled={!browsePath || isLoadingEntries}
+                disabled={!browseDir || isLoadingEntries}
                 onClick={() => {
-                  setBrowsePath((current) => parentPathOf(current));
+                  navigateToDirectory(parentPathOf(browseDir));
                 }}
               >
                 <Undo2 className="size-4" />
@@ -188,7 +212,7 @@ export function WorktreeSymlinkPathsModal({
               onChange={(event) => {
                 setSearchValue(event.target.value);
               }}
-              placeholder="Search files and folders"
+              placeholder="Search, or open a path (e.g. src/)"
               className="h-8"
               aria-label="Search entries"
             />
@@ -229,7 +253,7 @@ export function WorktreeSymlinkPathsModal({
                           colSpan={2}
                           className="text-muted-foreground"
                         >
-                          {debouncedSearchValue
+                          {normalizedFilter
                             ? "No matching entries."
                             : "This directory is empty."}
                         </TableCell>
@@ -263,7 +287,7 @@ export function WorktreeSymlinkPathsModal({
                               )}
                               onClick={() => {
                                 if (entry.isDir) {
-                                  setBrowsePath(entry.path);
+                                  navigateToDirectory(entry.path);
                                 }
                               }}
                             >

@@ -402,6 +402,123 @@ describe("WorktreeSymlinkPathsModal", () => {
     expect(paths).toEqual(["Remove a-file", "Remove m-file", "Remove z-file"]);
   });
 
+  it("opens a directory when the search value is a slash-terminated path", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    workspaceListSymlinkEntriesMock
+      .mockResolvedValueOnce({
+        ok: true,
+        entries: [{ name: "src", path: "src", isDir: true }],
+      })
+      .mockResolvedValue({
+        ok: true,
+        entries: [{ name: "index.ts", path: "src/index.ts", isDir: false }],
+      });
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(screen.getByText("src")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Search entries"), {
+      target: { value: "src/" },
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+
+    await waitFor(() => {
+      expect(workspaceListSymlinkEntriesMock).toHaveBeenLastCalledWith({
+        relativePath: "src",
+      });
+    });
+    expect(screen.getByText("index.ts")).toBeInTheDocument();
+    expect(screen.getByText("Browsing: src")).toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
+  it("filters within a directory typed as a relative path", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    workspaceListSymlinkEntriesMock
+      .mockResolvedValueOnce({
+        ok: true,
+        entries: [{ name: "src", path: "src", isDir: true }],
+      })
+      .mockResolvedValue({
+        ok: true,
+        entries: [
+          { name: "index.ts", path: "src/index.ts", isDir: false },
+          { name: "main.ts", path: "src/main.ts", isDir: false },
+        ],
+      });
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(screen.getByText("src")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Search entries"), {
+      target: { value: "src/index" },
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+
+    await waitFor(() => {
+      expect(workspaceListSymlinkEntriesMock).toHaveBeenLastCalledWith({
+        relativePath: "src",
+      });
+    });
+    expect(screen.getByText("index.ts")).toBeInTheDocument();
+    expect(screen.queryByText("main.ts")).not.toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
+  it("debounces directory navigation while typing a path", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    workspaceListSymlinkEntriesMock.mockResolvedValue({
+      ok: true,
+      entries: [{ name: "src", path: "src", isDir: true }],
+    });
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(screen.getByText("src")).toBeInTheDocument();
+    });
+
+    const callsAfterInitialLoad =
+      workspaceListSymlinkEntriesMock.mock.calls.length;
+
+    fireEvent.change(screen.getByLabelText("Search entries"), {
+      target: { value: "src/" },
+    });
+
+    // Before the debounce window elapses, no new directory fetch fires.
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(workspaceListSymlinkEntriesMock.mock.calls.length).toBe(
+      callsAfterInitialLoad,
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    await waitFor(() => {
+      expect(workspaceListSymlinkEntriesMock).toHaveBeenLastCalledWith({
+        relativePath: "src",
+      });
+    });
+
+    vi.useRealTimers();
+  });
+
   it("handles parentPathOf for root path correctly", async () => {
     workspaceListSymlinkEntriesMock
       .mockResolvedValueOnce({

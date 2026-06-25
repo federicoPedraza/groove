@@ -26,6 +26,8 @@ vi.mock("@/src/lib/ipc", () => ({
   WORKTREE_STATES: ["pending", "fighting", "wounded", "defeated", "blocked", "forgotten"],
   grooveTerminalActiveWorktrees: grooveTerminalActiveWorktreesMock,
   isGrooveBusinessDisabled: isGrooveBusinessDisabledMock,
+  isMascotHidden: () => isGrooveBusinessDisabledMock(),
+  isGamificationLabelsHidden: () => isGrooveBusinessDisabledMock(),
   isShowFpsEnabled: vi.fn(() => false),
   isTelemetryEnabled: isTelemetryEnabledMock,
   listenGrooveTerminalLifecycle: vi.fn(async () => () => {}),
@@ -164,7 +166,7 @@ describe("AppNavigation", () => {
   it("renders worktree list when worktrees are active", async () => {
     renderNav();
     await waitFor(() => {
-      expect(screen.getAllByText("feature-alpha").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("feature/alpha").length).toBeGreaterThan(0);
     });
     // Should also render the Wilderness link
     expect(screen.getAllByText("Wilderness").length).toBeGreaterThan(0);
@@ -173,7 +175,7 @@ describe("AppNavigation", () => {
   it("does not render worktree list when workspace is not open", async () => {
     renderNav({ hasOpenWorkspace: false });
     expect(screen.queryByText("Wilderness")).toBeFalsy();
-    expect(screen.queryByText("feature-alpha")).toBeFalsy();
+    expect(screen.queryByText("feature/alpha")).toBeFalsy();
   });
 
   it("renders sidebar collapse button", async () => {
@@ -331,13 +333,24 @@ describe("AppNavigation", () => {
     consoleSpy.mockRestore();
   });
 
-  it("hides groove loading section when disabled via setting", async () => {
+  it("shows the mascot when gamification is enabled", async () => {
+    renderNav();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Gold: 0")).toBeTruthy();
+    });
+    const spriteContainers = document.querySelectorAll(
+      ".groove-loading-sprite",
+    );
+    expect(spriteContainers.length).toBeGreaterThan(0);
+  });
+
+  it("hides the mascot when gamification is hidden", async () => {
     isGrooveBusinessDisabledMock.mockReturnValue(true);
     renderNav();
     await waitFor(() => {
       expect(screen.getByLabelText("Groove")).toBeTruthy();
     });
-    // The mascot sprite should not be rendered
+    // The master "hide gamification" toggle also hides the sidebar mascot.
     const spriteContainers = document.querySelectorAll(
       ".groove-loading-sprite",
     );
@@ -400,7 +413,7 @@ describe("AppNavigation", () => {
   it("clears navigation worktrees when workspace is closed", async () => {
     renderNav({ hasOpenWorkspace: true });
     await waitFor(() => {
-      expect(screen.getAllByText("feature-alpha").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("feature/alpha").length).toBeGreaterThan(0);
     });
   });
 

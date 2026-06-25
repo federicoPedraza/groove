@@ -13,7 +13,6 @@ export type WorkspaceMeta = {
   terminalCustomCommand?: string | null;
   playGrooveCommand?: string;
   openTerminalAtWorktreeCommand?: string | null;
-  runLocalCommand?: string | null;
   rootDirectory?: string | null;
 };
 

@@ -1,22 +1,15 @@
 "use client";
 
-import { AlertTriangle, FolderClock, FolderOpen, Terminal, X } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { Button } from "@/src/components/ui/button";
-import { Dropdown } from "@/src/components/ui/dropdown";
 import { BarracksHeader } from "@/src/components/pages/barracks/barracks-header";
 import { BarracksModals } from "@/src/components/pages/barracks/barracks-modals";
-import { CommentViewerModal } from "@/src/components/pages/barracks/comment-viewer-modal";
 import {
   LootingModal,
   type LootingSnapshot,
 } from "@/src/components/pages/barracks/looting-modal";
-import {
-  RewardClaimModal,
-  type RewardClaimSnapshot,
-} from "@/src/components/pages/barracks/reward-claim-modal";
 import { SummaryViewerModal } from "@/src/components/pages/barracks/summary-viewer-modal";
 import { WorktreesTable } from "@/src/components/pages/barracks/worktrees-table";
 import { useBarracksState } from "@/src/components/pages/barracks/hooks/use-barracks-state";
@@ -25,10 +18,6 @@ import type { ActionLauncherItem } from "@/src/components/shortcuts/action-launc
 import type { WorktreeRow } from "@/src/components/pages/barracks/types";
 import {
   DEFAULT_WORKTREE_STATE,
-  gitAdd,
-  gitCommit,
-  grooveComment,
-  grooveCommentMarkCommitted,
   grooveDiscoverWorktreeUnit,
   grooveSummary,
   workspaceClaimWorktreeReward,
@@ -36,27 +25,14 @@ import {
   workspaceSetWorktreeState,
 } from "@/src/lib/ipc";
 import type {
-  CommentRecord,
   SummaryRecord,
   WorktreeState,
   WorktreeUnit,
 } from "@/src/lib/ipc";
-import { useGrooveBusiness } from "@/src/lib/groove-business";
 import { applyOptimisticWorktreeState } from "@/src/lib/workspace-store";
 import { toast } from "@/src/lib/toast";
 import { playGrooveHookSound } from "@/src/lib/groove-sound-system";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarHeader,
-} from "@/src/components/ui/sidebar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/src/components/ui/tooltip";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function buildBarracksWorktreeDetailShortcutActionables(
@@ -94,9 +70,6 @@ export function buildBarracksWorktreeDetailShortcutActionables(
 
 export default function Home() {
   const navigate = useNavigate();
-  const grooveBusiness = useGrooveBusiness();
-  const LandIcon = grooveBusiness.Icon("land");
-  const landLabel = grooveBusiness.label("land");
   const {
     activeWorkspace,
     worktreeRows,
@@ -120,7 +93,6 @@ export default function Home() {
     createBase,
     isCreatePending,
     workspaceRoot,
-    recentDirectories,
     forceCutConfirmLoading,
     groupedWorktreeItems,
     setIsCloseWorkspaceConfirmOpen,
@@ -140,7 +112,6 @@ export default function Home() {
     runStopAction,
     runPlayGrooveAction,
     runOpenWorktreeTerminalAction,
-    runOpenWorkspaceTerminalAction,
     closeCurrentWorkspace,
   } = useBarracksState();
 
@@ -161,17 +132,6 @@ export default function Home() {
     initialIndex: number;
     worktreeIds: string[];
   } | null>(null);
-  const [commentingWorktrees, setCommentingWorktrees] = useState<Set<string>>(
-    new Set(),
-  );
-  const [viewingComment, setViewingComment] = useState<{
-    worktree: string;
-    comment: CommentRecord;
-  } | null>(null);
-  const [attackPendingFor, setAttackPendingFor] = useState<
-    "single" | "all" | null
-  >(null);
-
   const ipcWorkspaceMeta = activeWorkspace?.workspaceMeta as
     | import("@/src/lib/ipc").WorkspaceMeta
     | undefined;
@@ -268,9 +228,6 @@ export default function Home() {
     ],
   );
 
-  const [rewardClaimSnapshot, setRewardClaimSnapshot] =
-    useState<RewardClaimSnapshot | null>(null);
-
   const handleClaimWorktreeReward = useCallback(
     (worktree: string) => {
       void workspaceClaimWorktreeReward({ worktree })
@@ -279,11 +236,8 @@ export default function Home() {
             toast.error(response.error ?? "Failed to claim reward.");
             return;
           }
-          setRewardClaimSnapshot({
-            worktree,
-            unit: response.unit ?? null,
-            gold: response.gold ?? 0,
-          });
+          // No modal: the sidebar gold counter rolls up to the new total and
+          // surfaces a floating "+N" once the refreshed workspace lands.
           void refreshWorktrees();
         })
         .catch(() => {
@@ -403,148 +357,6 @@ export default function Home() {
     ],
   );
 
-  const worktreeComments = useMemo(() => {
-    const records = ipcWorkspaceMeta?.worktreeRecords;
-    if (!records) return {};
-    const result: Record<string, CommentRecord[]> = {};
-    for (const [worktreeName, record] of Object.entries(records)) {
-      if (record.comments && record.comments.length > 0) {
-        result[worktreeName] = record.comments;
-      }
-    }
-    return result;
-  }, [ipcWorkspaceMeta?.worktreeRecords]);
-
-  const commentPendingBaselineRef = useRef<Map<string, number>>(new Map());
-
-  const clearCommentPending = useCallback((worktree: string) => {
-    commentPendingBaselineRef.current.delete(worktree);
-    setCommentingWorktrees((prev) => {
-      if (!prev.has(worktree)) return prev;
-      const next = new Set(prev);
-      next.delete(worktree);
-      return next;
-    });
-  }, []);
-
-  useEffect(() => {
-    if (commentingWorktrees.size === 0) return;
-    const toClear: string[] = [];
-    for (const worktree of commentingWorktrees) {
-      const baseline = commentPendingBaselineRef.current.get(worktree);
-      if (baseline === undefined) continue;
-      const currentCount = worktreeComments[worktree]?.length ?? 0;
-      if (currentCount > baseline) {
-        toClear.push(worktree);
-      }
-    }
-    if (toClear.length === 0) return;
-    for (const w of toClear) commentPendingBaselineRef.current.delete(w);
-    setCommentingWorktrees((prev) => {
-      const next = new Set(prev);
-      for (const w of toClear) next.delete(w);
-      return next;
-    });
-  }, [commentingWorktrees, worktreeComments]);
-
-  const handleCommentWorktree = useCallback(
-    (worktree: string) => {
-      if (!workspaceRoot || commentingWorktrees.has(worktree)) return;
-      commentPendingBaselineRef.current.set(
-        worktree,
-        worktreeComments[worktree]?.length ?? 0,
-      );
-      setCommentingWorktrees((prev) => new Set(prev).add(worktree));
-
-      void grooveComment({
-        rootName: ipcWorkspaceMeta?.rootName ?? "",
-        knownWorktrees: worktreeRows
-          .filter((r) => r.status !== "deleted")
-          .map((r) => r.worktree),
-        workspaceMeta: ipcWorkspaceMeta,
-        worktree,
-      })
-        .then((response) => {
-          if (!response.ok || !response.comment) {
-            toast.error(response.error ?? "Commit comment failed.");
-            clearCommentPending(worktree);
-          }
-        })
-        .catch(() => {
-          toast.error("Commit comment request failed.");
-          clearCommentPending(worktree);
-        });
-    },
-    [
-      clearCommentPending,
-      commentingWorktrees,
-      ipcWorkspaceMeta,
-      worktreeComments,
-      worktreeRows,
-      workspaceRoot,
-    ],
-  );
-
-  const runAttack = useCallback(
-    async (mode: "single" | "all") => {
-      if (!viewingComment || attackPendingFor !== null) return;
-      const targetRow = worktreeRows.find(
-        (r) => r.worktree === viewingComment.worktree,
-      );
-      if (!targetRow) {
-        toast.error("Worktree not found.");
-        return;
-      }
-      const message = viewingComment.comment.message;
-      const createdAt = viewingComment.comment.createdAt;
-      const knownWorktrees = worktreeRows
-        .filter((r) => r.status !== "deleted")
-        .map((r) => r.worktree);
-
-      setAttackPendingFor(mode);
-      try {
-        if (mode === "all") {
-          const addResp = await gitAdd({ path: targetRow.path });
-          if (!addResp.ok) {
-            toast.error(addResp.error ?? "git add failed.");
-            return;
-          }
-        }
-        const commitResp = await gitCommit({
-          path: targetRow.path,
-          message,
-        });
-        if (!commitResp.ok) {
-          toast.error(commitResp.error ?? "git commit failed.");
-          return;
-        }
-        const markResp = await grooveCommentMarkCommitted({
-          rootName: ipcWorkspaceMeta?.rootName ?? "",
-          knownWorktrees,
-          workspaceMeta: ipcWorkspaceMeta,
-          worktree: viewingComment.worktree,
-          createdAt,
-        });
-        if (!markResp.ok || !markResp.comment) {
-          toast.warning(
-            markResp.error ?? "Commit succeeded but persisting state failed.",
-          );
-          return;
-        }
-        toast.success("Committed.");
-        setViewingComment({
-          worktree: viewingComment.worktree,
-          comment: markResp.comment,
-        });
-      } catch {
-        toast.error("Commit request failed.");
-      } finally {
-        setAttackPendingFor(null);
-      }
-    },
-    [attackPendingFor, ipcWorkspaceMeta, viewingComment, worktreeRows],
-  );
-
   const handleSummarizeSection = useCallback(
     (sectionKey: string, sessionIds: string[]) => {
       if (!workspaceRoot || summarizingSections.has(sectionKey)) return;
@@ -595,9 +407,6 @@ export default function Home() {
     [ipcWorkspaceMeta, summarizingSections, worktreeRows, workspaceRoot],
   );
 
-  const hasDirectory = Boolean(activeWorkspace);
-  const workspaceDisplayName =
-    activeWorkspace?.workspaceMeta.rootName ?? "No directory selected";
   const shortcutActionables = useMemo<ActionLauncherItem[]>(() => {
     return [
       {
@@ -628,133 +437,6 @@ export default function Home() {
     worktreeDetailActionables: worktreeDetailShortcutActionables,
   });
 
-  const barracksPageSidebar = useCallback(
-    ({ collapsed }: { collapsed: boolean }) => (
-      <Sidebar collapsed={collapsed}>
-        <SidebarHeader>
-          {collapsed ? (
-            <div className="flex justify-center">
-              <LandIcon
-                aria-hidden="true"
-                className="size-4 text-muted-foreground"
-              />
-            </div>
-          ) : (
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <LandIcon aria-hidden="true" className="size-4" />
-              <span>{landLabel}</span>
-            </h2>
-          )}
-        </SidebarHeader>
-        <SidebarContent className="space-y-3">
-          <TooltipProvider>
-            <div
-              className={
-                collapsed
-                  ? "flex flex-col items-center gap-1"
-                  : "flex items-center gap-1"
-              }
-            >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      void pickDirectory();
-                    }}
-                    disabled={isBusy}
-                    className={
-                      collapsed
-                        ? "h-8 w-8 px-0"
-                        : "h-8 min-w-0 flex-1 justify-start"
-                    }
-                    aria-label="Change directory"
-                  >
-                    <FolderOpen aria-hidden="true" className="size-4" />
-                    {!collapsed && (
-                      <span className="truncate">{workspaceDisplayName}</span>
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Change directory</TooltipContent>
-              </Tooltip>
-              <Dropdown
-                ariaLabel="Recent directories"
-                options={recentDirectories.map((directoryPath) => ({
-                  value: directoryPath,
-                  label: directoryPath,
-                }))}
-                value={null}
-                placeholder=""
-                onValueChange={(directoryPath) => {
-                  void openRecentDirectory(directoryPath);
-                }}
-                disabled={isBusy || recentDirectories.length === 0}
-                triggerClassName="h-8 w-8 px-0"
-                contentClassName="w-80 max-w-[calc(100vw-2rem)]"
-                triggerIcon={
-                  <FolderClock aria-hidden="true" className="size-4" />
-                }
-                triggerTooltip="Recent directories"
-                hideChevron
-              />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setIsCloseWorkspaceConfirmOpen(true);
-                    }}
-                    disabled={isBusy || !hasDirectory}
-                    className="h-8 w-8 px-0"
-                    aria-label="Close directory"
-                  >
-                    <X aria-hidden="true" className="size-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Close directory</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      void runOpenWorkspaceTerminalAction();
-                    }}
-                    disabled={isBusy || !hasDirectory}
-                    className="h-8 w-8 px-0"
-                    aria-label="Open terminal at active directory"
-                  >
-                    <Terminal aria-hidden="true" className="size-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Open terminal</TooltipContent>
-              </Tooltip>
-            </div>
-          </TooltipProvider>
-        </SidebarContent>
-      </Sidebar>
-    ),
-    [
-      workspaceDisplayName,
-      isBusy,
-      hasDirectory,
-      pickDirectory,
-      recentDirectories,
-      openRecentDirectory,
-      setIsCloseWorkspaceConfirmOpen,
-      runOpenWorkspaceTerminalAction,
-      LandIcon,
-      landLabel,
-    ],
-  );
-
   useAppLayout({
     noDirectoryOpenState: {
       isVisible: !activeWorkspace,
@@ -764,7 +446,6 @@ export default function Home() {
       onSelectDirectory: pickDirectory,
       onOpenRecentDirectory: openRecentDirectory,
     },
-    pageSidebar: barracksPageSidebar,
   });
 
   return (
@@ -853,7 +534,6 @@ export default function Home() {
                 }}
                 workspaceSummaries={ipcWorkspaceMeta?.summaries ?? []}
                 worktreeSummaries={worktreeSummaries}
-                onSummarizeSection={handleSummarizeSection}
                 onSummarizeWorktree={handleSummarizeWorktree}
                 summarizingWorktreeIds={summarizingWorktreeIds}
                 onViewSectionSummary={(summary) => {
@@ -882,7 +562,6 @@ export default function Home() {
                     worktreeIds: summary.worktreeIds,
                   });
                 }}
-                summarizingSectionKeys={summarizingSections}
                 onForgetAllDeletedWorktrees={() => {
                   const shouldForgetAll = window.confirm(
                     "Forget all deleted worktrees forever from Groove local state?",
@@ -903,12 +582,6 @@ export default function Home() {
                 onDiscoverWorktree={handleDiscoverWorktree}
                 onClaimWorktreeReward={handleClaimWorktreeReward}
                 onLootWorktree={handleLootWorktree}
-                worktreeComments={worktreeComments}
-                commentingWorktrees={commentingWorktrees}
-                onCommentWorktree={handleCommentWorktree}
-                onViewWorktreeComment={(worktree, comment) => {
-                  setViewingComment({ worktree, comment });
-                }}
               />
             )}
 
@@ -987,27 +660,6 @@ export default function Home() {
         isCreatePending={
           summarizingWorktreeIds.size > 0 || summarizingSections.size > 0
         }
-      />
-      <CommentViewerModal
-        comment={viewingComment?.comment ?? null}
-        open={viewingComment !== null}
-        onClose={() => {
-          setViewingComment(null);
-        }}
-        onAttack={() => {
-          void runAttack("single");
-        }}
-        onAttackAll={() => {
-          void runAttack("all");
-        }}
-        isAttackPending={attackPendingFor === "single"}
-        isAttackAllPending={attackPendingFor === "all"}
-      />
-      <RewardClaimModal
-        snapshot={rewardClaimSnapshot}
-        onClose={() => {
-          setRewardClaimSnapshot(null);
-        }}
       />
       <LootingModal
         snapshot={lootingSnapshot}

@@ -211,7 +211,7 @@ export function DoctrineSection() {
                     disabled={isGeneratingResult}
                     rows={3}
                     placeholder="Focus on bug patterns, ignore work older than 7 days, etc."
-                    className="min-h-16 w-full resize-y rounded-md border bg-background p-2 font-mono text-xs shadow-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                    className="min-h-16 w-full resize-y rounded-2xs border bg-background p-2 font-mono text-xs shadow-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
                   />
                 </label>
               </div>

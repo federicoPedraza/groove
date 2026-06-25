@@ -544,7 +544,7 @@ export function OpencodeSettingsModal({
                               ? "text-green-600"
                               : "text-foreground";
                           const className = [
-                            "cursor-pointer rounded px-2 py-1 text-xs transition-colors hover:bg-muted",
+                            "cursor-pointer rounded-2xs px-2 py-1 text-xs transition-colors hover:bg-muted",
                             textColorClass,
                           ].join(" ");
 
@@ -635,7 +635,7 @@ export function OpencodeSettingsModal({
                               ? "text-green-600"
                               : "text-foreground";
                           const className = [
-                            "cursor-pointer rounded px-2 py-1 text-xs transition-colors hover:bg-muted",
+                            "cursor-pointer rounded-2xs px-2 py-1 text-xs transition-colors hover:bg-muted",
                             textColorClass,
                           ].join(" ");
 

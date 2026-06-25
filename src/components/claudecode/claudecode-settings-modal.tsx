@@ -215,7 +215,7 @@ export function ClaudeCodeSettingsModal({
                           }}
                           maxResults={10}
                         />
-                        <div className="flex items-center gap-2 rounded-md border bg-card px-3 py-2">
+                        <div className="flex items-center gap-2 rounded-none border bg-card px-3 py-2">
                           <SoundWaveform
                             fileName={(() => {
                               const s = hookEntry.soundId

@@ -1,4 +1,5 @@
 import type { GrooveRmResponse, WorkspaceRow } from "@/src/lib/ipc";
+import { parseLastExecutedAt } from "@/src/lib/utils/time/grouping";
 
 export type WorktreeStatus = WorkspaceRow["status"];
 
@@ -31,7 +32,23 @@ export function getActiveWorktreeRows(
 ): WorkspaceRow[] {
   return rows
     .filter((row) => isWorktreeActive(row, activeWorktrees.has(row.worktree)))
-    .sort((left, right) => left.worktree.localeCompare(right.worktree));
+    .sort((left, right) => {
+      // Most recently played first, matching the barracks list ordering.
+      const leftTime =
+        parseLastExecutedAt(left.lastExecutedAt)?.getTime() ??
+        Number.NEGATIVE_INFINITY;
+      const rightTime =
+        parseLastExecutedAt(right.lastExecutedAt)?.getTime() ??
+        Number.NEGATIVE_INFINITY;
+      if (leftTime !== rightTime) {
+        return rightTime - leftTime;
+      }
+      const byWorktree = left.worktree.localeCompare(right.worktree);
+      if (byWorktree !== 0) {
+        return byWorktree;
+      }
+      return left.path.localeCompare(right.path);
+    });
 }
 
 export function shouldPromptForceCutRetry(result: GrooveRmResponse): boolean {

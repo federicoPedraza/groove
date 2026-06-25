@@ -86,27 +86,7 @@ function CollapsedToastItem({ entry }: { entry: ToastEntry }) {
   const isLoading = entry.type === "loading";
 
   return (
-    <div className="flex items-center justify-end gap-1.5">
-      {isExpanded ? (
-        <div
-          className={cn(
-            "rounded-md border px-2.5 py-1",
-            "animate-in fade-in-0 slide-in-from-right-2 duration-150",
-            presentation.bgColor,
-            presentation.borderColor,
-          )}
-        >
-          <p className={cn("text-xs font-medium", presentation.textColor)}>
-            {entry.message}
-          </p>
-          {entry.description ? (
-            <p className="mt-0.5 text-[11px] text-muted-foreground/70">
-              {entry.description}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
+    <div className="flex items-center justify-start gap-1.5">
       <button
         type="button"
         aria-label={entry.message}
@@ -124,7 +104,7 @@ function CollapsedToastItem({ entry }: { entry: ToastEntry }) {
         className={cn(
           "relative rounded-md p-1 transition-colors",
           presentation.iconColor,
-          "hover:bg-muted",
+          "hover:bg-accent",
         )}
       >
         <Icon
@@ -132,6 +112,26 @@ function CollapsedToastItem({ entry }: { entry: ToastEntry }) {
           aria-hidden="true"
         />
       </button>
+
+      {isExpanded ? (
+        <div
+          className={cn(
+            "rounded-md border px-2.5 py-1",
+            "animate-in fade-in-0 slide-in-from-left-2 duration-150",
+            presentation.bgColor,
+            presentation.borderColor,
+          )}
+        >
+          <p className={cn("text-xs font-medium", presentation.textColor)}>
+            {entry.message}
+          </p>
+          {entry.description ? (
+            <p className="mt-0.5 text-[11px] text-faint">
+              {entry.description}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -148,7 +148,7 @@ export function CollapsedToast() {
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="flex flex-col items-start gap-1">
       {entries.map((entry) => (
         <CollapsedToastItem key={entry.id} entry={entry} />
       ))}

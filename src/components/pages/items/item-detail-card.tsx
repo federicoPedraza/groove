@@ -102,7 +102,7 @@ export function ItemDetailCard({
                   : `Show back of ${item.name} card`
               }
               className={cn(
-                "relative block aspect-[3/4] w-full rounded-lg transition-transform duration-500 [transform-style:preserve-3d]",
+                "relative block aspect-[3/4] w-full rounded-lg transition-transform duration-500 will-change-transform [transform-style:preserve-3d]",
                 isFlipped
                   ? "[transform:rotateY(180deg)]"
                   : "[transform:rotateY(0deg)]",
@@ -144,14 +144,14 @@ function ItemCardFront({ item, count, ariaHidden }: FaceProps) {
     >
       <div
         className={cn(
-          "flex h-full w-full flex-col items-center justify-between gap-3 rounded-md border-4 p-4 text-center",
+          "flex h-full w-full flex-col items-center justify-between gap-3 rounded-2xs border-4 p-4 text-center",
           theme.cardInnerBorderClassName,
         )}
       >
         <div className="flex flex-col items-center gap-1">
           <span
             className={cn(
-              "rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em]",
+              "rounded-sm border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em]",
               getRarityBadgeClassName(item.rarity),
             )}
           >
@@ -205,7 +205,7 @@ function ItemCardBack({ item, count, ariaHidden }: FaceProps) {
     >
       <div
         className={cn(
-          "flex h-full w-full flex-col gap-3 overflow-y-auto rounded-md border-4 p-4 text-left",
+          "flex h-full w-full flex-col gap-3 overflow-y-auto rounded-2xs border-4 p-4 text-left",
           theme.cardInnerBorderClassName,
         )}
       >
@@ -242,7 +242,7 @@ function ItemCardBack({ item, count, ariaHidden }: FaceProps) {
           </h3>
           <span
             className={cn(
-              "inline-block rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em]",
+              "inline-block rounded-sm border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em]",
               getRarityBadgeClassName(item.rarity),
             )}
           >

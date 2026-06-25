@@ -117,7 +117,7 @@ export function WorktreeStateDropdownMenu({
           >
             <WorktreeStateBadge
               state={state}
-              className="cursor-pointer transition-none"
+              className="cursor-pointer shadow-lg transition-none"
             />
           </DropdownMenuItem>
         ))}

@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { soundLibraryRead } from "@/src/lib/ipc/commands-features";
-import { getSharedAudioContext } from "@/src/lib/utils/sound";
+import { loadSoundBuffer } from "@/src/lib/utils/sound";
 
 export type SoundWaveformStatus = "idle" | "loading" | "ready" | "error";
 
@@ -15,32 +14,15 @@ type SoundWaveformProps = {
   onStatusChange?: (status: SoundWaveformStatus) => void;
 };
 
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-
 async function fetchWaveformData(
   fileName: string,
   barCount: number,
 ): Promise<number[]> {
-  const result = await soundLibraryRead(fileName);
-  if (!result.ok || !result.data) {
-    throw new Error(result.error ?? "Failed to read sound file");
-  }
-
-  const arrayBuffer = base64ToArrayBuffer(result.data);
-  const ctx = getSharedAudioContext();
-
-  const decodePromise = ctx.decodeAudioData(arrayBuffer);
+  const loadPromise = loadSoundBuffer(fileName);
   const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(() => reject(new Error("Audio decode timed out")), 5000),
   );
-  const audioBuffer = await Promise.race([decodePromise, timeoutPromise]);
+  const audioBuffer = await Promise.race([loadPromise, timeoutPromise]);
 
   const channelData = audioBuffer.getChannelData(0);
   const samplesPerBar = Math.floor(channelData.length / barCount);

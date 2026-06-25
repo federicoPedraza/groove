@@ -2,6 +2,7 @@ pub(crate) fn run() {
     tauri::Builder::default()
         .manage(WorkspaceEventState::default())
         .manage(WorkspaceContextCacheState::default())
+        .manage(TerminalResolutionCacheState::default())
         .manage(GrooveListCacheState::default())
         .manage(GrooveBinStatusState::default())
         .manage(GrooveTerminalState::default())

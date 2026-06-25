@@ -220,9 +220,11 @@ pub fn read_cpu_usage_percent() -> Option<f64> {
 
 fn read_cpu_usage_linux() -> Option<f64> {
     use std::fs;
+    use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
 
+    // Returns (idle_all_ticks, total_ticks) from the aggregate `cpu` line.
     fn read_ticks() -> Option<(u64, u64)> {
         let stat = fs::read_to_string("/proc/stat").ok()?;
         let first_line = stat.lines().next()?;
@@ -251,18 +253,45 @@ fn read_cpu_usage_linux() -> Option<f64> {
         Some((idle_all, idle_all.saturating_add(non_idle)))
     }
 
-    let (first_idle, first_total) = read_ticks()?;
-    thread::sleep(Duration::from_millis(160));
-    let (second_idle, second_total) = read_ticks()?;
-
-    let total_delta = second_total.saturating_sub(first_total);
-    if total_delta == 0 {
-        return None;
+    fn usage_between(prev: (u64, u64), curr: (u64, u64)) -> Option<f64> {
+        let total_delta = curr.1.saturating_sub(prev.1);
+        if total_delta == 0 {
+            return None;
+        }
+        let idle_delta = curr.0.saturating_sub(prev.0);
+        let used_delta = total_delta.saturating_sub(idle_delta);
+        Some(clamp_percentage((used_delta as f64 / total_delta as f64) * 100.0))
     }
 
-    let idle_delta = second_idle.saturating_sub(first_idle);
-    let used_delta = total_delta.saturating_sub(idle_delta);
-    Some(clamp_percentage((used_delta as f64 / total_delta as f64) * 100.0))
+    // Cache the previous /proc/stat snapshot so repeated calls (the diagnostics
+    // page polls every few seconds) compute usage from the delta *between* calls
+    // instead of blocking the thread with an inline 160ms sample window on every
+    // request. The wider sampling window is also a steadier reading.
+    static LAST_SNAPSHOT: Mutex<Option<(u64, u64)>> = Mutex::new(None);
+
+    let current = read_ticks()?;
+    let previous = {
+        let mut guard = LAST_SNAPSHOT.lock().ok()?;
+        let prev = *guard;
+        *guard = Some(current);
+        prev
+    };
+
+    if let Some(prev) = previous {
+        if let Some(usage) = usage_between(prev, current) {
+            return Some(usage);
+        }
+    }
+
+    // First call in this process (or a zero-delta window): take a short inline
+    // sample so the UI gets a value immediately instead of waiting for the next
+    // poll. Subsequent calls reuse the cached snapshot and skip the sleep.
+    thread::sleep(Duration::from_millis(160));
+    let second = read_ticks()?;
+    if let Ok(mut guard) = LAST_SNAPSHOT.lock() {
+        *guard = Some(second);
+    }
+    usage_between(current, second)
 }
 
 fn read_cpu_usage_macos() -> Option<f64> {

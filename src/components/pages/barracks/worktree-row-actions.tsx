@@ -16,6 +16,7 @@ import {
 import {
   ACTIVE_AMBER_BUTTON_CLASSES,
   SOFT_AMBER_BUTTON_CLASSES,
+  SOFT_BLUE_BUTTON_CLASSES,
   SOFT_GREEN_BUTTON_CLASSES,
   SOFT_ORANGE_BUTTON_CLASSES,
   SOFT_RED_BUTTON_CLASSES,
@@ -24,6 +25,7 @@ import { Button } from "@/src/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@/src/components/ui/tooltip";
 import type { CommentRecord, SummaryRecord } from "@/src/lib/ipc";
@@ -31,6 +33,11 @@ import type {
   WorktreeRow,
   WorktreeStatus,
 } from "@/src/components/pages/barracks/types";
+
+// The Play/Pause Groove buttons already carry a visible label, so their
+// tooltips are supplementary — open them more slowly than the default so they
+// don't flash on a quick pass of the cursor.
+const GROOVE_ACTION_TOOLTIP_DELAY_MS = 700;
 
 type WorktreeRowActionsProps = {
   row: WorktreeRow;
@@ -117,7 +124,7 @@ export function WorktreeRowActions({
               type="button"
               variant="outline"
               size="sm"
-              className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+              className={`h-8 w-8 p-0 ${SOFT_BLUE_BUTTON_CLASSES}`}
               onClick={() => {
                 onViewSummary(latestSummary);
               }}
@@ -273,32 +280,37 @@ export function WorktreeRowActions({
             </Tooltip>
             {summaryActions}
             {commentActions}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className={`h-8 ${SOFT_AMBER_BUTTON_CLASSES}`}
-                  onClick={() => {
-                    onStop(row);
-                  }}
-                  disabled={rowPending || closeWorktreePending}
-                  aria-label={`Pause Groove for ${row.worktree}`}
-                >
-                  {closeWorktreePending ? (
-                    <Loader2
-                      aria-hidden="true"
-                      className="size-4 animate-spin"
-                    />
-                  ) : (
-                    <Pause aria-hidden="true" className="size-4" />
-                  )}
-                  <span>Pause Groove</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Pause Groove</TooltipContent>
-            </Tooltip>
+            <TooltipProvider
+              delayDuration={GROOVE_ACTION_TOOLTIP_DELAY_MS}
+              skipDelayDuration={0}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className={`h-8 ${SOFT_AMBER_BUTTON_CLASSES}`}
+                    onClick={() => {
+                      onStop(row);
+                    }}
+                    disabled={rowPending || closeWorktreePending}
+                    aria-label={`Pause Groove for ${row.worktree}`}
+                  >
+                    {closeWorktreePending ? (
+                      <Loader2
+                        aria-hidden="true"
+                        className="size-4 animate-spin"
+                      />
+                    ) : (
+                      <Pause aria-hidden="true" className="size-4" />
+                    )}
+                    <span>Pause Groove</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Pause Groove</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </>
         ) : (
           <>
@@ -415,31 +427,36 @@ export function WorktreeRowActions({
             )}
             {status === "paused" && (
               <>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className={`h-8 w-8 p-0 ${SOFT_GREEN_BUTTON_CLASSES}`}
-                      onClick={() => {
-                        onPlay(row);
-                      }}
-                      aria-label={`Play groove for ${row.worktree}`}
-                      disabled={rowPending}
-                    >
-                      {playPending ? (
-                        <Loader2
-                          aria-hidden="true"
-                          className="size-4 animate-spin"
-                        />
-                      ) : (
-                        <Play aria-hidden="true" className="size-4" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Play groove</TooltipContent>
-                </Tooltip>
+                <TooltipProvider
+                  delayDuration={GROOVE_ACTION_TOOLTIP_DELAY_MS}
+                  skipDelayDuration={0}
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className={`h-8 w-8 p-0 ${SOFT_GREEN_BUTTON_CLASSES}`}
+                        onClick={() => {
+                          onPlay(row);
+                        }}
+                        aria-label={`Play groove for ${row.worktree}`}
+                        disabled={rowPending}
+                      >
+                        {playPending ? (
+                          <Loader2
+                            aria-hidden="true"
+                            className="size-4 animate-spin"
+                          />
+                        ) : (
+                          <Play aria-hidden="true" className="size-4" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Play groove</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
                 {openTerminalAction}
                 {summaryActions}
                 {commentActions}

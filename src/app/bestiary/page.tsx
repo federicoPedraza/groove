@@ -4,7 +4,9 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 
 import { BestiaryBadge } from "@/src/components/pages/bestiary/bestiary-badge";
 import { UnitCard } from "@/src/components/pages/bestiary/unit-card";
+import { PageHeader } from "@/src/components/pages/page-header";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
+import { useGrooveBusiness } from "@/src/lib/groove-business";
 import {
   BUG_DEFINITIONS,
   KINGDOMS,
@@ -34,6 +36,7 @@ type KingdomGroup = {
 export default function BestiaryPage() {
   useAppLayout({});
 
+  const grooveBusiness = useGrooveBusiness();
   const [selectedBugName, setSelectedBugName] = useState<string | null>(null);
 
   const snapshot = useSyncExternalStore(
@@ -78,7 +81,7 @@ export default function BestiaryPage() {
 
   if (!workspaceMeta) {
     return (
-      <section className="mx-auto w-full max-w-7xl space-y-3 p-4 md:p-6">
+      <section className="space-y-3">
         <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
           Open a workspace to view its bestiary.
         </p>
@@ -87,13 +90,15 @@ export default function BestiaryPage() {
   }
 
   return (
-    <section className="mx-auto w-full max-w-7xl space-y-6 p-4 md:p-6">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold">Bestiary</h1>
-        <p className="text-sm text-muted-foreground tabular-nums">
-          {knownBugs.length} / {BESTIARY_TOTAL_BUGS} discovered
-        </p>
-      </header>
+    <section className="space-y-6">
+      <PageHeader
+        title={grooveBusiness.label("bestiary")}
+        description={
+          <p className="text-sm text-muted-foreground tabular-nums">
+            {knownBugs.length} / {BESTIARY_TOTAL_BUGS} discovered
+          </p>
+        }
+      />
 
       <div className="space-y-6">
         {kingdomGroups.map((group) => (

@@ -50,7 +50,7 @@ export const GROOVE_BUSINESS_LABELS: Record<GrooveBusinessLabelKey, LabelEntry> 
     wilderness: { groove: "Wilderness", business: "Worktrees" },
     situationRoom: { groove: "Situation Room", business: "Diagnostics" },
     bestiary: { groove: "Bestiary", business: "Bugs" },
-    inventory: { groove: "Inventory", business: "Items" },
+    inventory: { groove: "Inventory", business: "Inventory" },
     intelligence: { groove: "Intelligence", business: "Database" },
     home: { groove: "Home", business: "Home" },
     land: { groove: "Land", business: "Workspace" },

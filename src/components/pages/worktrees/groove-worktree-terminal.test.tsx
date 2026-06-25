@@ -126,11 +126,44 @@ global.ResizeObserver = vi.fn().mockImplementation(() => ({
   disconnect: vi.fn(),
 })) as unknown as typeof ResizeObserver;
 
-global.IntersectionObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-})) as unknown as typeof IntersectionObserver;
+// Registry of constructed IntersectionObservers so tests can drive a specific
+// pane's visibility (e.g. report it off screen). Distinguish observers by their
+// rootMargin: the lazy-mount gate uses "300px 0px", the render/WebGL visibility
+// observer uses "200px 0px".
+const intersectionObserverRegistry: Array<{
+  callback: IntersectionObserverCallback;
+  options?: IntersectionObserverInit;
+  instance: IntersectionObserver;
+}> = [];
+
+global.IntersectionObserver = vi
+  .fn()
+  .mockImplementation(
+    (
+      callback: IntersectionObserverCallback,
+      options?: IntersectionObserverInit,
+    ) => {
+      const instance = {
+        observe: vi.fn((target: Element) => {
+          // Report the target as visible so lazy-mounted panes hydrate and the
+          // visibility-gated WebGL renderer attaches, matching on-screen
+          // behavior.
+          callback(
+            [{ isIntersecting: true, target } as IntersectionObserverEntry],
+            instance as unknown as IntersectionObserver,
+          );
+        }),
+        unobserve: vi.fn(),
+        disconnect: vi.fn(),
+      };
+      intersectionObserverRegistry.push({
+        callback,
+        options,
+        instance: instance as unknown as IntersectionObserver,
+      });
+      return instance;
+    },
+  ) as unknown as typeof IntersectionObserver;
 
 // Mock window.matchMedia for useIsDesktop hook
 Object.defineProperty(window, "matchMedia", {
@@ -211,6 +244,21 @@ describe("GrooveWorktreeTerminal", () => {
     terminalMockInstance.attachCustomKeyEventHandler.mockClear();
     TerminalConstructor.mockClear();
     fitAddonMockInstance.fit.mockClear();
+    intersectionObserverRegistry.length = 0;
+
+    // Clear IPC mock call histories so per-test assertions like
+    // `expect(grooveTerminalCloseMock).not.toHaveBeenCalled()` aren't tripped by
+    // calls leaked from an earlier test. (mockResolvedValue above only sets the
+    // return value; it does not reset recorded calls.)
+    grooveTerminalCheckActivityMock.mockClear();
+    grooveTerminalCloseMock.mockClear();
+    grooveTerminalGetSessionMock.mockClear();
+    grooveTerminalListSessionsMock.mockClear();
+    grooveTerminalResizeMock.mockClear();
+    grooveTerminalWriteMock.mockClear();
+    listenGrooveTerminalLifecycleMock.mockClear();
+    listenGrooveTerminalOutputMock.mockClear();
+    openExternalUrlMock.mockClear();
   });
 
   afterEach(() => {
@@ -311,6 +359,51 @@ describe("GrooveWorktreeTerminal", () => {
     expect(grooveTerminalCloseMock).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "session-1" }),
     );
+  });
+
+  it("confirms pause when closing the last terminal and onPauseWorktree is set", async () => {
+    const onPauseWorktree = vi.fn();
+    // Isolate from prior tests' close calls — this test asserts the close IPC
+    // is never reached.
+    grooveTerminalCloseMock.mockClear();
+    grooveTerminalListSessionsMock.mockResolvedValue({
+      ok: true,
+      sessions: [mockSession],
+    });
+    render(
+      <GrooveWorktreeTerminal
+        {...defaultProps}
+        onPauseWorktree={onPauseWorktree}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Close session/ }),
+      ).toBeInTheDocument();
+    });
+
+    // Closing the last terminal must not close it directly — it prompts first.
+    await act(async () => {
+      screen.getByRole("button", { name: /Close session/ }).click();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(grooveTerminalCloseMock).not.toHaveBeenCalled();
+    const confirmButton = await screen.findByRole("button", {
+      name: /Pause worktree/,
+    });
+
+    await act(async () => {
+      confirmButton.click();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(onPauseWorktree).toHaveBeenCalledTimes(1);
+    expect(grooveTerminalCloseMock).not.toHaveBeenCalled();
   });
 
   it("focuses previous session after closing the middle one", async () => {
@@ -672,6 +765,65 @@ describe("GrooveWorktreeTerminal", () => {
     // The output gets buffered and flushed via requestAnimationFrame
     // Just verify no crash
     expect(listenGrooveTerminalOutputMock).toHaveBeenCalled();
+  });
+
+  it("holds output while the pane is off screen and replays it on reveal", async () => {
+    let outputCallback: ((event: Record<string, unknown>) => void) | null =
+      null;
+    listenGrooveTerminalOutputMock.mockImplementation(
+      async (cb: (event: Record<string, unknown>) => void) => {
+        outputCallback = cb;
+        return () => {};
+      },
+    );
+
+    grooveTerminalListSessionsMock.mockResolvedValue({
+      ok: true,
+      sessions: [mockSession],
+    });
+
+    render(<GrooveWorktreeTerminal {...defaultProps} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const visibility = intersectionObserverRegistry.find(
+      (entry) => entry.options?.rootMargin === "200px 0px",
+    );
+    expect(visibility).toBeDefined();
+
+    // Report the pane as off screen.
+    await act(async () => {
+      visibility?.callback(
+        [{ isIntersecting: false } as IntersectionObserverEntry],
+        visibility.instance,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    terminalMockInstance.write.mockClear();
+
+    // Output arriving while hidden must not reach the terminal.
+    await act(async () => {
+      outputCallback?.({
+        workspaceRoot: "/test/workspace",
+        worktree: "feature-1",
+        sessionId: "session-1",
+        chunk: "hidden output",
+      });
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(terminalMockInstance.write).not.toHaveBeenCalledWith("hidden output");
+
+    // Revealing the pane replays the buffered output.
+    await act(async () => {
+      visibility?.callback(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        visibility.instance,
+      );
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(terminalMockInstance.write).toHaveBeenCalledWith("hidden output");
   });
 
   it("ignores output events for different session", async () => {

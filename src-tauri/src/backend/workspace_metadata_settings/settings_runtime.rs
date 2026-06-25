@@ -77,17 +77,6 @@ fn normalize_open_terminal_at_worktree_command(
     Ok(Some(trimmed.to_string()))
 }
 
-fn normalize_run_local_command(value: Option<&str>) -> Result<Option<String>, String> {
-    let Some(trimmed) = value.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-
-    parse_terminal_command_tokens(trimmed)
-        .map_err(|error| error.replace("terminalCustomCommand", "runLocalCommand"))?;
-
-    Ok(Some(trimmed.to_string()))
-}
-
 fn normalize_worktree_symlink_paths(paths: &[String]) -> Vec<String> {
     workspace::normalize_worktree_symlink_paths(paths)
 }
@@ -155,25 +144,6 @@ fn parse_custom_terminal_command(
 
     let Some((program, args)) = resolved_tokens.split_first() else {
         return Err("terminalCustomCommand must include an executable command.".to_string());
-    };
-
-    Ok((program.to_string(), args.to_vec()))
-}
-
-fn resolve_run_local_command(
-    command_template: &str,
-    worktree_path: &Path,
-) -> Result<(String, Vec<String>), String> {
-    let tokens = parse_terminal_command_tokens(command_template)
-        .map_err(|error| error.replace("terminalCustomCommand", "runLocalCommand"))?;
-    let worktree = worktree_path.display().to_string();
-    let resolved_tokens = tokens
-        .into_iter()
-        .map(|token| token.replace("{worktree}", &worktree))
-        .collect::<Vec<_>>();
-
-    let Some((program, args)) = resolved_tokens.split_first() else {
-        return Err("runLocalCommand must include an executable command.".to_string());
     };
 
     Ok((program.to_string(), args.to_vec()))
@@ -1138,6 +1108,8 @@ fn default_global_settings() -> GlobalSettings {
     GlobalSettings {
         telemetry_enabled: true,
         disable_groove_business: false,
+        hide_mascot: false,
+        hide_labels: false,
         show_fps: false,
         always_show_diagnostics_sidebar: false,
         periodic_rerender_enabled: false,
@@ -1190,14 +1162,6 @@ fn play_groove_command_for_workspace(workspace_root: &Path) -> String {
                 .unwrap_or_else(|_| default_play_groove_command())
         })
         .unwrap_or_else(|_| default_play_groove_command())
-}
-
-fn run_local_command_for_workspace(workspace_root: &Path) -> Option<String> {
-    ensure_workspace_meta(workspace_root)
-        .ok()
-        .and_then(|(workspace_meta, _)| {
-            normalize_run_local_command(workspace_meta.run_local_command.as_deref()).unwrap_or(None)
-        })
 }
 
 fn worktree_symlink_paths_for_workspace(workspace_root: &Path) -> Vec<String> {
@@ -1357,6 +1321,8 @@ fn seed_global_settings_from_active_workspace(app: &AppHandle, settings: &mut Gl
     if let Ok(workspace_meta) = read_workspace_meta_file(&workspace_json) {
         settings.telemetry_enabled = workspace_meta.telemetry_enabled;
         settings.disable_groove_business = workspace_meta.disable_groove_business;
+        settings.hide_mascot = workspace_meta.hide_mascot;
+        settings.hide_labels = workspace_meta.hide_labels;
         settings.show_fps = workspace_meta.show_fps;
     }
 }
@@ -1805,10 +1771,11 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         terminal_custom_command: None,
         telemetry_enabled: true,
         disable_groove_business: false,
+        hide_mascot: false,
+        hide_labels: false,
         show_fps: false,
         play_groove_command: default_play_groove_command(),
         open_terminal_at_worktree_command: None,
-        run_local_command: None,
         worktree_symlink_paths: default_worktree_symlink_paths(),
         opencode_settings: default_opencode_settings(),
         worktree_records: HashMap::new(),
@@ -1915,11 +1882,6 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 .and_then(|parsed| parsed.as_object())
                 .map(|obj| obj.contains_key("playGrooveCommand"))
                 .unwrap_or(true);
-            let has_run_local_command = parsed_workspace_json
-                .as_ref()
-                .and_then(|parsed| parsed.as_object())
-                .map(|obj| obj.contains_key("runLocalCommand"))
-                .unwrap_or(true);
             let has_worktree_symlink_paths = parsed_workspace_json
                 .as_ref()
                 .and_then(|parsed| parsed.as_object())
@@ -1996,14 +1958,6 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 did_update = true;
             }
 
-            let normalized_run_local_command =
-                normalize_run_local_command(workspace_meta.run_local_command.as_deref())
-                    .unwrap_or(None);
-            if workspace_meta.run_local_command != normalized_run_local_command {
-                workspace_meta.run_local_command = normalized_run_local_command;
-                did_update = true;
-            }
-
             let normalized_worktree_symlink_paths =
                 normalize_worktree_symlink_paths(&workspace_meta.worktree_symlink_paths);
             if workspace_meta.worktree_symlink_paths != normalized_worktree_symlink_paths {
@@ -2025,11 +1979,6 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
 
             if !has_play_groove_command {
                 workspace_meta.play_groove_command = default_play_groove_command();
-                did_update = true;
-            }
-
-            if !has_run_local_command {
-                workspace_meta.run_local_command = None;
                 did_update = true;
             }
 

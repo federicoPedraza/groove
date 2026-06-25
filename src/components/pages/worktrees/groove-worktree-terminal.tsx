@@ -18,6 +18,8 @@ import { Terminal } from "@xterm/xterm";
 import type { IDisposable, ITerminalOptions } from "@xterm/xterm";
 
 import { Button } from "@/src/components/ui/button";
+import { ConfirmModal } from "@/src/components/ui/confirm-modal";
+import { profileAsync, profileSync, sample } from "@/src/lib/profiling";
 import { toast } from "@/src/lib/toast";
 import { getContrastColor } from "@/src/lib/utils/get-contrast-color";
 import { detectTerminalInstanceKind } from "@/src/lib/utils/worktree/process-grouping";
@@ -100,6 +102,13 @@ type GrooveWorktreeTerminalProps = {
   colorHex?: string;
   terminalFontSize?: number;
   compactMode?: boolean;
+  /**
+   * When provided, closing the *last* remaining terminal prompts a
+   * confirmation that the worktree will be paused. Confirming invokes this
+   * callback (which should pause Groove for the worktree) instead of closing
+   * the individual session.
+   */
+  onPauseWorktree?: () => void;
 };
 
 type GrooveTerminalPaneProps = {
@@ -108,7 +117,7 @@ type GrooveTerminalPaneProps = {
   knownWorktrees: string[];
   worktree: string;
   sessionId: string;
-  themeMode: ThemeMode;
+  theme: NonNullable<ITerminalOptions["theme"]>;
   autoFocus?: boolean;
   focused?: boolean;
   focusToken?: number;
@@ -123,7 +132,7 @@ type SplitTerminalPaneProps = {
   session: GrooveTerminalSession;
   instancePrefix: string;
   instanceSuffix: string;
-  themeMode: ThemeMode;
+  theme: NonNullable<ITerminalOptions["theme"]>;
   isClosing: boolean;
   hasActivity: boolean;
   minimized: boolean;
@@ -147,6 +156,10 @@ type DecoratedSession = {
 const DESKTOP_BREAKPOINT_QUERY = "(min-width: 768px)";
 const ACTIVITY_POLL_INTERVAL_MS = 2000;
 const MIN_TERMINAL_HEIGHT_PX = 320;
+// Cap on output buffered while a pane is off screen. Beyond this we drop the
+// buffer and resync from the backend snapshot on reveal, so a busy hidden
+// console can't grow an unbounded in-memory replay buffer.
+const MAX_OFFSCREEN_BUFFER_CHARS = 512 * 1024;
 
 function useIsDesktop(): boolean {
   const [isDesktop, setIsDesktop] = useState(() => {
@@ -210,7 +223,7 @@ function GrooveTerminalPane({
   knownWorktrees,
   worktree,
   sessionId,
-  themeMode,
+  theme,
   autoFocus = false,
   focused = false,
   focusToken = 0,
@@ -220,8 +233,17 @@ function GrooveTerminalPane({
   const terminalRef = useRef<Terminal | null>(null);
   const clipboardAddonRef = useRef<ClipboardAddon | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const webglAddonRef = useRef<WebglAddon | null>(null);
+  const webglContextLossDisposableRef = useRef<IDisposable | null>(null);
+  const webglDetachTimerRef = useRef<number | null>(null);
+  const themeInitialisedRef = useRef(false);
   const outputBufferRef = useRef("");
   const flushFrameRef = useRef<number | null>(null);
+  // Whether this pane is on screen. While false, live output is held (skipping
+  // both parse and render) and replayed on reveal. Defaults to true so the
+  // initial paint is never withheld before the observer reports.
+  const isVisibleRef = useRef(true);
+  const needsSnapshotResyncRef = useRef(false);
 
   const hasReceivedLiveOutputRef = useRef(false);
   const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
@@ -245,11 +267,14 @@ function GrooveTerminalPane({
     }
 
     outputBufferRef.current = "";
-    terminalRef.current?.write(chunk);
+    sample("flush.bytes", chunk.length);
+    profileSync("xterm.write.flush", () => terminalRef.current?.write(chunk));
   }, []);
 
   const scheduleOutputFlush = useCallback(() => {
-    if (flushFrameRef.current !== null) {
+    // Hold writes while off screen; the accumulated buffer is replayed when the
+    // pane becomes visible again.
+    if (!isVisibleRef.current || flushFrameRef.current !== null) {
       return;
     }
     flushFrameRef.current = window.requestAnimationFrame(flushOutputBuffer);
@@ -258,6 +283,15 @@ function GrooveTerminalPane({
   const queueOutputChunk = useCallback(
     (chunk: string) => {
       outputBufferRef.current += chunk;
+      if (
+        !isVisibleRef.current &&
+        outputBufferRef.current.length > MAX_OFFSCREEN_BUFFER_CHARS
+      ) {
+        // Too much accumulated while hidden — drop it and resync from the
+        // backend snapshot on reveal to keep memory bounded.
+        outputBufferRef.current = "";
+        needsSnapshotResyncRef.current = true;
+      }
       scheduleOutputFlush();
     },
     [scheduleOutputFlush],
@@ -271,18 +305,119 @@ function GrooveTerminalPane({
     }
   }, []);
 
+  // Reload the terminal contents from the backend's coherent snapshot. Used
+  // when an off-screen pane buffered more output than we're willing to replay.
+  const resyncFromSnapshot = useCallback(async () => {
+    const result = await profileAsync("ipc.getSession", () =>
+      grooveTerminalGetSession(payload),
+    );
+    const terminal = terminalRef.current;
+    if (!result.ok || !result.session || !terminal) {
+      return;
+    }
+    clearBufferedOutput();
+    terminal.reset();
+    const snapshot = result.session.snapshot ?? "";
+    if (snapshot) {
+      profileSync("xterm.write.snapshot", () => terminal.write(snapshot));
+    }
+  }, [clearBufferedOutput, payload]);
+
+  const setPaneVisible = useCallback(
+    (visible: boolean) => {
+      if (isVisibleRef.current === visible) {
+        return;
+      }
+      isVisibleRef.current = visible;
+      if (!visible) {
+        return;
+      }
+      if (needsSnapshotResyncRef.current) {
+        needsSnapshotResyncRef.current = false;
+        outputBufferRef.current = "";
+        void resyncFromSnapshot();
+        return;
+      }
+      // Replay output buffered while the pane was hidden.
+      scheduleOutputFlush();
+    },
+    [resyncFromSnapshot, scheduleOutputFlush],
+  );
+
+  // The WebGL renderer holds a GPU context, and browsers cap the number of
+  // live contexts (~16 in Chromium). With many panes we only keep the
+  // renderer attached on visible terminals and fall back to the default
+  // renderer otherwise, so scrolling through 10+ consoles never exhausts the
+  // context pool.
+  const detachWebgl = useCallback(() => {
+    if (webglDetachTimerRef.current !== null) {
+      window.clearTimeout(webglDetachTimerRef.current);
+      webglDetachTimerRef.current = null;
+    }
+    if (webglContextLossDisposableRef.current) {
+      webglContextLossDisposableRef.current.dispose();
+      webglContextLossDisposableRef.current = null;
+    }
+    if (webglAddonRef.current) {
+      webglAddonRef.current.dispose();
+      webglAddonRef.current = null;
+    }
+  }, []);
+
+  const scheduleWebglDetach = useCallback(() => {
+    if (webglDetachTimerRef.current !== null || !webglAddonRef.current) {
+      return;
+    }
+    // Debounce so a quick scroll back into view doesn't thrash the context.
+    webglDetachTimerRef.current = window.setTimeout(() => {
+      webglDetachTimerRef.current = null;
+      detachWebgl();
+    }, 400);
+  }, [detachWebgl]);
+
+  const attachWebgl = useCallback(() => {
+    if (webglDetachTimerRef.current !== null) {
+      window.clearTimeout(webglDetachTimerRef.current);
+      webglDetachTimerRef.current = null;
+    }
+    const terminal = terminalRef.current;
+    if (!terminal || webglAddonRef.current) {
+      return;
+    }
+    try {
+      webglAddonRef.current = profileSync("webgl.attach", () => {
+        const webglAddon = new WebglAddon();
+        webglContextLossDisposableRef.current = webglAddon.onContextLoss(() => {
+          detachWebgl();
+        });
+        terminal.loadAddon(webglAddon);
+        return webglAddon;
+      });
+    } catch (error) {
+      detachWebgl();
+      console.warn(
+        "Failed to initialize xterm WebGL addon; falling back to default renderer.",
+        error,
+      );
+    }
+  }, [detachWebgl]);
+
   useEffect(() => {
-    const terminal = new Terminal({
-      allowProposedApi: true,
-      convertEol: false,
-      cursorBlink: true,
-      fontFamily:
-        "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace",
-      fontSize: terminalFontSize,
-      lineHeight: 1.25,
-      scrollback: 2000,
-      theme: getXtermTheme(getThemeMode()),
-    });
+    const terminal = profileSync(
+      "xterm.new",
+      () =>
+        new Terminal({
+          allowProposedApi: true,
+          convertEol: false,
+          cursorBlink: true,
+          fontFamily:
+            "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace",
+          fontSize: terminalFontSize,
+          lineHeight: 1.25,
+          scrollback: 2000,
+          theme,
+        }),
+    );
     const clipboardAddon = new ClipboardAddon();
     const fitAddon = new FitAddon();
     const unicode11Addon = new Unicode11Addon();
@@ -294,39 +429,12 @@ function GrooveTerminalPane({
     clipboardAddonRef.current = clipboardAddon;
     fitAddonRef.current = fitAddon;
 
-    let webglAddon: WebglAddon | null = null;
-    let webglContextLossDisposable: IDisposable | null = null;
-    const disposeWebglAddon = () => {
-      if (webglContextLossDisposable) {
-        webglContextLossDisposable.dispose();
-        webglContextLossDisposable = null;
-      }
-
-      if (webglAddon) {
-        webglAddon.dispose();
-        webglAddon = null;
-      }
-    };
-
     const container = containerRef.current;
     if (container) {
-      terminal.open(container);
-
-      try {
-        webglAddon = new WebglAddon();
-        webglContextLossDisposable = webglAddon.onContextLoss(() => {
-          disposeWebglAddon();
-        });
-        terminal.loadAddon(webglAddon);
-      } catch (error) {
-        disposeWebglAddon();
-        console.warn(
-          "Failed to initialize xterm WebGL addon; falling back to default renderer.",
-          error,
-        );
-      }
-
-      fitAddon.fit();
+      profileSync("xterm.open", () => terminal.open(container));
+      // The WebGL renderer is attached lazily by the visibility observer once
+      // the pane is on screen (see the resize/visibility effect below).
+      profileSync("xterm.fit", () => fitAddon.fit());
       terminal.refresh(0, terminal.rows - 1);
       if (autoFocus) {
         terminal.focus();
@@ -419,21 +527,27 @@ function GrooveTerminalPane({
       terminalRef.current = null;
       clipboardAddonRef.current = null;
       fitAddonRef.current = null;
-      disposeWebglAddon();
       terminal.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- autoFocus is only applied on initial mount
   }, [clearBufferedOutput]);
 
   useEffect(() => {
+    // The construction-time `theme` option already painted the initial theme,
+    // so skip the first run and only react to subsequent theme changes. This
+    // avoids a redundant refresh per pane on mount.
+    if (!themeInitialisedRef.current) {
+      themeInitialisedRef.current = true;
+      return;
+    }
     const terminal = terminalRef.current;
     if (!terminal) {
       return;
     }
 
-    terminal.options.theme = getXtermTheme(themeMode);
+    terminal.options.theme = theme;
     terminal.refresh(0, terminal.rows - 1);
-  }, [themeMode]);
+  }, [theme]);
 
   useEffect(() => {
     if (!focused) {
@@ -455,7 +569,9 @@ function GrooveTerminalPane({
 
   useEffect(() => {
     let disposed = false;
-    void grooveTerminalGetSession(payload).then((result) => {
+    void profileAsync("ipc.getSession", () =>
+      grooveTerminalGetSession(payload),
+    ).then((result) => {
       if (
         !result.ok ||
         !result.session ||
@@ -474,7 +590,7 @@ function GrooveTerminalPane({
       clearBufferedOutput();
       terminal.reset();
       if (snapshot) {
-        terminal.write(snapshot);
+        profileSync("xterm.write.snapshot", () => terminal.write(snapshot));
       }
     });
 
@@ -551,12 +667,17 @@ function GrooveTerminalPane({
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
+            setPaneVisible(true);
+            attachWebgl();
             terminal.refresh(0, terminal.rows - 1);
             fitAddon.fit();
+          } else {
+            setPaneVisible(false);
+            scheduleWebglDetach();
           }
         }
       },
-      { threshold: 0.1 },
+      { rootMargin: "200px 0px", threshold: 0 },
     );
     visibilityObserver.observe(container);
 
@@ -576,9 +697,10 @@ function GrooveTerminalPane({
       if (initialResizeTimeout !== null) {
         window.clearTimeout(initialResizeTimeout);
       }
+      detachWebgl();
       lastSentSizeRef.current = null;
     };
-  }, [payload]);
+  }, [attachWebgl, detachWebgl, payload, scheduleWebglDetach, setPaneVisible]);
 
   useEffect(() => {
     let disposed = false;
@@ -667,7 +789,9 @@ function GrooveTerminalPane({
     worktree,
   ]);
 
-  return <div ref={containerRef} className="h-full w-full overflow-hidden" />;
+  return (
+    <div ref={containerRef} className="h-full w-full overflow-hidden bg-card" />
+  );
 }
 
 function SplitTerminalPane({
@@ -678,7 +802,7 @@ function SplitTerminalPane({
   session,
   instancePrefix,
   instanceSuffix,
-  themeMode,
+  theme,
   isClosing,
   hasActivity,
   minimized,
@@ -693,15 +817,61 @@ function SplitTerminalPane({
   noBorder = false,
 }: SplitTerminalPaneProps) {
   const [refreshKey, setRefreshKey] = useState(0);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  // Defer instantiating the heavy xterm instance until the pane is near the
+  // viewport. The primary (auto-focused) pane and any pane being focused mount
+  // eagerly; the rest hydrate as they scroll into view, so opening a worktree
+  // with 10+ consoles no longer mounts every terminal in a single frame.
+  const [hasMounted, setHasMounted] = useState(autoFocus || focused);
+
+  useEffect(() => {
+    if (hasMounted || minimized) {
+      return;
+    }
+    const node = bodyRef.current;
+    if (!node) {
+      return;
+    }
+    if (typeof IntersectionObserver === "undefined") {
+      setHasMounted(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setHasMounted(true);
+            observer.disconnect();
+            break;
+          }
+        }
+      },
+      { rootMargin: "300px 0px" },
+    );
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasMounted, minimized]);
+
+  useEffect(() => {
+    if (focused && !hasMounted) {
+      setHasMounted(true);
+    }
+  }, [focused, hasMounted]);
 
   const hasColor = Boolean(colorBorderClass);
-  const borderClass = noBorder ? "" : (colorBorderClass ?? "border");
+  const borderColorClass = colorBorderClass ?? "";
   const roundingClass = hasColor || noBorder ? "" : "rounded-lg";
-  const outerBorderClass = noBorder ? "" : `border ${borderClass}`;
+  const outerBorderClass = noBorder
+    ? ""
+    : `border ${borderColorClass}`.trimEnd();
   const headerStyle = colorHex
     ? { backgroundColor: colorHex, color: getContrastColor(colorHex) }
     : undefined;
-  const headerBorderClass = noBorder ? "" : `border-b ${borderClass}`;
+  const headerBorderClass = noBorder
+    ? ""
+    : `border-b ${borderColorClass}`.trimEnd();
   const headerClassName = colorHex
     ? `flex items-center justify-between ${headerBorderClass} px-2 py-1.5 text-xs`
     : `flex items-center justify-between ${headerBorderClass} bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground`;
@@ -769,20 +939,24 @@ function SplitTerminalPane({
         </div>
       </div>
       {!minimized && (
-        <div className="min-h-0 flex-1">
-          <GrooveTerminalPane
-            key={refreshKey}
-            workspaceRoot={workspaceRoot}
-            workspaceMeta={workspaceMeta}
-            knownWorktrees={knownWorktrees}
-            worktree={worktree}
-            sessionId={session.sessionId}
-            themeMode={themeMode}
-            autoFocus={autoFocus}
-            focused={focused}
-            focusToken={focusToken}
-            terminalFontSize={terminalFontSize}
-          />
+        <div ref={bodyRef} className="min-h-0 flex-1">
+          {hasMounted ? (
+            <GrooveTerminalPane
+              key={refreshKey}
+              workspaceRoot={workspaceRoot}
+              workspaceMeta={workspaceMeta}
+              knownWorktrees={knownWorktrees}
+              worktree={worktree}
+              sessionId={session.sessionId}
+              theme={theme}
+              autoFocus={autoFocus}
+              focused={focused}
+              focusToken={focusToken}
+              terminalFontSize={terminalFontSize}
+            />
+          ) : (
+            <div className="h-full w-full bg-card" aria-hidden />
+          )}
         </div>
       )}
     </div>
@@ -799,9 +973,11 @@ export function GrooveWorktreeTerminal({
   colorHex,
   terminalFontSize,
   compactMode = false,
+  onPauseWorktree,
 }: GrooveWorktreeTerminalProps) {
   const [sessions, setSessions] = useState<GrooveTerminalSession[]>([]);
   const [closingSessionIds, setClosingSessionIds] = useState<string[]>([]);
+  const [isPauseConfirmOpen, setIsPauseConfirmOpen] = useState(false);
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
   const [focusToken, setFocusToken] = useState(0);
   const requestFocus = useCallback((sessionId: string) => {
@@ -849,6 +1025,10 @@ export function GrooveWorktreeTerminal({
     getThemeModeSnapshot,
     getThemeModeSnapshot,
   );
+  // Resolve the xterm theme once per theme change rather than inside each pane.
+  // getXtermTheme reads CSS custom properties via getComputedStyle, so sharing
+  // a single result keeps a theme switch with many open consoles cheap.
+  const xtermTheme = useMemo(() => getXtermTheme(themeMode), [themeMode]);
   const isDesktop = useIsDesktop();
 
   const syncSessions = useCallback(async () => {
@@ -939,6 +1119,13 @@ export function GrooveWorktreeTerminal({
 
   const handleCloseSplit = useCallback(
     async (sessionId: string) => {
+      // Closing the final terminal pauses the worktree — confirm first and
+      // defer to the pause handler (which closes every session) on accept.
+      if (onPauseWorktree && sessions.length <= 1) {
+        setIsPauseConfirmOpen(true);
+        return;
+      }
+
       const closedIndex = sessions.findIndex(
         (candidate) => candidate.sessionId === sessionId,
       );
@@ -975,7 +1162,13 @@ export function GrooveWorktreeTerminal({
         );
       }
     },
-    [requestFocus, sessions, syncSessions, terminalPayloadBase],
+    [
+      onPauseWorktree,
+      requestFocus,
+      sessions,
+      syncSessions,
+      terminalPayloadBase,
+    ],
   );
 
   const decoratedSessions = useMemo<DecoratedSession[]>(() => {
@@ -997,10 +1190,10 @@ export function GrooveWorktreeTerminal({
 
   const hasColor = Boolean(colorBorderClass);
   const wrapperClass = hasColor
-    ? "groove-worktree-terminal rounded-b-lg overflow-hidden"
+    ? "groove-worktree-terminal rounded-lg overflow-hidden"
     : "groove-worktree-terminal space-y-2";
   const emptyBorderClass = hasColor
-    ? `rounded-b-lg border border-t-0 ${colorBorderClass} border-dashed`
+    ? `rounded-lg border ${colorBorderClass} border-dashed`
     : "rounded-lg border border-dashed";
 
   const renderSplitPane = (entry: DecoratedSession, index: number) => {
@@ -1015,7 +1208,7 @@ export function GrooveWorktreeTerminal({
         session={entry.session}
         instancePrefix={entry.instancePrefix}
         instanceSuffix={entry.instanceSuffix}
-        themeMode={themeMode}
+        theme={xtermTheme}
         isClosing={closingSessionIds.includes(entry.session.sessionId)}
         hasActivity={activityBySession[entry.session.sessionId] ?? false}
         minimized={isMinimized}
@@ -1036,9 +1229,28 @@ export function GrooveWorktreeTerminal({
     );
   };
 
+  const pauseConfirmModal = (
+    <ConfirmModal
+      open={isPauseConfirmOpen}
+      title="Pause this worktree?"
+      description="This is the last open terminal. Closing it will pause Groove for this worktree."
+      confirmLabel="Pause worktree"
+      cancelLabel="Cancel"
+      onOpenChange={setIsPauseConfirmOpen}
+      onConfirm={() => {
+        setIsPauseConfirmOpen(false);
+        onPauseWorktree?.();
+      }}
+      onCancel={() => {
+        setIsPauseConfirmOpen(false);
+      }}
+    />
+  );
+
   if (compactMode) {
     return (
       <div className="groove-worktree-terminal h-full">
+        {pauseConfirmModal}
         {sessions.length === 0 ? (
           <div className="px-3 py-6 text-center text-sm text-muted-foreground">
             No active in-app sessions for this worktree.
@@ -1066,6 +1278,7 @@ export function GrooveWorktreeTerminal({
 
   return (
     <div className={wrapperClass}>
+      {pauseConfirmModal}
       {sessions.length === 0 ? (
         <div
           className={`${emptyBorderClass} px-3 py-6 text-center text-sm text-muted-foreground`}

@@ -22,7 +22,7 @@ describe("DiagnosticsHeader", () => {
       />,
     );
 
-    expect(screen.getByText("Diagnostics")).toBeInTheDocument();
+    expect(screen.getByText("Situation Room")).toBeInTheDocument();
     expect(
       screen.getByText(/Inspect and stop local processes/),
     ).toBeInTheDocument();

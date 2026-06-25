@@ -584,7 +584,7 @@ export default function DiagnosticsPage() {
         <div
           role="region"
           aria-label="Setup checks"
-          className="rounded-lg border bg-card"
+          className="overflow-hidden rounded-lg border bg-card"
         >
           <TooltipProvider>
             <Table>
@@ -656,7 +656,7 @@ export default function DiagnosticsPage() {
                                   variant="secondary"
                                   size="sm"
                                   onClick={() => {
-                                    navigate("/settings?subpage=workspace");
+                                    navigate("/workspace/settings");
                                   }}
                                   aria-label="Go to symlink settings"
                                   className="size-8 p-0"
@@ -729,7 +729,7 @@ export default function DiagnosticsPage() {
                       <TableCell className="max-w-[420px] whitespace-normal text-muted-foreground">
                         {workspaceMeta?.onboardingCommandsConfigured
                           ? "Workspace commands have been reviewed."
-                          : "Review Play Groove, Open Terminal, and Run Local commands."}
+                          : "Review Play Groove and Open Terminal commands."}
                       </TableCell>
                       <TableCell className="text-right">
                         {workspaceMeta?.onboardingCommandsConfigured ? (
@@ -752,7 +752,7 @@ export default function DiagnosticsPage() {
                                   variant="secondary"
                                   size="sm"
                                   onClick={() => {
-                                    navigate("/settings?subpage=workspace");
+                                    navigate("/workspace/settings");
                                   }}
                                   aria-label="Go to workspace command settings"
                                   className="size-8 p-0"

@@ -12,6 +12,10 @@ export {
 export {
   isTelemetryEnabled,
   isGrooveBusinessDisabled,
+  isHideMascotEnabled,
+  isHideLabelsEnabled,
+  isMascotHidden,
+  isGamificationLabelsHidden,
   isShowFpsEnabled,
   isAlwaysShowDiagnosticsSidebarEnabled,
   isPeriodicRerenderEnabled,

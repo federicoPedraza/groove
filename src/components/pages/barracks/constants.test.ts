@@ -13,6 +13,7 @@ import {
   SOFT_YELLOW_BUTTON_CLASSES,
   SOFT_AMBER_BUTTON_CLASSES,
   SOFT_ORANGE_BUTTON_CLASSES,
+  SOFT_BLUE_BUTTON_CLASSES,
 } from "@/src/components/pages/barracks/constants";
 
 describe("dashboard constants", () => {
@@ -39,6 +40,7 @@ describe("dashboard constants", () => {
       SOFT_YELLOW_BUTTON_CLASSES,
       SOFT_AMBER_BUTTON_CLASSES,
       SOFT_ORANGE_BUTTON_CLASSES,
+      SOFT_BLUE_BUTTON_CLASSES,
     ];
     for (const cls of buttonClasses) {
       expect(typeof cls).toBe("string");
@@ -67,6 +69,7 @@ describe("dashboard constants", () => {
       SOFT_YELLOW_BUTTON_CLASSES,
       SOFT_AMBER_BUTTON_CLASSES,
       SOFT_ORANGE_BUTTON_CLASSES,
+      SOFT_BLUE_BUTTON_CLASSES,
     ];
     const unique = new Set(buttonClasses);
     expect(unique.size).toBe(buttonClasses.length);

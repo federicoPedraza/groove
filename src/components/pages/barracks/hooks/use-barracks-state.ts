@@ -152,9 +152,7 @@ function isSameWorkspaceMeta(
     left.defaultTerminal === right.defaultTerminal &&
     left.terminalCustomCommand === right.terminalCustomCommand &&
     left.playGrooveCommand === right.playGrooveCommand &&
-    left.openTerminalAtWorktreeCommand ===
-      right.openTerminalAtWorktreeCommand &&
-    left.runLocalCommand === right.runLocalCommand
+    left.openTerminalAtWorktreeCommand === right.openTerminalAtWorktreeCommand
   );
 }
 

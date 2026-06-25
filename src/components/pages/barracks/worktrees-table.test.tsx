@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WorktreesTable } from "@/src/components/pages/barracks/worktrees-table";
 import type { WorktreeRow } from "@/src/components/pages/barracks/types";
@@ -80,12 +80,10 @@ function renderWorktreesTable(options: {
       onOpenTerminalAction={options.onOpenTerminalAction ?? (() => {})}
       workspaceSummaries={[]}
       worktreeSummaries={{}}
-      onSummarizeSection={() => {}}
       onSummarizeWorktree={() => {}}
       summarizingWorktreeIds={new Set<string>()}
       onViewSectionSummary={() => {}}
       onViewWorktreeSummary={() => {}}
-      summarizingSectionKeys={new Set<string>()}
       onForgetAllDeletedWorktrees={
         options.onForgetAllDeletedWorktrees ?? (() => {})
       }
@@ -100,15 +98,15 @@ function renderWorktreesTable(options: {
       onDiscoverWorktree={() => {}}
       onClaimWorktreeReward={() => {}}
       onLootWorktree={() => {}}
-      worktreeComments={{}}
-      commentingWorktrees={new Set<string>()}
-      onCommentWorktree={() => {}}
-      onViewWorktreeComment={() => {}}
     />,
   );
 }
 
 describe("WorktreesTable", () => {
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
   it("renders the unit badge in the Target column when a unit is present, falls back to 'unknown' otherwise", () => {
     const groupedWorktreeItems: GroupedWorktreeItem[] = [
       { type: "section", label: "Today", key: "section:Today" },
@@ -246,6 +244,129 @@ describe("WorktreesTable", () => {
 
     const headers = screen.getAllByRole("columnheader").map((node) => node.textContent);
     expect(headers).toEqual(["Branch", "State", "Groove", "Target", "Actions"]);
+  });
+
+  it("defaults to date grouping and regroups by state when Status sort is selected", () => {
+    const groupedWorktreeItems: GroupedWorktreeItem[] = [
+      { type: "section", label: "Today", key: "section:Today" },
+      {
+        type: "row",
+        key: "row:/worktrees/a",
+        row: buildRow({
+          worktree: "a",
+          branchGuess: "feature/a",
+          path: "/worktrees/a",
+        }),
+      },
+      {
+        type: "row",
+        key: "row:/worktrees/b",
+        row: buildRow({
+          worktree: "b",
+          branchGuess: "feature/b",
+          path: "/worktrees/b",
+        }),
+      },
+    ];
+
+    renderWorktreesTable({
+      groupedWorktreeItems,
+      worktreeStates: { a: "pending", b: "fighting" },
+    });
+
+    // Date mode (default): a single date section, no state sections.
+    expect(
+      screen.getByRole("button", { name: /Today section/i }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /pending section/i }),
+    ).toBeNull();
+
+    const sortTrigger = screen.getByRole("button", { name: /Sort worktrees/ });
+    fireEvent.pointerDown(sortTrigger, { button: 0, pointerType: "mouse" });
+    fireEvent.click(sortTrigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Status" }));
+
+    // Status mode: one section per worktree state, date section gone.
+    expect(
+      screen.queryByRole("button", { name: /Today section/i }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /pending section/i }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /fighting section/i }),
+    ).toBeTruthy();
+  });
+
+  it("regroups by groove status when Groove state sort is selected", () => {
+    const groupedWorktreeItems: GroupedWorktreeItem[] = [
+      { type: "section", label: "Today", key: "section:Today" },
+      {
+        type: "row",
+        key: "row:/worktrees/paused-one",
+        row: buildRow({
+          worktree: "paused-one",
+          branchGuess: "feature/paused-one",
+          path: "/worktrees/paused-one",
+          status: "paused",
+        }),
+      },
+    ];
+
+    renderWorktreesTable({ groupedWorktreeItems });
+
+    const sortTrigger = screen.getByRole("button", { name: /Sort worktrees/ });
+    fireEvent.pointerDown(sortTrigger, { button: 0, pointerType: "mouse" });
+    fireEvent.click(sortTrigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Groove state" }));
+
+    // No active terminals, so the worktree falls under the "Paused" section.
+    expect(
+      screen.getByRole("button", { name: /Paused section/i }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Today section/i }),
+    ).toBeNull();
+  });
+
+  it("persists the selected sort mode across remounts", () => {
+    const groupedWorktreeItems: GroupedWorktreeItem[] = [
+      { type: "section", label: "Today", key: "section:Today" },
+      {
+        type: "row",
+        key: "row:/worktrees/paused-one",
+        row: buildRow({
+          worktree: "paused-one",
+          branchGuess: "feature/paused-one",
+          path: "/worktrees/paused-one",
+          status: "paused",
+        }),
+      },
+    ];
+
+    const first = renderWorktreesTable({ groupedWorktreeItems });
+
+    const sortTrigger = screen.getByRole("button", { name: /Sort worktrees/ });
+    fireEvent.pointerDown(sortTrigger, { button: 0, pointerType: "mouse" });
+    fireEvent.click(sortTrigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Groove state" }));
+
+    expect(window.localStorage.getItem("groove:worktrees-sort-mode")).toBe(
+      "groove",
+    );
+
+    // Remount (as if reopening the app): the saved sort mode is restored
+    // without going through the dropdown again.
+    first.unmount();
+    renderWorktreesTable({ groupedWorktreeItems });
+
+    expect(
+      screen.getByRole("button", { name: /Paused section/i }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Today section/i }),
+    ).toBeNull();
   });
 
   it("auto-collapses requested groups by default", () => {
@@ -532,12 +653,10 @@ describe("WorktreesTable", () => {
         onOpenTerminalAction={() => {}}
         workspaceSummaries={[]}
         worktreeSummaries={{}}
-        onSummarizeSection={() => {}}
         onSummarizeWorktree={() => {}}
         summarizingWorktreeIds={new Set<string>()}
         onViewSectionSummary={() => {}}
         onViewWorktreeSummary={() => {}}
-        summarizingSectionKeys={new Set<string>()}
         onForgetAllDeletedWorktrees={() => {}}
         isForgetAllDeletedWorktreesPending={false}
         worktreeStates={{}}
@@ -548,10 +667,6 @@ describe("WorktreesTable", () => {
         onDiscoverWorktree={() => {}}
         onClaimWorktreeReward={() => {}}
       onLootWorktree={() => {}}
-        worktreeComments={{}}
-        commentingWorktrees={new Set<string>()}
-        onCommentWorktree={() => {}}
-        onViewWorktreeComment={() => {}}
       />,
     );
 
@@ -594,12 +709,10 @@ describe("WorktreesTable", () => {
         onOpenTerminalAction={() => {}}
         workspaceSummaries={[]}
         worktreeSummaries={{}}
-        onSummarizeSection={() => {}}
         onSummarizeWorktree={() => {}}
         summarizingWorktreeIds={new Set<string>()}
         onViewSectionSummary={() => {}}
         onViewWorktreeSummary={() => {}}
-        summarizingSectionKeys={new Set<string>()}
         onForgetAllDeletedWorktrees={() => {}}
         isForgetAllDeletedWorktreesPending={false}
         worktreeStates={{}}
@@ -610,10 +723,6 @@ describe("WorktreesTable", () => {
         onDiscoverWorktree={() => {}}
         onClaimWorktreeReward={() => {}}
       onLootWorktree={() => {}}
-        worktreeComments={{}}
-        commentingWorktrees={new Set<string>()}
-        onCommentWorktree={() => {}}
-        onViewWorktreeComment={() => {}}
       />,
     );
 
@@ -686,8 +795,7 @@ describe("WorktreesTable", () => {
     ).toBeTruthy();
   });
 
-  it("renders Summarize button for non-deleted sections with worktreeIds", () => {
-    // Need worktreeId on rows for summarize to appear
+  it("does not render a section-level Summarize button", () => {
     const row = buildRow({
       worktree: "today",
       branchGuess: "feature/today",
@@ -702,8 +810,8 @@ describe("WorktreesTable", () => {
     renderWorktreesTable({ groupedWorktreeItems: items });
 
     expect(
-      screen.getByRole("button", { name: /Summarize Today section/i }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: /Summarize Today section/i }),
+    ).toBeNull();
   });
 
   it("passes the worktree terminal action through to row actions", () => {

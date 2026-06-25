@@ -9,6 +9,16 @@ struct WorkspaceContextCacheState {
     entries: Mutex<HashMap<String, WorkspaceContextCacheEntry>>,
 }
 
+/// Caches the resolved `(workspace_root, worktree_path)` for terminal commands.
+/// Without it, every terminal IPC (including each keystroke via
+/// `groove_terminal_write` and the periodic activity poll) re-runs
+/// `resolve_workspace_root`, which stats every known worktree directory and
+/// re-parses `workspace.json` — O(worktree count) filesystem work per call.
+#[derive(Default)]
+struct TerminalResolutionCacheState {
+    entries: Mutex<HashMap<String, TerminalResolutionCacheEntry>>,
+}
+
 #[derive(Default)]
 struct GrooveListCacheState {
     entries: Mutex<HashMap<String, GrooveListCacheEntry>>,
@@ -61,6 +71,23 @@ impl Drop for GrooveTerminalState {
 struct WorkspaceContextCacheEntry {
     signature: WorkspaceContextSignature,
     response: WorkspaceContextResponse,
+}
+
+#[derive(Debug, Clone)]
+struct TerminalResolutionCacheEntry {
+    workspace_root: PathBuf,
+    worktree_path: PathBuf,
+    signature: TerminalResolutionSignature,
+}
+
+/// Cheap (a few `stat`s, no parsing) fingerprint of the inputs that can change a
+/// terminal worktree resolution: the active-workspace pointer file, the
+/// workspace manifest, and the worktree directory itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TerminalResolutionSignature {
+    active_state_file: SnapshotEntry,
+    workspace_manifest: SnapshotEntry,
+    worktree_dir: SnapshotEntry,
 }
 
 #[derive(Debug, Clone)]
@@ -158,10 +185,11 @@ struct WorkspaceMetaContext {
     telemetry_enabled: Option<bool>,
     #[serde(alias = "disableGrooveLoadingSection")]
     disable_groove_business: Option<bool>,
+    hide_mascot: Option<bool>,
+    hide_labels: Option<bool>,
     show_fps: Option<bool>,
     play_groove_command: Option<String>,
     open_terminal_at_worktree_command: Option<String>,
-    run_local_command: Option<String>,
     worktree_symlink_paths: Option<Vec<String>>,
     opencode_settings: Option<OpencodeSettings>,
     worktree_records: Option<HashMap<String, WorktreeRecord>>,
@@ -548,13 +576,15 @@ struct WorkspaceMeta {
     #[serde(default, alias = "disableGrooveLoadingSection")]
     disable_groove_business: bool,
     #[serde(default)]
+    hide_mascot: bool,
+    #[serde(default)]
+    hide_labels: bool,
+    #[serde(default)]
     show_fps: bool,
     #[serde(default = "default_play_groove_command")]
     play_groove_command: String,
     #[serde(default)]
     open_terminal_at_worktree_command: Option<String>,
-    #[serde(default)]
-    run_local_command: Option<String>,
     #[serde(default = "default_worktree_symlink_paths")]
     worktree_symlink_paths: Vec<String>,
     #[serde(default = "default_opencode_settings")]
@@ -746,6 +776,8 @@ struct WorkspaceTerminalSettingsPayload {
     terminal_custom_command: Option<String>,
     telemetry_enabled: Option<bool>,
     disable_groove_business: Option<bool>,
+    hide_mascot: Option<bool>,
+    hide_labels: Option<bool>,
     show_fps: Option<bool>,
 }
 
@@ -754,7 +786,6 @@ struct WorkspaceTerminalSettingsPayload {
 struct WorkspaceCommandSettingsPayload {
     play_groove_command: String,
     open_terminal_at_worktree_command: Option<String>,
-    run_local_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -819,6 +850,8 @@ struct WorkspaceBrowseEntriesPayload {
 struct GlobalSettingsUpdatePayload {
     telemetry_enabled: Option<bool>,
     disable_groove_business: Option<bool>,
+    hide_mascot: Option<bool>,
+    hide_labels: Option<bool>,
     show_fps: Option<bool>,
     always_show_diagnostics_sidebar: Option<bool>,
     periodic_rerender_enabled: Option<bool>,
@@ -1480,6 +1513,10 @@ struct GlobalSettings {
     telemetry_enabled: bool,
     #[serde(default, alias = "disableGrooveLoadingSection")]
     disable_groove_business: bool,
+    #[serde(default)]
+    hide_mascot: bool,
+    #[serde(default)]
+    hide_labels: bool,
     #[serde(default)]
     show_fps: bool,
     #[serde(default)]

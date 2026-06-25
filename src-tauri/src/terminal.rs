@@ -2,7 +2,6 @@
 pub(crate) enum GrooveTerminalOpenMode {
     Opencode,
     ClaudeCode,
-    RunLocal,
     Plain,
 }
 
@@ -45,9 +44,8 @@ pub(crate) fn validate_groove_terminal_open_mode(
     match mode {
         "opencode" => Ok(GrooveTerminalOpenMode::Opencode),
         "claudeCode" => Ok(GrooveTerminalOpenMode::ClaudeCode),
-        "runLocal" => Ok(GrooveTerminalOpenMode::RunLocal),
         "plain" => Ok(GrooveTerminalOpenMode::Plain),
-        _ => Err("openMode must be \"opencode\", \"claudeCode\", \"runLocal\", or \"plain\".".to_string()),
+        _ => Err("openMode must be \"opencode\", \"claudeCode\", or \"plain\".".to_string()),
     }
 }
 

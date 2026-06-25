@@ -31,10 +31,8 @@ const APP_VERSION = packageJson.version;
 type TerminalMode = "friendly" | "angry";
 
 type StatePresentation = {
-  labelClassName: string;
   iconClassName: string;
-  containerClassName: string;
-  dotColor: string;
+  timeClassName: string;
 };
 
 const STATE_PRESENTATION: Record<
@@ -42,24 +40,38 @@ const STATE_PRESENTATION: Record<
   StatePresentation
 > = {
   running: {
-    labelClassName: "text-sky-400",
-    iconClassName: "text-sky-400",
-    containerClassName: "border-sky-500/20 bg-sky-500/5",
-    dotColor: "bg-sky-400",
+    iconClassName: "text-sky-500",
+    timeClassName: "text-sky-500",
   },
   success: {
-    labelClassName: "text-emerald-400",
-    iconClassName: "text-emerald-400",
-    containerClassName: "border-emerald-500/15 bg-emerald-500/5",
-    dotColor: "bg-emerald-400",
+    iconClassName: "text-emerald-500",
+    timeClassName: "text-faint",
   },
   error: {
-    labelClassName: "text-rose-400",
-    iconClassName: "text-rose-400",
-    containerClassName: "border-rose-500/20 bg-rose-500/5",
-    dotColor: "bg-rose-400",
+    iconClassName: "text-destructive",
+    timeClassName: "text-destructive",
   },
 };
+
+function formatDuration(entry: CommandExecutionEntry): string {
+  if (entry.completedAt === null) {
+    return "running";
+  }
+  const elapsedMs = Math.max(0, entry.completedAt - entry.startedAt);
+  if (elapsedMs < 1_000) {
+    return `${String(elapsedMs)}ms`;
+  }
+  return `${(elapsedMs / 1_000).toFixed(2)}s`;
+}
+
+function formatClockTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString(undefined, {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
 function CommandHistoryRow({
   entry,
@@ -76,15 +88,20 @@ function CommandHistoryRow({
   const CommandIcon = metadata.icon;
 
   const displayLabel = mode === "friendly" ? metadata.title : entry.command;
-  const displaySublabel = mode === "friendly" ? metadata.description : null;
+  // Friendly mode explains what the command does; raw mode exposes the
+  // technical execution detail (state, duration, exact clock time) the
+  // friendly description hides.
+  const displaySublabel =
+    mode === "friendly"
+      ? metadata.description
+      : [
+          entry.state,
+          formatDuration(entry),
+          formatClockTime(entry.completedAt ?? entry.startedAt),
+        ].join("  ·  ");
 
   return (
-    <div
-      className={cn(
-        "group rounded-md border px-3 py-2 transition-colors duration-150",
-        presentation.containerClassName,
-      )}
-    >
+    <div className="group rounded-md border bg-card/40 px-3 py-2 transition-colors duration-150 hover:border-border-strong hover:bg-accent/50 [content-visibility:auto] [contain-intrinsic-size:auto_44px]">
       <div className="flex items-center gap-2.5">
         <CommandIcon
           className={cn(
@@ -98,7 +115,7 @@ function CommandHistoryRow({
           <div className="flex items-center justify-between gap-2">
             <span
               className={cn(
-                "truncate text-xs text-foreground/90",
+                "truncate text-xs text-foreground",
                 mode === "angry" ? "font-mono" : "font-medium",
               )}
             >
@@ -106,22 +123,27 @@ function CommandHistoryRow({
             </span>
             <span
               className={cn(
-                "shrink-0 font-mono text-[10px]",
-                presentation.labelClassName,
+                "shrink-0 font-mono text-[10px] tabular-nums",
+                presentation.timeClassName,
               )}
             >
               {relativeTime}
             </span>
           </div>
           {displaySublabel ? (
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
+            <p
+              className={cn(
+                "mt-0.5 truncate text-[11px] text-faint",
+                mode === "angry" && "font-mono tabular-nums",
+              )}
+            >
               {displaySublabel}
             </p>
           ) : null}
         </div>
       </div>
       {entry.state === "error" && entry.failureDetail ? (
-        <p className="ml-4 mt-1.5 whitespace-pre-wrap break-words rounded border border-rose-500/20 bg-rose-500/8 px-2 py-1 font-mono text-[10px] leading-relaxed text-rose-300/90">
+        <p className="ml-6 mt-1.5 whitespace-pre-wrap break-words rounded-sm border border-destructive/30 bg-destructive/10 px-2 py-1 font-mono text-[10px] leading-relaxed text-destructive">
           {entry.failureDetail}
         </p>
       ) : null}
@@ -190,20 +212,19 @@ export function CommandHistoryPanel() {
   const isDev = import.meta.env.DEV;
 
   return (
-    <div ref={containerRef} className="fixed bottom-3 right-5 z-40">
+    <div ref={containerRef} className="fixed bottom-3 left-5 z-40">
       {isOpen ? (
         <section
           role="dialog"
-          aria-label="Command history"
+          aria-label="Terminal log"
           className={cn(
-            "absolute bottom-9 right-0 w-[26rem] max-w-[calc(100vw-1.5rem)]",
-            "rounded-lg border border-border/60 bg-background/97 shadow-2xl backdrop-blur-xl",
-            "supports-[backdrop-filter]:bg-background/90",
+            "absolute bottom-9 left-0 w-[26rem] max-w-[calc(100vw-1.5rem)]",
+            "overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-panel",
             "animate-in fade-in-0 slide-in-from-bottom-2 duration-200",
           )}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-border/50 px-3 py-2.5">
+          <div className="flex items-center justify-between border-b px-3 py-2.5">
             <div className="flex items-center gap-2">
               <SquareTerminal
                 className="size-3.5 text-muted-foreground"
@@ -218,12 +239,21 @@ export function CommandHistoryPanel() {
                 </span>
               ) : null}
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              {runningCount > 0 ? (
+                <span className="inline-flex items-center gap-1 text-[10px] text-sky-500">
+                  <span className="relative flex size-1.5">
+                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-sky-500 opacity-75" />
+                    <span className="relative inline-flex size-1.5 rounded-full bg-sky-500" />
+                  </span>
+                  {runningCount} running
+                </span>
+              ) : null}
               <button
                 type="button"
                 onClick={clearCommandHistory}
                 disabled={!hasEntries}
-                className="rounded p-1 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-30"
+                className="rounded-sm p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
                 aria-label="Clear history"
                 title="Clear history"
               >
@@ -233,43 +263,33 @@ export function CommandHistoryPanel() {
           </div>
 
           {/* Mode toggle */}
-          <div className="flex items-center justify-between border-b border-border/40 px-3 py-2">
-            <div className="flex items-center gap-3">
+          <div className="border-b px-3 py-2">
+            <div className="inline-flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5">
               <button
                 type="button"
                 onClick={() => setMode("friendly")}
                 className={cn(
-                  "text-[11px] font-medium transition-colors",
+                  "rounded-sm px-2 py-0.5 text-[11px] font-medium transition-colors",
                   mode === "friendly"
-                    ? "text-foreground"
-                    : "text-muted-foreground/60 hover:text-muted-foreground",
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 Friendly
               </button>
-              <span className="text-muted-foreground/30">|</span>
               <button
                 type="button"
                 onClick={() => setMode("angry")}
                 className={cn(
-                  "font-mono text-[11px] font-medium transition-colors",
+                  "rounded-sm px-2 py-0.5 font-mono text-[11px] font-medium transition-colors",
                   mode === "angry"
-                    ? "text-foreground"
-                    : "text-muted-foreground/60 hover:text-muted-foreground",
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 Raw
               </button>
             </div>
-            {runningCount > 0 ? (
-              <span className="inline-flex items-center gap-1 text-[10px] text-sky-400">
-                <span className="relative flex size-1.5">
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-sky-400 opacity-75" />
-                  <span className="relative inline-flex size-1.5 rounded-full bg-sky-400" />
-                </span>
-                {runningCount} running
-              </span>
-            ) : null}
           </div>
 
           {/* Command list */}
@@ -281,12 +301,10 @@ export function CommandHistoryPanel() {
             {!hasEntries ? (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <SquareTerminal
-                  className="mb-2 size-5 text-muted-foreground/30"
+                  className="mb-2 size-5 text-muted-foreground/40"
                   aria-hidden="true"
                 />
-                <p className="text-[11px] text-muted-foreground/50">
-                  No commands yet
-                </p>
+                <p className="text-[11px] text-faint">No commands yet</p>
               </div>
             ) : (
               completedEntries.map((entry) => (
@@ -303,10 +321,10 @@ export function CommandHistoryPanel() {
       ) : null}
 
       {/* Bottom row: toast + version + dev indicator + terminal icon */}
-      <div className="flex flex-col items-end gap-1.5">
+      <div className="flex flex-col items-start gap-1.5">
         <CollapsedToast />
         <div className="flex items-center gap-1.5">
-          <span className="select-none text-[11px] tabular-nums text-muted-foreground/50">
+          <span className="select-none text-[11px] tabular-nums text-faint">
             v{APP_VERSION}
           </span>
           {isDev ? (
@@ -314,7 +332,7 @@ export function CommandHistoryPanel() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span
-                    className="rounded-md p-1 text-muted-foreground/50"
+                    className="rounded-md p-1 text-faint"
                     aria-label="Development mode"
                   >
                     <Bug className="size-3.5" aria-hidden="true" />
@@ -326,22 +344,22 @@ export function CommandHistoryPanel() {
           ) : null}
           <button
             type="button"
-            aria-label="Command history"
-            title="Command history"
+            aria-label="Terminal log"
+            title="Terminal log"
             aria-haspopup="dialog"
             aria-expanded={isOpen}
             onClick={() => setIsOpen((open) => !open)}
             className={cn(
               "relative rounded-md p-1 transition-colors",
-              "text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground",
-              isOpen && "bg-muted text-muted-foreground",
+              "text-muted-foreground hover:bg-accent hover:text-foreground",
+              isOpen && "bg-accent text-foreground",
             )}
           >
             <SquareTerminal className="size-3.5" aria-hidden="true" />
             {runningCount > 0 ? (
               <span className="absolute -right-0.5 -top-0.5 flex size-2">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-sky-400 opacity-75" />
-                <span className="relative inline-flex size-2 rounded-full bg-sky-400" />
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-sky-500 opacity-75" />
+                <span className="relative inline-flex size-2 rounded-full bg-sky-500" />
               </span>
             ) : null}
           </button>

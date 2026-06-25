@@ -21,6 +21,8 @@ type InvokeCommandOptions = {
 
 const UNTRACKED_COMMANDS = new Set<string>([
   "groove_terminal_active_worktrees",
+  "groove_terminal_check_activity",
+  "sound_library_read",
   "workspace_events",
   "workspace_get_active",
   "workspace_term_sanity_check",

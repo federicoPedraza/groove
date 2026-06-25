@@ -122,7 +122,7 @@ export function AssistantMcpPanel() {
       {connectMessage && <p className="text-xs text-green-700">{connectMessage}</p>}
       {connectError && <p className="text-xs text-red-700">{connectError}</p>}
 
-      <div className="rounded-md bg-muted/40 px-3 py-2">
+      <div className="rounded-none bg-muted/40 px-3 py-2">
         {isValidating && !validation ? (
           <p className="text-xs text-muted-foreground">Checking connection…</p>
         ) : validation ? (

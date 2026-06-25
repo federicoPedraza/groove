@@ -19,7 +19,7 @@ export type GrooveTerminalOpenPayload = {
   workspaceMeta?: WorkspaceMeta;
   worktree: string;
   target?: string;
-  openMode?: "opencode" | "claudeCode" | "runLocal" | "plain";
+  openMode?: "opencode" | "claudeCode" | "plain";
   cols?: number;
   rows?: number;
   forceRestart?: boolean;

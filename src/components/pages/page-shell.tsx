@@ -681,7 +681,7 @@ export function PageShell({
 
   return (
     <main className="min-h-screen w-full p-4 md:p-6">
-      <div className="mx-auto flex w-full max-w-7xl gap-4">
+      <div className="flex w-full gap-4">
         {hasOpenWorkspace && (
           <AppNavigation
             hasOpenWorkspace={hasOpenWorkspace}
@@ -691,7 +691,7 @@ export function PageShell({
         )}
         <div className="min-w-0 flex-1 space-y-4">
           {showGrooveBinWarning && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-700/30 bg-amber-500/10 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-700/30 bg-amber-500/10 px-3 py-2">
               <p className="text-sm text-amber-900">
                 {grooveBinStatusState?.issue ?? "GROOVE_BIN is invalid."}
               </p>
@@ -712,33 +712,49 @@ export function PageShell({
               className="flex min-h-[calc(100vh-8rem)] items-center justify-center"
             >
               <div className="flex w-full max-w-2xl flex-col items-center gap-6 px-4 text-center">
-                <h1 className="text-5xl font-semibold tracking-[0.18em] sm:text-7xl">
-                  GROOVE
-                </h1>
+                <div className="flex flex-col items-center gap-2">
+                  <h1 className="text-5xl font-semibold tracking-[0.18em] sm:text-7xl">
+                    GROOVE
+                  </h1>
+                  <p className="max-w-sm text-sm text-muted-foreground">
+                    A control center for multi-worktree development. Open a
+                    repository to begin.
+                  </p>
+                </div>
 
                 {recentDirectories.length > 0 ? (
                   <div
                     className="flex w-full max-w-md flex-col gap-2"
                     aria-label="Recent directories"
                   >
-                    {recentDirectories.map((directoryPath) => (
-                      <Button
-                        key={directoryPath}
-                        type="button"
-                        variant="outline"
-                        size="lg"
-                        disabled={noDirectoryOpenState.isBusy}
-                        title={directoryPath}
-                        onClick={() => {
-                          void noDirectoryOpenState.onOpenRecentDirectory(
-                            directoryPath,
-                          );
-                        }}
-                        className="w-full justify-start truncate"
-                      >
-                        {directoryPath}
-                      </Button>
-                    ))}
+                    <p className="text-left text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-faint">
+                      Recent
+                    </p>
+                    {recentDirectories.map((directoryPath) => {
+                      const directoryName =
+                        getDirectoryNameFromPath(directoryPath) ?? directoryPath;
+                      return (
+                        <button
+                          key={directoryPath}
+                          type="button"
+                          disabled={noDirectoryOpenState.isBusy}
+                          title={directoryPath}
+                          onClick={() => {
+                            void noDirectoryOpenState.onOpenRecentDirectory(
+                              directoryPath,
+                            );
+                          }}
+                          className="flex w-full flex-col gap-0.5 rounded-lg border bg-card px-3 py-2.5 text-left transition-colors hover:border-border-strong hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+                        >
+                          <span className="truncate text-sm font-medium">
+                            {directoryName}
+                          </span>
+                          <span className="truncate font-mono text-xs text-faint">
+                            {directoryPath}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
@@ -787,7 +803,7 @@ export function PageShell({
         </div>
       </div>
       {shouldShowFps && (
-        <div className="pointer-events-none fixed right-4 top-4 z-50 rounded border border-border/80 bg-background/90 px-2 py-1 font-mono text-xs text-foreground shadow-sm">
+        <div className="pointer-events-none fixed right-4 top-4 z-50 rounded-sm border border-border/80 bg-background/90 px-2 py-1 font-mono text-xs text-foreground shadow-sm">
           FPS {currentFps ?? "--"}
         </div>
       )}

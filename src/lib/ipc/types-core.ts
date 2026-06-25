@@ -21,7 +21,6 @@ export const GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL =
   "__groove_terminal_claude__";
 export const GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL = "__groove_terminal_open__";
 export const DEFAULT_OPENCODE_SETTINGS_DIRECTORY = "~/.config/opencode";
-export const DEFAULT_RUN_LOCAL_COMMAND = "pnpm run dev";
 
 export type OpencodeSettings = {
   enabled: boolean;
@@ -114,9 +113,10 @@ export type WorkspaceMeta = {
   defaultTerminal?: DefaultTerminal;
   terminalCustomCommand?: string | null;
   openTerminalAtWorktreeCommand?: string | null;
-  runLocalCommand?: string | null;
   telemetryEnabled?: boolean;
   disableGrooveBusiness?: boolean;
+  hideMascot?: boolean;
+  hideLabels?: boolean;
   showFps?: boolean;
   playGrooveCommand?: string;
   worktreeSymlinkPaths?: string[];
@@ -228,6 +228,8 @@ export type GrooveSoundSettings = {
 export type GlobalSettings = {
   telemetryEnabled: boolean;
   disableGrooveBusiness: boolean;
+  hideMascot: boolean;
+  hideLabels: boolean;
   showFps: boolean;
   alwaysShowDiagnosticsSidebar: boolean;
   periodicRerenderEnabled: boolean;
@@ -243,6 +245,8 @@ export type GlobalSettings = {
 export type GlobalSettingsUpdatePayload = {
   telemetryEnabled?: boolean;
   disableGrooveBusiness?: boolean;
+  hideMascot?: boolean;
+  hideLabels?: boolean;
   showFps?: boolean;
   alwaysShowDiagnosticsSidebar?: boolean;
   periodicRerenderEnabled?: boolean;
@@ -267,6 +271,8 @@ export type WorkspaceTerminalSettingsPayload = {
   terminalCustomCommand?: string | null;
   telemetryEnabled?: boolean;
   disableGrooveBusiness?: boolean;
+  hideMascot?: boolean;
+  hideLabels?: boolean;
   showFps?: boolean;
 };
 
@@ -284,7 +290,6 @@ export type WorkspaceCommandSettingsResponse =
 export type WorkspaceCommandSettingsPayload = {
   playGrooveCommand: string;
   openTerminalAtWorktreeCommand?: string | null;
-  runLocalCommand?: string | null;
 };
 
 export type WorkspaceWorktreeSymlinkPathsPayload = {

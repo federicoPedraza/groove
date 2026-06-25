@@ -18,7 +18,6 @@ import {
 import type { SaveState } from "@/src/components/pages/settings/types";
 import {
   DEFAULT_PLAY_GROOVE_COMMAND,
-  DEFAULT_RUN_LOCAL_COMMAND,
   GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
   GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL,
   GROOVE_PLAY_COMMAND_SENTINEL,
@@ -27,13 +26,11 @@ import {
 type CommandsSettingsPayload = {
   playGrooveCommand: string;
   openTerminalAtWorktreeCommand?: string | null;
-  runLocalCommand?: string | null;
 };
 
 type CommandsSettingsFormProps = {
   playGrooveCommand: string;
   openTerminalAtWorktreeCommand: string;
-  runLocalCommand: string;
   section?: "all" | "commands";
   disabled?: boolean;
   disabledMessage?: string;
@@ -50,11 +47,6 @@ const PLAY_GROOVE_TEMPLATE_COMMANDS = {
   grooveOpencode: GROOVE_PLAY_COMMAND_SENTINEL,
   grooveClaudeCode: GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL,
   system: DEFAULT_PLAY_GROOVE_COMMAND,
-  ghostty: "ghostty --working-directory={worktree} -e opencode",
-  warp: "warp --working-directory {worktree} --command opencode",
-  kitty: "kitty --directory {worktree} opencode",
-  gnome: "gnome-terminal --working-directory={worktree} -- opencode",
-  xterm: 'xterm -e bash -lc "cd \\"{worktree}\\" && opencode"',
 } as const;
 
 const PLAY_GROOVE_COMMAND_TEMPLATES: Array<{
@@ -64,11 +56,6 @@ const PLAY_GROOVE_COMMAND_TEMPLATES: Array<{
   { value: "grooveOpencode", label: "Groove: Opencode" },
   { value: "grooveClaudeCode", label: "Groove: Claude Code" },
   { value: "system", label: "System default" },
-  { value: "ghostty", label: "Ghostty" },
-  { value: "warp", label: "Warp" },
-  { value: "kitty", label: "Kitty" },
-  { value: "gnome", label: "GNOME Terminal" },
-  { value: "xterm", label: "xterm" },
 ];
 
 const OPEN_TERMINAL_TEMPLATE_COMMANDS = {
@@ -90,35 +77,11 @@ const OPEN_TERMINAL_COMMAND_TEMPLATES: Array<{
   { value: "gnome", label: "GNOME Terminal" },
 ];
 
-const RUN_LOCAL_TEMPLATE_COMMANDS = {
-  pnpm: DEFAULT_RUN_LOCAL_COMMAND,
-  npm: "npm run dev",
-  bun: "bun run dev",
-  yarn: "yarn dev",
-  rust: "cargo run",
-  deno: "deno task dev",
-} as const;
-
-const RUN_LOCAL_COMMAND_TEMPLATES: Array<{
-  value: keyof typeof RUN_LOCAL_TEMPLATE_COMMANDS;
-  label: string;
-}> = [
-  { value: "pnpm", label: "pnpm" },
-  { value: "npm", label: "npm" },
-  { value: "bun", label: "bun" },
-  { value: "yarn", label: "yarn" },
-  { value: "rust", label: "Rust (cargo)" },
-  { value: "deno", label: "Deno" },
-];
-
 type PlayGrooveTemplateValue =
   | (typeof PLAY_GROOVE_COMMAND_TEMPLATES)[number]["value"]
   | typeof CUSTOM_TEMPLATE_VALUE;
 type OpenTerminalTemplateValue =
   | (typeof OPEN_TERMINAL_COMMAND_TEMPLATES)[number]["value"]
-  | typeof CUSTOM_TEMPLATE_VALUE;
-type RunLocalTemplateValue =
-  | (typeof RUN_LOCAL_COMMAND_TEMPLATES)[number]["value"]
   | typeof CUSTOM_TEMPLATE_VALUE;
 
 function resolvePlayGrooveTemplateFromCommand(
@@ -149,20 +112,6 @@ function resolveOpenTerminalTemplateFromCommand(
   return CUSTOM_TEMPLATE_VALUE;
 }
 
-function resolveRunLocalTemplateFromCommand(
-  command: string,
-): RunLocalTemplateValue {
-  const trimmed = command.trim();
-  const matchedTemplate = RUN_LOCAL_COMMAND_TEMPLATES.find(
-    (template) => RUN_LOCAL_TEMPLATE_COMMANDS[template.value] === trimmed,
-  );
-  if (matchedTemplate) {
-    return matchedTemplate.value;
-  }
-
-  return CUSTOM_TEMPLATE_VALUE;
-}
-
 function toCommandsSignature(payload: CommandsSettingsPayload): string {
   return JSON.stringify(payload);
 }
@@ -170,7 +119,6 @@ function toCommandsSignature(payload: CommandsSettingsPayload): string {
 export function CommandsSettingsForm({
   playGrooveCommand,
   openTerminalAtWorktreeCommand,
-  runLocalCommand,
   section = "all",
   disabled = false,
   disabledMessage,
@@ -181,8 +129,6 @@ export function CommandsSettingsForm({
     openTerminalAtWorktreeCommandValue,
     setOpenTerminalAtWorktreeCommandValue,
   ] = useState(openTerminalAtWorktreeCommand);
-  const [runLocalCommandValue, setRunLocalCommandValue] =
-    useState(runLocalCommand);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [selectedPlayTemplate, setSelectedPlayTemplate] =
@@ -193,10 +139,6 @@ export function CommandsSettingsForm({
     useState<OpenTerminalTemplateValue>(
       resolveOpenTerminalTemplateFromCommand(openTerminalAtWorktreeCommand),
     );
-  const [selectedRunLocalTemplate, setSelectedRunLocalTemplate] =
-    useState<RunLocalTemplateValue>(
-      resolveRunLocalTemplateFromCommand(runLocalCommand),
-    );
   const workspaceScopeVersionRef = useRef(0);
   const saveRequestVersionRef = useRef(0);
   const lastSavedSignatureRef = useRef(
@@ -204,7 +146,6 @@ export function CommandsSettingsForm({
       playGrooveCommand: playGrooveCommand.trim(),
       openTerminalAtWorktreeCommand:
         openTerminalAtWorktreeCommand.trim() || null,
-      runLocalCommand: runLocalCommand.trim() || null,
     }),
   );
 
@@ -213,25 +154,20 @@ export function CommandsSettingsForm({
     saveRequestVersionRef.current = 0;
     setPlayCommandValue(playGrooveCommand);
     setOpenTerminalAtWorktreeCommandValue(openTerminalAtWorktreeCommand);
-    setRunLocalCommandValue(runLocalCommand);
     setSelectedPlayTemplate(
       resolvePlayGrooveTemplateFromCommand(playGrooveCommand),
     );
     setSelectedOpenTerminalTemplate(
       resolveOpenTerminalTemplateFromCommand(openTerminalAtWorktreeCommand),
     );
-    setSelectedRunLocalTemplate(
-      resolveRunLocalTemplateFromCommand(runLocalCommand),
-    );
     lastSavedSignatureRef.current = toCommandsSignature({
       playGrooveCommand: playGrooveCommand.trim(),
       openTerminalAtWorktreeCommand:
         openTerminalAtWorktreeCommand.trim() || null,
-      runLocalCommand: runLocalCommand.trim() || null,
     });
     setSaveState("idle");
     setSaveMessage(null);
-  }, [openTerminalAtWorktreeCommand, playGrooveCommand, runLocalCommand]);
+  }, [openTerminalAtWorktreeCommand, playGrooveCommand]);
 
   const buildPayload = useCallback((): {
     payload: CommandsSettingsPayload | null;
@@ -251,15 +187,10 @@ export function CommandsSettingsForm({
         playGrooveCommand: trimmedPlayCommand,
         openTerminalAtWorktreeCommand:
           openTerminalAtWorktreeCommandValue.trim() || null,
-        runLocalCommand: runLocalCommandValue.trim() || null,
       },
       error: null,
     };
-  }, [
-    openTerminalAtWorktreeCommandValue,
-    playCommandValue,
-    runLocalCommandValue,
-  ]);
+  }, [openTerminalAtWorktreeCommandValue, playCommandValue]);
 
   const onAutoSave = useCallback(async (): Promise<void> => {
     if (disabled) {
@@ -308,7 +239,6 @@ export function CommandsSettingsForm({
       result.payload?.playGrooveCommand ?? payload.playGrooveCommand;
     const savedOpenTerminalAtWorktreeCommand =
       result.payload?.openTerminalAtWorktreeCommand ?? "";
-    const savedRunLocalCommand = result.payload?.runLocalCommand ?? "";
     setPlayCommandValue(savedPlayCommand);
     setSelectedPlayTemplate(
       resolvePlayGrooveTemplateFromCommand(savedPlayCommand),
@@ -319,15 +249,10 @@ export function CommandsSettingsForm({
         savedOpenTerminalAtWorktreeCommand,
       ),
     );
-    setRunLocalCommandValue(savedRunLocalCommand);
-    setSelectedRunLocalTemplate(
-      resolveRunLocalTemplateFromCommand(savedRunLocalCommand),
-    );
     lastSavedSignatureRef.current = toCommandsSignature({
       playGrooveCommand: savedPlayCommand.trim(),
       openTerminalAtWorktreeCommand:
         savedOpenTerminalAtWorktreeCommand.trim() || null,
-      runLocalCommand: savedRunLocalCommand.trim() || null,
     });
     setSaveState("success");
     setSaveMessage(null);
@@ -350,7 +275,6 @@ export function CommandsSettingsForm({
     onAutoSave,
     openTerminalAtWorktreeCommandValue,
     playCommandValue,
-    runLocalCommandValue,
   ]);
 
   const selectedPlayTemplateLabel =
@@ -364,12 +288,6 @@ export function CommandsSettingsForm({
       ? "Custom command"
       : (OPEN_TERMINAL_COMMAND_TEMPLATES.find(
           (template) => template.value === selectedOpenTerminalTemplate,
-        )?.label ?? "Custom command");
-  const selectedRunLocalTemplateLabel =
-    selectedRunLocalTemplate === CUSTOM_TEMPLATE_VALUE
-      ? "Custom command"
-      : (RUN_LOCAL_COMMAND_TEMPLATES.find(
-          (template) => template.value === selectedRunLocalTemplate,
         )?.label ?? "Custom command");
   const showCommandsSection = section === "all" || section === "commands";
 
@@ -472,6 +390,19 @@ export function CommandsSettingsForm({
                         </DropdownMenuItem>
                       );
                     })}
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setSelectedPlayTemplate(CUSTOM_TEMPLATE_VALUE);
+                        setSaveState("idle");
+                        setSaveMessage(null);
+                      }}
+                      className="justify-between"
+                    >
+                      <span>Custom</span>
+                      {selectedPlayTemplate === CUSTOM_TEMPLATE_VALUE && (
+                        <Check className="size-4" />
+                      )}
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -554,90 +485,6 @@ export function CommandsSettingsForm({
                               OPEN_TERMINAL_TEMPLATE_COMMANDS[template.value],
                             );
                             setSelectedOpenTerminalTemplate(template.value);
-                            setSaveState("idle");
-                            setSaveMessage(null);
-                          }}
-                          className="justify-between"
-                        >
-                          <span>{template.label}</span>
-                          {isSelected && <Check className="size-4" />}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-9 w-9 shrink-0 border-green-700/55 bg-green-500/25 px-0 text-green-800 disabled:opacity-100 dark:border-green-200/75 dark:text-green-100"
-                        disabled
-                        aria-label="Run local commands"
-                      >
-                        <Terminal className="size-4" />
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Run local dev command</TooltipContent>
-                </Tooltip>
-                <label htmlFor="run-local-command" className="sr-only">
-                  Run local command
-                </label>
-                <Input
-                  id="run-local-command"
-                  value={runLocalCommandValue}
-                  onChange={(event) => {
-                    setRunLocalCommandValue(event.target.value);
-                    setSelectedRunLocalTemplate(
-                      resolveRunLocalTemplateFromCommand(event.target.value),
-                    );
-                    setSaveState("idle");
-                    setSaveMessage(null);
-                  }}
-                  placeholder={`Leave empty to use ${DEFAULT_RUN_LOCAL_COMMAND}`}
-                  disabled={saveState === "saving" || disabled}
-                  className="sm:flex-1"
-                />
-                <label htmlFor="run-local-command-template" className="sr-only">
-                  Run local template
-                </label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      id="run-local-command-template"
-                      type="button"
-                      variant="outline"
-                      className="w-full justify-between bg-transparent px-3 font-normal sm:w-56 dark:border-border/80 dark:bg-muted/35 dark:hover:bg-muted/45"
-                      aria-label="Select run local template"
-                      disabled={saveState === "saving" || disabled}
-                    >
-                      <span>{selectedRunLocalTemplateLabel}</span>
-                      <ChevronsUpDown className="size-4 opacity-60" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="end"
-                    className="w-[var(--radix-dropdown-menu-trigger-width)]"
-                  >
-                    {RUN_LOCAL_COMMAND_TEMPLATES.map((template) => {
-                      const isSelected =
-                        template.value === selectedRunLocalTemplate;
-
-                      return (
-                        <DropdownMenuItem
-                          key={template.value}
-                          onSelect={() => {
-                            setRunLocalCommandValue(
-                              RUN_LOCAL_TEMPLATE_COMMANDS[template.value],
-                            );
-                            setSelectedRunLocalTemplate(template.value);
                             setSaveState("idle");
                             setSaveMessage(null);
                           }}

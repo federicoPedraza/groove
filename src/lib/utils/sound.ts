@@ -9,11 +9,6 @@ function getAudioContext(): AudioContext {
   return audioContext;
 }
 
-/** Shared AudioContext for waveform analysis — avoids browser limit on concurrent contexts. */
-export function getSharedAudioContext(): AudioContext {
-  return getAudioContext();
-}
-
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
@@ -21,6 +16,41 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+/**
+ * Cache of decoded sound buffers keyed by file name. Sound files use stable,
+ * UUID-based names (a rename produces a new file), so an entry never goes
+ * stale. This dedupes the disk read + decode that would otherwise happen once
+ * per waveform and once per playback — e.g. opening Settings renders a
+ * waveform for every enabled hook, many sharing the same file.
+ */
+const soundBufferCache = new Map<string, Promise<AudioBuffer>>();
+
+/** Reads, decodes, and caches a sound file's audio buffer (deduped per file). */
+export function loadSoundBuffer(fileName: string): Promise<AudioBuffer> {
+  const cached = soundBufferCache.get(fileName);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = (async () => {
+    const result = await soundLibraryRead(fileName);
+    if (!result.ok || !result.data) {
+      throw new Error(result.error ?? "Sound file not found");
+    }
+    const arrayBuffer = base64ToArrayBuffer(result.data);
+    return getAudioContext().decodeAudioData(arrayBuffer);
+  })();
+
+  // Don't cache failures permanently so a transient error can be retried.
+  pending.catch(() => {
+    if (soundBufferCache.get(fileName) === pending) {
+      soundBufferCache.delete(fileName);
+    }
+  });
+  soundBufferCache.set(fileName, pending);
+  return pending;
 }
 
 export type PlaySoundResult = {
@@ -34,18 +64,8 @@ export async function playCustomSound(
   fileName: string,
 ): Promise<PlaySoundResult> {
   try {
-    const result = await soundLibraryRead(fileName);
-    if (!result.ok || !result.data) {
-      return {
-        played: false,
-        duration: 0,
-        error: result.error ?? "Sound file not found",
-      };
-    }
-
-    const arrayBuffer = base64ToArrayBuffer(result.data);
     const ctx = getAudioContext();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    const audioBuffer = await loadSoundBuffer(fileName);
     const source = ctx.createBufferSource();
     const gain = ctx.createGain();
     source.buffer = audioBuffer;

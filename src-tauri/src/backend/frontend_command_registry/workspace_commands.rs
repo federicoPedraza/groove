@@ -815,6 +815,12 @@ fn global_settings_update(
     if let Some(disable_groove_business) = payload.disable_groove_business {
         global_settings.disable_groove_business = disable_groove_business;
     }
+    if let Some(hide_mascot) = payload.hide_mascot {
+        global_settings.hide_mascot = hide_mascot;
+    }
+    if let Some(hide_labels) = payload.hide_labels {
+        global_settings.hide_labels = hide_labels;
+    }
     if let Some(show_fps) = payload.show_fps {
         global_settings.show_fps = show_fps;
     }
@@ -1543,6 +1549,12 @@ fn workspace_update_terminal_settings(
     if let Some(disable_groove_business) = payload.disable_groove_business {
         workspace_meta.disable_groove_business = disable_groove_business;
     }
+    if let Some(hide_mascot) = payload.hide_mascot {
+        workspace_meta.hide_mascot = hide_mascot;
+    }
+    if let Some(hide_labels) = payload.hide_labels {
+        workspace_meta.hide_labels = hide_labels;
+    }
     if let Some(show_fps) = payload.show_fps {
         workspace_meta.show_fps = show_fps;
     }
@@ -1716,20 +1728,6 @@ fn workspace_update_commands_settings(
             }
         }
     };
-    let run_local_command = match normalize_run_local_command(payload.run_local_command.as_deref())
-    {
-        Ok(value) => value,
-        Err(error) => {
-            return WorkspaceTerminalSettingsResponse {
-                request_id,
-                ok: false,
-                workspace_root: None,
-                workspace_meta: None,
-                error: Some(error),
-            }
-        }
-    };
-
     let persisted_root = match read_persisted_active_workspace_root(&app) {
         Ok(Some(value)) => value,
         Ok(None) => {
@@ -1780,7 +1778,6 @@ fn workspace_update_commands_settings(
 
     workspace_meta.play_groove_command = play_groove_command;
     workspace_meta.open_terminal_at_worktree_command = open_terminal_at_worktree_command;
-    workspace_meta.run_local_command = run_local_command;
     workspace_meta.onboarding_commands_configured = true;
     workspace_meta.updated_at = now_iso();
 

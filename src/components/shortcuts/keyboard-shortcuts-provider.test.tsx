@@ -25,6 +25,8 @@ const {
   globalSettingsSnapshot: {
     telemetryEnabled: true,
     disableGrooveBusiness: false,
+    hideMascot: false,
+    hideLabels: false,
     showFps: false,
     alwaysShowDiagnosticsSidebar: false,
     periodicRerenderEnabled: false,

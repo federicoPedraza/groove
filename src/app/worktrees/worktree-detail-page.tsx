@@ -2,15 +2,18 @@
 
 import { Check, Copy, GitBranch } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 import { BarracksModals } from "@/src/components/pages/barracks/barracks-modals";
 import { CommentViewerModal } from "@/src/components/pages/barracks/comment-viewer-modal";
 import { useBarracksState } from "@/src/components/pages/barracks/hooks/use-barracks-state";
+import type { WorktreeRow } from "@/src/components/pages/barracks/types";
 import { SummaryViewerModal } from "@/src/components/pages/barracks/summary-viewer-modal";
 import { WorktreeRowActions } from "@/src/components/pages/barracks/worktree-row-actions";
+import { PageHeader } from "@/src/components/pages/page-header";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
 import { GrooveWorktreeTerminal } from "@/src/components/pages/worktrees/groove-worktree-terminal";
+import { ProfiledRegion } from "@/src/lib/profiled-region";
 import { WorktreeGitChanges } from "@/src/components/pages/worktrees/worktree-git-changes";
 import { Card, CardContent } from "@/src/components/ui/card";
 import { TooltipProvider } from "@/src/components/ui/tooltip";
@@ -30,10 +33,14 @@ import {
 import { toast } from "@/src/lib/toast";
 import { playGrooveHookSound } from "@/src/lib/groove-sound-system";
 import { cn } from "@/src/lib/utils";
-import { deriveWorktreeStatus } from "@/src/lib/utils/worktree/status";
+import {
+  deriveWorktreeStatus,
+  getActiveWorktreeRows,
+} from "@/src/lib/utils/worktree/status";
 
 export default function WorktreeDetailPage() {
   const { worktree: worktreeParam } = useParams();
+  const navigate = useNavigate();
   const {
     activeWorkspace,
     worktreeRows,
@@ -431,16 +438,47 @@ export default function WorktreeDetailPage() {
     [knownWorktrees, workspaceMeta],
   );
 
+  // Pause Groove for a worktree, then leave its detail view: jump to the next
+  // (or previous) still-open worktree, falling back to the dashboard when none
+  // remain open.
+  const handlePauseGroove = useCallback(
+    async (targetRow: WorktreeRow): Promise<void> => {
+      const openRows = getActiveWorktreeRows(
+        worktreeRows,
+        activeTerminalWorktrees,
+      );
+      const currentIndex = openRows.findIndex(
+        (candidate) => candidate.worktree === targetRow.worktree,
+      );
+      const nextOpenRow =
+        currentIndex >= 0
+          ? (openRows[currentIndex + 1] ?? openRows[currentIndex - 1] ?? null)
+          : (openRows.find(
+              (candidate) => candidate.worktree !== targetRow.worktree,
+            ) ?? null);
+
+      const paused = await runStopAction(targetRow);
+      if (!paused) {
+        return;
+      }
+
+      if (nextOpenRow) {
+        navigate(`/worktrees/${encodeURIComponent(nextOpenRow.worktree)}`);
+      } else {
+        navigate("/");
+      }
+    },
+    [activeTerminalWorktrees, navigate, runStopAction, worktreeRows],
+  );
+
   return (
     <>
       {!activeWorkspace ? null : (
         <div className="space-y-3">
-          <header className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-card p-4">
-            <div className="min-w-0 space-y-1">
-              <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight">
-                Worktree: {selectedWorktreeInspectionLabel}
-              </h1>
-              {row ? (
+          <PageHeader
+            title={`Worktree: ${selectedWorktreeInspectionLabel}`}
+            description={
+              row ? (
                 <div className="group flex min-w-0 items-center gap-2 text-sm">
                   <GitBranch
                     aria-hidden="true"
@@ -467,10 +505,11 @@ export default function WorktreeDetailPage() {
                     )}
                   </button>
                 </div>
-              ) : null}
-            </div>
-            {row && status ? (
-              <TooltipProvider>
+              ) : undefined
+            }
+            actions={
+              row && status ? (
+                <TooltipProvider>
                 <WorktreeRowActions
                   row={row}
                   status={status}
@@ -486,7 +525,7 @@ export default function WorktreeDetailPage() {
                     void runPlayGrooveAction(targetRow);
                   }}
                   onStop={(targetRow) => {
-                    void runStopAction(targetRow);
+                    void handlePauseGroove(targetRow);
                   }}
                   onCutConfirm={setCutConfirmRow}
                   variant="worktree-detail"
@@ -537,8 +576,9 @@ export default function WorktreeDetailPage() {
                   }
                 />
               </TooltipProvider>
-            ) : null}
-          </header>
+              ) : null
+            }
+          />
 
           {!hasWorktreesDirectory ? (
             <Card>
@@ -561,13 +601,28 @@ export default function WorktreeDetailPage() {
             workspaceRoot && workspaceMeta ? (
               <div className="flex min-h-0 flex-col gap-3 lg:flex-row lg:items-stretch">
                 <div className="min-w-0 flex-1">
-                  <GrooveWorktreeTerminal
-                    workspaceRoot={workspaceRoot}
-                    workspaceMeta={workspaceMeta}
-                    knownWorktrees={knownWorktrees}
-                    worktree={row.worktree}
-                    runningSessionIds={[]}
-                  />
+                  {/*
+                    Key on the worktree so navigating between two worktree detail
+                    views cleanly unmounts the previous terminals and mounts fresh
+                    ones. Without a key, the same instance is reused and every
+                    still-mounted pane re-runs its payload-keyed effects (snapshot
+                    re-fetch, observer rebuild, resize IPC) with the new worktree
+                    before unmounting — a burst of wasted work that janks the
+                    transition.
+                  */}
+                  <ProfiledRegion id="worktree-terminal">
+                    <GrooveWorktreeTerminal
+                      key={`${workspaceRoot}:${row.worktree}`}
+                      workspaceRoot={workspaceRoot}
+                      workspaceMeta={workspaceMeta}
+                      knownWorktrees={knownWorktrees}
+                      worktree={row.worktree}
+                      runningSessionIds={[]}
+                      onPauseWorktree={() => {
+                        void handlePauseGroove(row);
+                      }}
+                    />
+                  </ProfiledRegion>
                 </div>
                 <div
                   className={cn(

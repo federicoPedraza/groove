@@ -408,6 +408,14 @@ fn resolve_terminal_worktree_context(
         return Ok((workspace_root.clone(), workspace_root));
     }
 
+    // Resolution is stable for a given worktree until the active-workspace
+    // pointer, the workspace manifest, or the worktree directory changes, so
+    // serve it from cache to avoid re-statting every known worktree on each
+    // terminal IPC (keystrokes, activity polls, resizes, snapshot reads).
+    if let Some(cached) = try_cached_terminal_resolution(app, root_name, worktree) {
+        return Ok(cached);
+    }
+
     let known_worktrees = validate_known_worktrees(known_worktrees)?;
     let workspace_root = resolve_workspace_root(
         app,
@@ -421,6 +429,7 @@ fn resolve_terminal_worktree_context(
         .unwrap_or_else(|_| workspace_root.clone());
     let worktree_path = ensure_worktree_in_dir(&effective_root, worktree, ".worktrees")?;
 
+    store_terminal_resolution(app, root_name, worktree, &workspace_root, &worktree_path);
     Ok((workspace_root, worktree_path))
 }
 
@@ -500,13 +509,6 @@ fn open_groove_terminal_session(
                 }
             };
             (resolve_claude_code_bin(), args)
-        }
-        GrooveTerminalOpenMode::RunLocal => {
-            let run_local_command = run_local_command_for_workspace(workspace_root);
-            let command_template = run_local_command
-                .as_deref()
-                .unwrap_or(DEFAULT_RUN_LOCAL_COMMAND);
-            resolve_run_local_command(command_template, worktree_path)?
         }
         GrooveTerminalOpenMode::Plain => resolve_plain_terminal_command(),
     };

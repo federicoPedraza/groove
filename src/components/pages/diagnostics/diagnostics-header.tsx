@@ -1,5 +1,7 @@
 import { BrushCleaning, Loader2, RefreshCw } from "lucide-react";
 
+import { PageHeader } from "@/src/components/pages/page-header";
+import { useGrooveBusiness } from "@/src/lib/groove-business";
 import { Button } from "@/src/components/ui/button";
 import { SOFT_RED_BUTTON_CLASSES } from "@/src/components/pages/diagnostics/constants";
 import {
@@ -22,21 +24,17 @@ export function DiagnosticsHeader({
   onLoadMostConsumingPrograms,
   onCleanAll,
 }: DiagnosticsHeaderProps) {
+  const grooveBusiness = useGrooveBusiness();
   const cleanAllLabel = isCleaningAllDevServers
     ? "Cleaning all processes"
     : "Clean all processes";
 
   return (
-    <header className="rounded-lg border bg-card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Diagnostics</h1>
-          <p className="text-sm text-muted-foreground">
-            Inspect and stop local processes that can interfere with Groove
-            workflows.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+    <PageHeader
+      title={grooveBusiness.label("situationRoom")}
+      description="Inspect and stop local processes that can interfere with Groove workflows."
+      actions={
+        <>
           <Button
             type="button"
             size="sm"
@@ -76,8 +74,8 @@ export function DiagnosticsHeader({
               <TooltipContent>{cleanAllLabel}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-        </div>
-      </div>
-    </header>
+        </>
+      }
+    />
   );
 }

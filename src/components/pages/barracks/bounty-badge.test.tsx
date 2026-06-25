@@ -117,31 +117,4 @@ describe("BountyBadge", () => {
     ).toBe(true);
   });
 
-  it("renders the new-discovery indicator on top of the badge when isNewDiscovery is true", () => {
-    const { container, rerender } = render(
-      <BountyBadge state="wounded" isNewDiscovery />,
-    );
-    expect(
-      container.querySelector('[aria-label="New discovery"]'),
-    ).toBeTruthy();
-
-    rerender(
-      <BountyBadge
-        state="defeated"
-        unit={UNIT}
-        onReward={() => {}}
-        isNewDiscovery
-      />,
-    );
-    expect(
-      container.querySelector('[aria-label="New discovery"]'),
-    ).toBeTruthy();
-  });
-
-  it("does not render the new-discovery indicator when isNewDiscovery is false", () => {
-    const { container } = render(<BountyBadge state="wounded" />);
-    expect(
-      container.querySelector('[aria-label="New discovery"]'),
-    ).toBeNull();
-  });
 });

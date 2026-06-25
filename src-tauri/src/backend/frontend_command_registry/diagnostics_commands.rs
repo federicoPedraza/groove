@@ -231,7 +231,7 @@ fn diagnostics_get_msot_consuming_programs(
     response
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn diagnostics_get_system_overview(app: AppHandle) -> DiagnosticsSystemOverviewResponse {
     let started_at = Instant::now();
     let request_id = request_id();

@@ -1,6 +1,4 @@
-import type { ReactNode } from "react";
-
-import { Beef, Coins, DiamondPlus, Loader2, Pickaxe } from "lucide-react";
+import { Beef, Binoculars, Coins, Loader2 } from "lucide-react";
 
 import {
   Tooltip,
@@ -15,7 +13,6 @@ type BountyBadgeProps = {
   unit?: WorktreeUnit;
   state: WorktreeState;
   isDiscovering?: boolean;
-  isNewDiscovery?: boolean;
   onDiscover?: () => void;
   onReward?: () => void;
   onLoot?: () => void;
@@ -25,7 +22,7 @@ type BountyBadgeProps = {
 // primitive (text-xs line-height + py-0.5 + border = 22 px tall). `aspect-square`
 // forces the width to follow the height so it stays a perfect square.
 const BADGE_BASE_CLASSES =
-  "inline-flex aspect-square items-center justify-center rounded-md border bg-transparent px-0.5 py-0.5 text-xs font-medium [&>svg]:size-4 transition-colors";
+  "inline-flex aspect-square items-center justify-center rounded-md border bg-transparent px-0.5 py-0.5 text-xs font-medium [&>svg]:size-3 transition-colors";
 const NEUTRAL_CLASSES = "border-input text-muted-foreground";
 const NEUTRAL_INTERACTIVE_CLASSES =
   "hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
@@ -36,39 +33,17 @@ const LOOT_CLASSES = "border-rose-500 text-rose-400";
 const LOOT_INTERACTIVE_CLASSES =
   "hover:text-rose-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rose-500/60 disabled:pointer-events-none disabled:opacity-50";
 
-function NewDiscoveryIndicator() {
-  return (
-    <span
-      aria-label="New discovery"
-      className="pointer-events-none absolute -top-1 -right-1 inline-flex items-center justify-center text-cyan-300 drop-shadow-[0_0_2px_rgba(0,0,0,0.65)]"
-    >
-      <DiamondPlus aria-hidden="true" className="size-3" />
-    </span>
-  );
-}
-
 export function BountyBadge({
   unit,
   state,
   isDiscovering = false,
-  isNewDiscovery = false,
   onDiscover,
   onReward,
   onLoot,
 }: BountyBadgeProps) {
-  const wrap = (node: ReactNode) => {
-    if (!isNewDiscovery) return node;
-    return (
-      <span className="relative inline-flex">
-        {node}
-        <NewDiscoveryIndicator />
-      </span>
-    );
-  };
-
   // Discovery in flight → always-visible spinner, regardless of state/unit.
   if (isDiscovering) {
-    return wrap(
+    return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -83,7 +58,7 @@ export function BountyBadge({
           </TooltipTrigger>
           <TooltipContent side="bottom">Discovering…</TooltipContent>
         </Tooltip>
-      </TooltipProvider>,
+      </TooltipProvider>
     );
   }
 
@@ -94,7 +69,7 @@ export function BountyBadge({
 
   // No unit yet (wounded or defeated) → Discover button.
   if (!unit) {
-    return wrap(
+    return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -109,12 +84,12 @@ export function BountyBadge({
               disabled={!onDiscover}
               aria-label="Discover"
             >
-              <Pickaxe aria-hidden="true" />
+              <Binoculars aria-hidden="true" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom">Discover</TooltipContent>
         </Tooltip>
-      </TooltipProvider>,
+      </TooltipProvider>
     );
   }
 
@@ -127,7 +102,7 @@ export function BountyBadge({
   // Defeated with a unit, gold not yet claimed → bounty (Coins).
   if (unit.rewarded !== true) {
     const tooltip = String(unit.reward);
-    return wrap(
+    return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -147,7 +122,7 @@ export function BountyBadge({
           </TooltipTrigger>
           <TooltipContent side="bottom">{tooltip}</TooltipContent>
         </Tooltip>
-      </TooltipProvider>,
+      </TooltipProvider>
     );
   }
 
@@ -155,7 +130,7 @@ export function BountyBadge({
   // `looted` may be undefined on units saved before the gold/loot split;
   // treat that as "not looted yet" per the new schema contract.
   if (unit.looted !== true) {
-    return wrap(
+    return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -175,7 +150,7 @@ export function BountyBadge({
           </TooltipTrigger>
           <TooltipContent side="bottom">Loot</TooltipContent>
         </Tooltip>
-      </TooltipProvider>,
+      </TooltipProvider>
     );
   }
 

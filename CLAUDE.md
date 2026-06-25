@@ -81,6 +81,7 @@ npm run check:linux-deps     # Verify Linux Tauri system deps
 - **Rust:** `Result`-based error handling, no `panic!` for runtime failures.
 - **Tests:** Colocated with source files (`*.test.ts`, `*.test.tsx`). Vitest + Testing Library React + jsdom.
 - **Style matching:** Match existing file style. Small, focused diffs. No unrelated reformatting.
+- **Border radius:** Nested rounded elements must use concentric corners (`inner = max(0, outer − border − padding)`). This is mandatory — see the `concentric-radius` skill (`.claude/skills/concentric-radius/SKILL.md`) for the token scale, formula, and exclusions whenever you touch a `rounded-*` class or `--radius-*` token.
 
 ## Related docs
 

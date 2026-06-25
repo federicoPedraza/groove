@@ -10,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandsSettingsForm } from "@/src/components/pages/settings/commands-settings-form";
 import {
   DEFAULT_PLAY_GROOVE_COMMAND,
-  DEFAULT_RUN_LOCAL_COMMAND,
   GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL,
   GROOVE_PLAY_COMMAND_SENTINEL,
 } from "@/src/lib/ipc";
@@ -34,7 +33,6 @@ describe("CommandsSettingsForm", () => {
       <CommandsSettingsForm
         playGrooveCommand={GROOVE_PLAY_COMMAND_SENTINEL}
         openTerminalAtWorktreeCommand={GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL}
-        runLocalCommand={DEFAULT_RUN_LOCAL_COMMAND}
         onSave={onSave}
         {...overrides}
       />,
@@ -67,22 +65,14 @@ describe("CommandsSettingsForm", () => {
     expect(input).toHaveValue(GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL);
   });
 
-  it("renders run local input", () => {
-    renderForm();
-
-    const input = document.getElementById("run-local-command")!;
-    expect(input).toHaveValue(DEFAULT_RUN_LOCAL_COMMAND);
-  });
-
   it("auto-saves after debounce when value changes", async () => {
     renderForm({
       playGrooveCommand: DEFAULT_PLAY_GROOVE_COMMAND,
       openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "",
     });
 
-    const input = document.getElementById("run-local-command")!;
-    fireEvent.change(input, { target: { value: "npm run dev" } });
+    const input = document.getElementById("open-terminal-at-worktree-command")!;
+    fireEvent.change(input, { target: { value: "ghostty" } });
 
     await act(async () => {
       vi.advanceTimersByTime(500);
@@ -96,10 +86,9 @@ describe("CommandsSettingsForm", () => {
       disabled: true,
       playGrooveCommand: DEFAULT_PLAY_GROOVE_COMMAND,
       openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "",
     });
 
-    const input = document.getElementById("run-local-command")!;
+    const input = document.getElementById("open-terminal-at-worktree-command")!;
     expect(input).toBeDisabled();
 
     await act(async () => {
@@ -122,7 +111,6 @@ describe("CommandsSettingsForm", () => {
     renderForm({
       playGrooveCommand: "a",
       openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "",
     });
 
     const input = document.getElementById("play-groove-command")!;
@@ -149,11 +137,10 @@ describe("CommandsSettingsForm", () => {
     renderForm({
       playGrooveCommand: DEFAULT_PLAY_GROOVE_COMMAND,
       openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "",
     });
 
-    const input = document.getElementById("run-local-command")!;
-    fireEvent.change(input, { target: { value: "bun run dev" } });
+    const input = document.getElementById("open-terminal-at-worktree-command")!;
+    fireEvent.change(input, { target: { value: "ghostty" } });
 
     await act(async () => {
       vi.advanceTimersByTime(500);
@@ -172,11 +159,10 @@ describe("CommandsSettingsForm", () => {
     renderForm({
       playGrooveCommand: DEFAULT_PLAY_GROOVE_COMMAND,
       openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "",
     });
 
-    const input = document.getElementById("run-local-command")!;
-    fireEvent.change(input, { target: { value: "bun run dev" } });
+    const input = document.getElementById("open-terminal-at-worktree-command")!;
+    fireEvent.change(input, { target: { value: "ghostty" } });
 
     await act(async () => {
       vi.advanceTimersByTime(500);
@@ -214,20 +200,10 @@ describe("CommandsSettingsForm", () => {
     expect(trigger).toHaveTextContent("Groove");
   });
 
-  it("resolves template label for run local when matching known command", () => {
-    renderForm({ runLocalCommand: DEFAULT_RUN_LOCAL_COMMAND });
-
-    const trigger = screen.getByRole("button", {
-      name: /select run local template/i,
-    });
-    expect(trigger).toHaveTextContent("pnpm");
-  });
-
   it("does not save when the signature has not changed", async () => {
     renderForm({
       playGrooveCommand: "test-cmd",
       openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "",
     });
 
     const input = document.getElementById("play-groove-command")!;
@@ -246,17 +222,15 @@ describe("CommandsSettingsForm", () => {
       payload: {
         playGrooveCommand: "normalized-cmd",
         openTerminalAtWorktreeCommand: "normalized-terminal",
-        runLocalCommand: "normalized-local",
       },
     });
 
     renderForm({
       playGrooveCommand: DEFAULT_PLAY_GROOVE_COMMAND,
       openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "",
     });
 
-    const input = document.getElementById("run-local-command")!;
+    const input = document.getElementById("open-terminal-at-worktree-command")!;
     fireEvent.change(input, { target: { value: "something" } });
 
     await act(async () => {
@@ -275,10 +249,9 @@ describe("CommandsSettingsForm", () => {
     renderForm({
       playGrooveCommand: DEFAULT_PLAY_GROOVE_COMMAND,
       openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "",
     });
 
-    const input = document.getElementById("run-local-command")!;
+    const input = document.getElementById("open-terminal-at-worktree-command")!;
     fireEvent.change(input, { target: { value: "changed" } });
 
     await act(async () => {
@@ -294,7 +267,6 @@ describe("CommandsSettingsForm", () => {
     const { rerender } = renderForm({
       playGrooveCommand: "cmd-a",
       openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "",
     });
 
     const input = document.getElementById("play-groove-command")!;
@@ -304,7 +276,6 @@ describe("CommandsSettingsForm", () => {
       <CommandsSettingsForm
         playGrooveCommand="cmd-b"
         openTerminalAtWorktreeCommand=""
-        runLocalCommand=""
         onSave={onSave}
       />,
     );
@@ -325,10 +296,9 @@ describe("CommandsSettingsForm", () => {
     renderForm({
       playGrooveCommand: DEFAULT_PLAY_GROOVE_COMMAND,
       openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "",
     });
 
-    const input = document.getElementById("run-local-command")!;
+    const input = document.getElementById("open-terminal-at-worktree-command")!;
     fireEvent.change(input, { target: { value: "trigger save" } });
 
     await act(async () => {
@@ -339,7 +309,6 @@ describe("CommandsSettingsForm", () => {
     expect(
       document.getElementById("open-terminal-at-worktree-command")!,
     ).toBeDisabled();
-    expect(document.getElementById("run-local-command")!).toBeDisabled();
 
     await act(async () => {
       resolvePromise({ ok: true });
@@ -350,7 +319,6 @@ describe("CommandsSettingsForm", () => {
     renderForm({
       playGrooveCommand: "something-custom",
       openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "",
     });
 
     const trigger = screen.getByRole("button", {
@@ -370,7 +338,6 @@ describe("CommandsSettingsForm", () => {
     renderForm({
       playGrooveCommand: DEFAULT_PLAY_GROOVE_COMMAND,
       openTerminalAtWorktreeCommand: "something",
-      runLocalCommand: "",
     });
 
     const trigger = screen.getByRole("button", {
@@ -384,23 +351,5 @@ describe("CommandsSettingsForm", () => {
     });
 
     expect(trigger).toHaveTextContent("Groove");
-  });
-
-  it("updates run local template when typing a matching command", () => {
-    renderForm({
-      playGrooveCommand: DEFAULT_PLAY_GROOVE_COMMAND,
-      openTerminalAtWorktreeCommand: "",
-      runLocalCommand: "something",
-    });
-
-    const trigger = screen.getByRole("button", {
-      name: /select run local template/i,
-    });
-    expect(trigger).toHaveTextContent("Custom command");
-
-    const input = document.getElementById("run-local-command")!;
-    fireEvent.change(input, { target: { value: DEFAULT_RUN_LOCAL_COMMAND } });
-
-    expect(trigger).toHaveTextContent("pnpm");
   });
 });

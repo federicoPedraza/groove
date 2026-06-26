@@ -98,7 +98,12 @@ fn groove_list_blocking(
         .map(|(meta, _)| effective_workspace_root(&workspace_root, &meta))
         .unwrap_or_else(|_| workspace_root.clone());
 
-    let cache_key = groove_list_cache_key(
+    // Bounded storage key — one entry per (root, dir). The composite signature
+    // captures the volatile inputs (known worktrees + meta) and is compared on
+    // lookup, so a changed `updated_at` is a cache miss rather than a brand-new
+    // map key that would never be evicted.
+    let entries_key = groove_list_entries_key(&workspace_root, &dir);
+    let signature = groove_list_cache_key(
         &workspace_root,
         &known_worktrees,
         &dir,
@@ -108,11 +113,15 @@ fn groove_list_blocking(
     let mut stale_response: Option<GrooveListResponse> = None;
     let mut previous_native_cache: Option<GrooveListNativeCache> = None;
     if let Some(cache_state) = app.try_state::<GrooveListCacheState>() {
-        if let Ok(mut entries) = cache_state.entries.lock() {
-            if let Some(cached) = entries.get(&cache_key) {
+        if let Ok(entries) = cache_state.entries.lock() {
+            if let Some(cached) = entries.get(&entries_key) {
+                // Reuse the incremental native cache regardless of signature:
+                // each row self-validates its own per-worktree signature on
+                // recompute, so a partial reuse is always safe.
                 previous_native_cache = cached.native_cache.clone();
+                let signature_matches = cached.signature == signature;
                 let cache_age = cached.created_at.elapsed();
-                if cache_age <= GROOVE_LIST_CACHE_TTL {
+                if signature_matches && cache_age <= GROOVE_LIST_CACHE_TTL {
                     let mut response = cached.response.clone();
                     response.request_id = request_id;
                     if telemetry_enabled {
@@ -127,13 +136,14 @@ fn groove_list_blocking(
                     return response;
                 }
 
-                if cache_age <= GROOVE_LIST_CACHE_STALE_TTL {
+                // Only serve a stale response when it was computed for the same
+                // inputs; otherwise it would describe a different worktree set.
+                if signature_matches && cache_age <= GROOVE_LIST_CACHE_STALE_TTL {
                     stale_response = Some(cached.response.clone());
-                } else {
-                    entries.remove(&cache_key);
                 }
-            } else {
-                entries.remove(&cache_key);
+                // On a signature mismatch or full expiry we fall through and
+                // recompute; the store below overwrites this same bounded key,
+                // so nothing accumulates.
             }
         }
     }
@@ -142,11 +152,11 @@ fn groove_list_blocking(
     let mut leader_cell: Option<Arc<GrooveListInFlight>> = None;
     if let Some(cache_state) = app.try_state::<GrooveListCacheState>() {
         if let Ok(mut in_flight) = cache_state.in_flight.lock() {
-            if let Some(existing) = in_flight.get(&cache_key) {
+            if let Some(existing) = in_flight.get(&signature) {
                 wait_cell = Some(existing.clone());
             } else {
                 let cell = Arc::new(GrooveListInFlight::new());
-                in_flight.insert(cache_key.clone(), cell.clone());
+                in_flight.insert(signature.clone(), cell.clone());
                 leader_cell = Some(cell);
             }
         }
@@ -343,7 +353,7 @@ fn groove_list_blocking(
                     cell.cvar.notify_all();
                 }
                 if let Ok(mut in_flight) = cache_state.in_flight.lock() {
-                    in_flight.remove(&cache_key);
+                    in_flight.remove(&signature);
                 }
             }
         }
@@ -373,9 +383,10 @@ fn groove_list_blocking(
     if let Some(cache_state) = app.try_state::<GrooveListCacheState>() {
         if let Ok(mut entries) = cache_state.entries.lock() {
             entries.insert(
-                cache_key.clone(),
+                entries_key.clone(),
                 GrooveListCacheEntry {
                     created_at: Instant::now(),
+                    signature: signature.clone(),
                     response: response.clone(),
                     native_cache: cache_native,
                 },
@@ -387,7 +398,7 @@ fn groove_list_blocking(
                 cell.cvar.notify_all();
             }
             if let Ok(mut in_flight) = cache_state.in_flight.lock() {
-                in_flight.remove(&cache_key);
+                in_flight.remove(&signature);
             }
         }
     }

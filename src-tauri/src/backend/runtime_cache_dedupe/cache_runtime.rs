@@ -187,6 +187,25 @@ fn clear_workspace_context_cache(app: &AppHandle) {
     };
 }
 
+/// Bounded storage key for the `groove_list` response cache: keyed only on the
+/// stable `(workspace_root, dir)` pair. Volatile inputs (the known-worktree set
+/// and workspace-meta fields, including `updated_at`) are NOT part of this key —
+/// they live in the entry's `signature` and are compared on lookup. This caps
+/// the entries map at one row per `(root, dir)` combo so the map can't grow
+/// without bound as `updated_at` churns on every workspace mutation.
+fn groove_list_entries_key(workspace_root: &Path, dir: &Option<String>) -> String {
+    format!(
+        "root={}\ndir={}",
+        workspace_root_storage_key(workspace_root),
+        dir.as_deref().unwrap_or_default(),
+    )
+}
+
+/// Signature for a cached `groove_list` response: captures every input that can
+/// change the result (known-worktree set + workspace-meta fields). Stored on the
+/// cache entry and compared against the live request; a mismatch is a miss even
+/// when the bounded `(root, dir)` key matches. Also used as the in-flight dedupe
+/// key, preserving the prior request-coalescing semantics.
 fn groove_list_cache_key(
     workspace_root: &Path,
     known_worktrees: &[String],

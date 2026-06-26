@@ -66,6 +66,11 @@ struct WorkspaceContextCacheEntry {
 #[derive(Debug, Clone)]
 struct GrooveListCacheEntry {
     created_at: Instant,
+    /// Signature of the inputs (known-worktree set + workspace meta) that
+    /// produced `response`. Compared on lookup; a mismatch means the bounded
+    /// `(root, dir)` key collided with a request for different inputs, so the
+    /// entry is treated as a miss and overwritten on store.
+    signature: String,
     response: GrooveListResponse,
     native_cache: Option<GrooveListNativeCache>,
 }

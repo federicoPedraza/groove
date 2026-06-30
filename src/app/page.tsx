@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -487,7 +487,12 @@ export default function Home() {
             )}
 
           <div className="space-y-3">
-            {!hasWorktreesDirectory ? (
+            {isWorkspaceHydrating ? (
+              <p className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                Looking for worktrees…
+              </p>
+            ) : !hasWorktreesDirectory ? (
               <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
                 No <code>.worktrees</code> directory found under{" "}
                 {activeWorkspace?.workspaceMeta?.rootDirectory ? (

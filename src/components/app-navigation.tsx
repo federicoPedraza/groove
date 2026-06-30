@@ -51,6 +51,8 @@ import {
 } from "@/src/lib/utils/mascots";
 import {
   DEFAULT_WORKTREE_STATE,
+  grooveTerminalClose,
+  grooveTerminalListSessions,
   isGrooveBusinessDisabled,
   isMascotHidden,
   isShowFpsEnabled,
@@ -70,6 +72,7 @@ import {
   getWorktreeStateTitle,
 } from "@/src/components/pages/barracks/worktree-state";
 import { toast } from "@/src/lib/toast";
+import { playGrooveHookSound } from "@/src/lib/groove-sound-system";
 import { getActiveWorktreeRows } from "@/src/lib/utils/worktree/status";
 import {
   applyOptimisticWorktreeState,
@@ -548,6 +551,52 @@ function AppNavigation({
     [],
   );
 
+  const handlePauseGrooveForWorktree = useCallback(
+    (worktree: string) => {
+      const context = workspaceContextStoreSnapshot.context;
+      const workspaceMeta = context?.workspaceMeta ?? null;
+      if (!workspaceMeta) {
+        toast.error("No workspace is open.");
+        return;
+      }
+      const knownWorktrees = normalizeWorkspaceRows(
+        (context as { rows?: unknown } | null)?.rows,
+      )
+        .filter((workspaceRow) => workspaceRow.status !== "deleted")
+        .map((workspaceRow) => workspaceRow.worktree);
+      const terminalPayloadBase = {
+        rootName: workspaceMeta.rootName,
+        knownWorktrees,
+        workspaceMeta,
+        worktree,
+      };
+
+      void (async () => {
+        try {
+          const sessionListResult =
+            await grooveTerminalListSessions(terminalPayloadBase);
+          if (!sessionListResult.ok) {
+            toast.error(
+              sessionListResult.error ?? "Failed to list terminal sessions.",
+            );
+            return;
+          }
+          for (const session of sessionListResult.sessions) {
+            await grooveTerminalClose({
+              ...terminalPayloadBase,
+              sessionId: session.sessionId,
+            });
+          }
+          playGrooveHookSound("pause");
+          void refreshNavigationWorktreesRef.current({ force: true });
+        } catch {
+          toast.error("Failed to pause Groove.");
+        }
+      })();
+    },
+    [workspaceContextStoreSnapshot],
+  );
+
   useEffect(() => {
     if (!hasOpenWorkspace) {
       return;
@@ -679,7 +728,8 @@ function AppNavigation({
             )}
             <div
               className={cn(
-                "flex items-center justify-between gap-2",
+                "flex items-center gap-2",
+                isSidebarCollapsed ? "flex-col" : "justify-between",
                 !isMascotHiddenState && "mt-4",
               )}
             >
@@ -738,11 +788,17 @@ function AppNavigation({
                               <WorktreeStateContextMenu
                                 key={workspaceRow.path}
                                 worktree={workspaceRow.worktree}
+                                worktreePath={workspaceRow.path}
                                 currentState={currentState}
                                 onSelect={(nextState) => {
                                   handleSetNavigationWorktreeState(
                                     workspaceRow.worktree,
                                     nextState,
+                                  );
+                                }}
+                                onPauseGroove={() => {
+                                  handlePauseGrooveForWorktree(
+                                    workspaceRow.worktree,
                                   );
                                 }}
                               >
@@ -950,11 +1006,17 @@ function AppNavigation({
                           <WorktreeStateContextMenu
                             key={workspaceRow.path}
                             worktree={workspaceRow.worktree}
+                            worktreePath={workspaceRow.path}
                             currentState={currentState}
                             onSelect={(nextState) => {
                               handleSetNavigationWorktreeState(
                                 workspaceRow.worktree,
                                 nextState,
+                              );
+                            }}
+                            onPauseGroove={() => {
+                              handlePauseGrooveForWorktree(
+                                workspaceRow.worktree,
                               );
                             }}
                           >

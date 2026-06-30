@@ -658,6 +658,10 @@ fn groove_mcp_create_worktree(
         set_worktree_state(&workspace_root, &stamped, parsed_state)?;
     }
 
+    // Honor the configured max worktree count (LRU eviction, skipping
+    // running/dirty worktrees); emits a "worktree-evicted" event on removal.
+    run_post_create_eviction(app, &workspace_root, &effective_root);
+
     invalidate_workspace_context_cache(app, &workspace_root);
     invalidate_groove_list_cache_for_workspace(app, &workspace_root);
 

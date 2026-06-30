@@ -18,6 +18,7 @@ import {
   subscribeToGlobalSettings,
   type DiagnosticsSystemOverview,
 } from "@/src/lib/ipc";
+import { formatBytes } from "@/src/lib/format-bytes";
 
 type DiagnosticsSystemSidebarProps = {
   collapsed: boolean;
@@ -47,24 +48,6 @@ function formatPercent(value: number): string {
 
 function formatIntegerPercent(value: number): string {
   return `${Math.round(value)}%`;
-}
-
-function formatBytes(value: number): string {
-  if (!Number.isFinite(value) || value < 0) {
-    return "Unavailable";
-  }
-
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let size = value;
-  let unitIndex = 0;
-
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-
-  const precision = size >= 100 || unitIndex === 0 ? 0 : 1;
-  return `${size.toFixed(precision)} ${units[unitIndex]}`;
 }
 
 function MetricRow({

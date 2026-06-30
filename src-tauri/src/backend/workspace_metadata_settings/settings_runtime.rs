@@ -780,6 +780,7 @@ fn register_worktree_record(
             unit: None,
             summaries: Vec::new(),
             comments: Vec::new(),
+            pull_requests: Vec::new(),
         },
     );
     workspace_meta.updated_at = now_iso();
@@ -823,6 +824,7 @@ fn set_worktree_state(
             unit: None,
             summaries: Vec::new(),
             comments: Vec::new(),
+            pull_requests: Vec::new(),
         });
     record.state = state;
     let updated = record.clone();
@@ -979,6 +981,7 @@ fn sync_worktree_records_with_disk(
                 unit: None,
                 summaries: Vec::new(),
                 comments: Vec::new(),
+                pull_requests: Vec::new(),
             },
         );
         added += 1;
@@ -1121,6 +1124,83 @@ fn default_global_settings() -> GlobalSettings {
         claude_code_sound_settings: ClaudeCodeSoundSettings::default(),
         groove_sound_settings: GrooveSoundSettings::default(),
     }
+}
+
+/// Sounds bundled with the app under the `sounds/` resource directory and
+/// seeded into every install's library. Stable ids keep hook assignments valid
+/// across machines. Tuple order is `(id, display name, bundled file name)`.
+const BUILTIN_SOUNDS: &[(&str, &str, &str)] = &[
+    ("builtin-water-drop", "Water Drop", "water-drop.wav"),
+    ("builtin-soft-stop", "Soft Stop", "soft-stop.wav"),
+    ("builtin-write", "Write", "write.wav"),
+    ("builtin-message-pop", "Message Pop", "message-pop.wav"),
+    ("builtin-pencil-drop", "Pencil Drop", "pencil-drop.wav"),
+    ("builtin-clop-chop", "Clop Chop", "clop-chop.wav"),
+    ("builtin-mic-off", "Mic Off", "mic-off.wav"),
+    ("builtin-veggie-chop", "Veggie Chop", "veggie-chop.wav"),
+    ("builtin-one-chop", "One Chop", "one-chop.wav"),
+];
+
+/// Candidate directories that may hold the bundled `sounds/` resources, in
+/// priority order: the packaged resource dir and the executable's directory
+/// (production), then the crate manifest and cwd (`tauri dev`, where resources
+/// are not yet copied next to the binary).
+fn builtin_sound_source_dirs(app: &AppHandle) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        roots.push(resource_dir);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            roots.push(parent.to_path_buf());
+        }
+    }
+    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd.join("src-tauri"));
+        roots.push(cwd);
+    }
+    roots.into_iter().map(|root| root.join("sounds")).collect()
+}
+
+/// Copy any missing bundled sound files into the app-data `sounds/` directory
+/// and register a library entry for each built-in not already present.
+/// Idempotent; returns `true` when `settings.sound_library` was modified.
+fn ensure_builtin_sounds(app: &AppHandle, settings: &mut GlobalSettings) -> bool {
+    let Ok(app_data_dir) = app.path().app_data_dir() else {
+        return false;
+    };
+    let sounds_dir = app_data_dir.join("sounds");
+    if fs::create_dir_all(&sounds_dir).is_err() {
+        return false;
+    }
+
+    let source_dirs = builtin_sound_source_dirs(app);
+    let mut changed = false;
+
+    for (id, name, file_name) in BUILTIN_SOUNDS {
+        let dest_path = sounds_dir.join(file_name);
+        if !dest_path.exists() {
+            if let Some(source) = source_dirs
+                .iter()
+                .map(|dir| dir.join(file_name))
+                .find(|candidate| candidate.is_file())
+            {
+                let _ = fs::copy(&source, &dest_path);
+            }
+        }
+
+        if !settings.sound_library.iter().any(|entry| entry.id == *id) {
+            settings.sound_library.push(SoundLibraryEntry {
+                id: (*id).to_string(),
+                name: (*name).to_string(),
+                file_name: (*file_name).to_string(),
+            });
+            changed = true;
+        }
+    }
+
+    changed
 }
 
 fn normalize_shortcut_key(value: &str, fallback: &str) -> String {
@@ -1332,6 +1412,7 @@ fn ensure_global_settings(app: &AppHandle) -> Result<GlobalSettings, String> {
     if !path_is_file(&settings_file) {
         let mut settings = default_global_settings();
         seed_global_settings_from_active_workspace(app, &mut settings);
+        ensure_builtin_sounds(app, &mut settings);
         write_global_settings_file(&settings_file, &settings)?;
         return Ok(settings);
     }
@@ -1414,6 +1495,10 @@ fn ensure_global_settings(app: &AppHandle) -> Result<GlobalSettings, String> {
             != settings.opencode_settings.settings_directory
     {
         settings.opencode_settings = normalized_opencode_settings;
+        should_write_back = true;
+    }
+
+    if ensure_builtin_sounds(app, &mut settings) {
         should_write_back = true;
     }
 
@@ -1787,6 +1872,7 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         defeated_count: 0,
         known_bugs: Vec::new(),
         inventory: HashMap::new(),
+        max_worktree_count: None,
     }
 }
 
@@ -2372,6 +2458,7 @@ mod settings_runtime_tests {
                 unit: Some(unit),
                 summaries: Vec::new(),
                 comments: Vec::new(),
+                pull_requests: Vec::new(),
             },
         );
         let workspace_json = workspace_root.join(".groove").join("workspace.json");
@@ -2455,6 +2542,7 @@ mod settings_runtime_tests {
                 unit: None,
                 summaries: Vec::new(),
                 comments: Vec::new(),
+                pull_requests: Vec::new(),
             },
         );
         let workspace_json = workspace_root.join(".groove").join("workspace.json");
@@ -2521,6 +2609,7 @@ mod settings_runtime_tests {
                 unit: Some(unit),
                 summaries: Vec::new(),
                 comments: Vec::new(),
+                pull_requests: Vec::new(),
             },
         );
         let workspace_json = workspace_root.join(".groove").join("workspace.json");

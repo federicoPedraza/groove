@@ -1454,6 +1454,42 @@ fn sound_library_open_directory(app: AppHandle) -> SoundLibraryPathResponse {
 }
 
 #[tauri::command]
+fn workspace_open_directory(path: String) -> WorkspaceOpenDirectoryResponse {
+    let request_id = request_id();
+    let trimmed = path.trim();
+
+    if trimmed.is_empty() {
+        return WorkspaceOpenDirectoryResponse {
+            request_id,
+            ok: false,
+            error: Some("Directory path must not be empty.".to_string()),
+        };
+    }
+
+    let dir = std::path::Path::new(trimmed);
+    if !dir.is_dir() {
+        return WorkspaceOpenDirectoryResponse {
+            request_id,
+            ok: false,
+            error: Some("Directory does not exist.".to_string()),
+        };
+    }
+
+    match crate::backend::common::platform_env::open_path_in_file_manager(dir) {
+        Ok(()) => WorkspaceOpenDirectoryResponse {
+            request_id,
+            ok: true,
+            error: None,
+        },
+        Err(error) => WorkspaceOpenDirectoryResponse {
+            request_id,
+            ok: false,
+            error: Some(error),
+        },
+    }
+}
+
+#[tauri::command]
 fn workspace_update_terminal_settings(
     app: AppHandle,
     payload: WorkspaceTerminalSettingsPayload,
@@ -1799,6 +1835,69 @@ fn workspace_update_commands_settings(
         ok: true,
         workspace_root: Some(workspace_root.display().to_string()),
         workspace_meta: Some(workspace_meta),
+        error: None,
+    }
+}
+
+#[tauri::command]
+fn workspace_update_max_worktree_count(
+    app: AppHandle,
+    payload: WorkspaceMaxWorktreeCountPayload,
+) -> WorkspaceMaxWorktreeCountResponse {
+    let request_id = request_id();
+
+    let max_error = |workspace_root: Option<String>, error: String| {
+        WorkspaceMaxWorktreeCountResponse {
+            request_id: request_id.clone(),
+            ok: false,
+            workspace_root,
+            workspace_meta: None,
+            evicted_worktrees: Vec::new(),
+            error: Some(error),
+        }
+    };
+
+    // Treat 0 the same as "unlimited" so the UI can clear the cap with either.
+    let max_worktree_count = payload.max_worktree_count.filter(|value| *value > 0);
+
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
+        Ok(Some(value)) => value,
+        Ok(None) => return max_error(None, "No active workspace selected.".to_string()),
+        Err(error) => return max_error(None, error),
+    };
+
+    let workspace_root = match validate_workspace_root_path(&persisted_root) {
+        Ok(root) => root,
+        Err(error) => return max_error(Some(persisted_root), error),
+    };
+
+    let (mut workspace_meta, _) = match ensure_workspace_meta(&workspace_root) {
+        Ok(result) => result,
+        Err(error) => return max_error(Some(workspace_root.display().to_string()), error),
+    };
+
+    workspace_meta.max_worktree_count = max_worktree_count;
+    workspace_meta.updated_at = now_iso();
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    if let Err(error) = write_workspace_meta_file(&workspace_json, &workspace_meta) {
+        return max_error(Some(workspace_root.display().to_string()), error);
+    }
+
+    // Enforce the new limit immediately: trim least-recently-used worktrees
+    // (skipping running/dirty ones) down to the cap.
+    let effective_root = effective_workspace_root(&workspace_root, &workspace_meta);
+    let evicted_worktrees =
+        evict_worktrees_over_limit(&app, &workspace_root, &effective_root).unwrap_or_default();
+
+    invalidate_workspace_context_cache(&app, &workspace_root);
+
+    WorkspaceMaxWorktreeCountResponse {
+        request_id,
+        ok: true,
+        workspace_root: Some(workspace_root.display().to_string()),
+        workspace_meta: Some(workspace_meta),
+        evicted_worktrees,
         error: None,
     }
 }

@@ -29,12 +29,28 @@ import {
   getOpencodeProfile,
   getSoundLibrary,
   getThemeMode,
+  ghAuthLogin,
+  ghAuthLogout,
+  ghAuthStatus,
+  ghAuthSwitch,
+  ghPrCreateWeb,
+  ghPrList,
+  ghPrView,
+  ghRepoDefaultBranch,
+  ghSshOverview,
+  ghSshSetIdentity,
+  gitAheadBehind,
   gitCurrentBranch,
+  gitHasUpstream,
   gitListBranches,
+  gitPush,
+  groovePrAttach,
+  groovePrDetach,
   globalSettingsGet,
   globalSettingsUpdate,
   grooveBinRepair,
   grooveBinStatus,
+  grooveComment,
   grooveTerminalActiveWorktrees,
   grooveNew,
   grooveRestore,
@@ -65,6 +81,7 @@ import {
   opencodeUpdateGlobalSettings,
   opencodeUpdateWorkspaceSettings,
   openExternalUrl,
+  workspaceOpenDirectory,
   printIpcTelemetrySummary,
   repairOpencodeIntegration,
   runOpencodeFlow,
@@ -753,6 +770,23 @@ describe("IPC wrapper functions", () => {
     });
   });
 
+  it("grooveComment forwards includeSession flag", async () => {
+    await grooveComment({
+      rootName: "r",
+      knownWorktrees: [],
+      worktree: "wt",
+      includeSession: true,
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_comment", {
+      payload: {
+        rootName: "r",
+        knownWorktrees: [],
+        worktree: "wt",
+        includeSession: true,
+      },
+    });
+  });
+
   it("grooveSummary calls groove_summary", async () => {
     await grooveSummary({ rootName: "r", knownWorktrees: [], sessionIds: [] });
     expect(mockInvoke).toHaveBeenCalledWith("groove_summary", {
@@ -771,6 +805,56 @@ describe("IPC wrapper functions", () => {
     await openExternalUrl("https://example.com");
     expect(mockInvoke).toHaveBeenCalledWith("open_external_url", {
       url: "https://example.com",
+    });
+  });
+
+  it("ghAuthStatus calls gh_auth_status", async () => {
+    await ghAuthStatus();
+    expect(mockInvoke).toHaveBeenCalledWith("gh_auth_status", undefined);
+  });
+
+  it("ghAuthLogin calls gh_auth_login with token payload", async () => {
+    await ghAuthLogin({ token: "ghp_secret" });
+    expect(mockInvoke).toHaveBeenCalledWith("gh_auth_login", {
+      payload: { token: "ghp_secret" },
+    });
+  });
+
+  it("ghAuthSwitch calls gh_auth_switch with user payload", async () => {
+    await ghAuthSwitch({ user: "octocat" });
+    expect(mockInvoke).toHaveBeenCalledWith("gh_auth_switch", {
+      payload: { user: "octocat" },
+    });
+  });
+
+  it("ghAuthLogout calls gh_auth_logout with user payload", async () => {
+    await ghAuthLogout({ user: "octocat" });
+    expect(mockInvoke).toHaveBeenCalledWith("gh_auth_logout", {
+      payload: { user: "octocat" },
+    });
+  });
+
+  it("ghSshOverview calls gh_ssh_overview with workspace root", async () => {
+    await ghSshOverview({ workspaceRoot: "/home/dev/repo" });
+    expect(mockInvoke).toHaveBeenCalledWith("gh_ssh_overview", {
+      payload: { workspaceRoot: "/home/dev/repo" },
+    });
+  });
+
+  it("ghSshSetIdentity calls gh_ssh_set_identity with alias", async () => {
+    await ghSshSetIdentity({
+      workspaceRoot: "/home/dev/repo",
+      alias: "github-work",
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("gh_ssh_set_identity", {
+      payload: { workspaceRoot: "/home/dev/repo", alias: "github-work" },
+    });
+  });
+
+  it("workspaceOpenDirectory calls workspace_open_directory with path", async () => {
+    await workspaceOpenDirectory("/home/dev/.worktrees/feature-a");
+    expect(mockInvoke).toHaveBeenCalledWith("workspace_open_directory", {
+      path: "/home/dev/.worktrees/feature-a",
     });
   });
 
@@ -897,6 +981,89 @@ describe("IPC wrapper functions", () => {
     await gitListBranches({ path: "/p" });
     expect(mockInvoke).toHaveBeenCalledWith("git_list_branches", {
       payload: { path: "/p" },
+    });
+  });
+
+  it("gitAheadBehind calls git_ahead_behind", async () => {
+    await gitAheadBehind({ path: "/p" });
+    expect(mockInvoke).toHaveBeenCalledWith("git_ahead_behind", {
+      payload: { path: "/p" },
+    });
+  });
+
+  it("gitPush calls git_push with upstream payload", async () => {
+    await gitPush({ path: "/p", setUpstream: true, branch: "feat/x" });
+    expect(mockInvoke).toHaveBeenCalledWith("git_push", {
+      payload: { path: "/p", setUpstream: true, branch: "feat/x" },
+    });
+  });
+
+  it("gitHasUpstream calls git_has_upstream", async () => {
+    await gitHasUpstream({ path: "/p" });
+    expect(mockInvoke).toHaveBeenCalledWith("git_has_upstream", {
+      payload: { path: "/p" },
+    });
+  });
+
+  it("ghRepoDefaultBranch calls gh_repo_default_branch", async () => {
+    await ghRepoDefaultBranch({ worktreePath: "/p" });
+    expect(mockInvoke).toHaveBeenCalledWith("gh_repo_default_branch", {
+      payload: { worktreePath: "/p" },
+    });
+  });
+
+  it("ghPrList calls gh_pr_list", async () => {
+    await ghPrList({ worktreePath: "/p" });
+    expect(mockInvoke).toHaveBeenCalledWith("gh_pr_list", {
+      payload: { worktreePath: "/p" },
+    });
+  });
+
+  it("ghPrView calls gh_pr_view with selector", async () => {
+    await ghPrView({ worktreePath: "/p", selector: "42" });
+    expect(mockInvoke).toHaveBeenCalledWith("gh_pr_view", {
+      payload: { worktreePath: "/p", selector: "42" },
+    });
+  });
+
+  it("ghPrCreateWeb calls gh_pr_create_web with base", async () => {
+    await ghPrCreateWeb({ worktreePath: "/p", base: "main" });
+    expect(mockInvoke).toHaveBeenCalledWith("gh_pr_create_web", {
+      payload: { worktreePath: "/p", base: "main" },
+    });
+  });
+
+  it("groovePrAttach calls groove_pr_attach", async () => {
+    await groovePrAttach({
+      rootName: "r",
+      knownWorktrees: [],
+      worktree: "wt",
+      url: "https://github.com/o/r/pull/1",
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_pr_attach", {
+      payload: {
+        rootName: "r",
+        knownWorktrees: [],
+        worktree: "wt",
+        url: "https://github.com/o/r/pull/1",
+      },
+    });
+  });
+
+  it("groovePrDetach calls groove_pr_detach", async () => {
+    await groovePrDetach({
+      rootName: "r",
+      knownWorktrees: [],
+      worktree: "wt",
+      url: "https://github.com/o/r/pull/1",
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("groove_pr_detach", {
+      payload: {
+        rootName: "r",
+        knownWorktrees: [],
+        worktree: "wt",
+        url: "https://github.com/o/r/pull/1",
+      },
     });
   });
 

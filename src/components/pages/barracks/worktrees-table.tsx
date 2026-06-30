@@ -515,9 +515,13 @@ export function WorktreesTable({
       <WorktreeStateContextMenu
         key={item.key}
         worktree={row.worktree}
+        worktreePath={row.path}
         currentState={worktreeState}
         onSelect={(nextState) => {
           onSetWorktreeState(row.worktree, nextState);
+        }}
+        onPauseGroove={() => {
+          onStopAction(row);
         }}
       >
         <TableRow className="[content-visibility:auto] [contain-intrinsic-size:auto_3.5rem]">

@@ -4,6 +4,7 @@ export * from "./types-doctrine";
 export * from "./types-commands";
 export * from "./types-terminal";
 export * from "./types-git";
+export * from "./types-github";
 export {
   getIpcTelemetrySummary,
   printIpcTelemetrySummary,

@@ -56,6 +56,15 @@ export type CommentRecord = {
   state: CommentState;
 };
 
+export type PullRequestRecord = {
+  number: number;
+  url: string;
+  title?: string;
+  base?: string;
+  head?: string;
+  addedAt: string;
+};
+
 export const WORKTREE_STATES = [
   "pending",
   "hunting",
@@ -103,6 +112,7 @@ export type WorktreeRecord = {
   unit?: WorktreeUnit;
   summaries?: SummaryRecord[];
   comments?: CommentRecord[];
+  pullRequests?: PullRequestRecord[];
 };
 
 export type WorkspaceMeta = {
@@ -139,6 +149,12 @@ export type WorkspaceMeta = {
    * Bumped when a worktree's reward is claimed (alongside gold).
    */
   inventory?: Record<string, number>;
+  /**
+   * Optional cap on how many worktrees are kept on disk. When a new worktree
+   * is created past this limit, the least-recently-used worktree that is
+   * neither running nor dirty is auto-removed. Absent/0 means unlimited.
+   */
+  maxWorktreeCount?: number | null;
 };
 
 export type WorkspaceRow = {
@@ -292,6 +308,55 @@ export type WorkspaceCommandSettingsPayload = {
   openTerminalAtWorktreeCommand?: string | null;
 };
 
+export type WorkspaceMaxWorktreeCountPayload = {
+  /** Absent, null, or 0 clears the cap (unlimited). */
+  maxWorktreeCount?: number | null;
+};
+
+export type WorkspaceMaxWorktreeCountResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  workspaceMeta?: WorkspaceMeta;
+  /** Worktrees auto-removed to bring the count down to the new limit. */
+  evictedWorktrees?: string[];
+  error?: string;
+};
+
+export type WorktreeStorageStatsPayload = {
+  /**
+   * Compute on-disk sizes for each worktree. Expensive (walks every file), so
+   * the panel loads counts first and only opts in on demand.
+   */
+  includeSizes?: boolean;
+};
+
+export type WorktreeStorageRow = {
+  worktree: string;
+  path: string;
+  /** Only meaningful when the response's `sizesIncluded` is true; otherwise 0. */
+  bytes: number;
+  lastExecutedAt?: string;
+};
+
+export type WorktreeStorageStatsResponse = {
+  requestId?: string;
+  ok: boolean;
+  totalCount: number;
+  totalBytes: number;
+  sizesIncluded: boolean;
+  maxWorktreeCount?: number | null;
+  worktrees: WorktreeStorageRow[];
+  workspaceRoot?: string;
+  error?: string;
+};
+
+/** Payload of the backend "worktree-evicted" event. */
+export type WorktreeEvictedEvent = {
+  workspaceRoot: string;
+  worktrees: string[];
+};
+
 export type WorkspaceWorktreeSymlinkPathsPayload = {
   worktreeSymlinkPaths: string[];
 };
@@ -394,6 +459,12 @@ export type GrooveBinRepairResponse = {
 };
 
 export type ExternalUrlOpenResponse = {
+  requestId?: string;
+  ok: boolean;
+  error?: string;
+};
+
+export type WorkspaceOpenDirectoryResponse = {
   requestId?: string;
   ok: boolean;
   error?: string;

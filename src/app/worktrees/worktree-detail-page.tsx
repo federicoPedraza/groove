@@ -6,6 +6,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { BarracksModals } from "@/src/components/pages/barracks/barracks-modals";
 import { CommentViewerModal } from "@/src/components/pages/barracks/comment-viewer-modal";
+import { CommitCommentsHistoryModal } from "@/src/components/pages/worktrees/commit-comments-history-modal";
 import { useBarracksState } from "@/src/components/pages/barracks/hooks/use-barracks-state";
 import type { WorktreeRow } from "@/src/components/pages/barracks/types";
 import { SummaryViewerModal } from "@/src/components/pages/barracks/summary-viewer-modal";
@@ -13,12 +14,17 @@ import { WorktreeRowActions } from "@/src/components/pages/barracks/worktree-row
 import { PageHeader } from "@/src/components/pages/page-header";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
 import { GrooveWorktreeTerminal } from "@/src/components/pages/worktrees/groove-worktree-terminal";
+import { PrInspectorPane } from "@/src/components/pages/worktrees/pr-inspector-pane";
 import { ProfiledRegion } from "@/src/lib/profiled-region";
-import { WorktreeGitChanges } from "@/src/components/pages/worktrees/worktree-git-changes";
+import {
+  WorktreeInspectorPanel,
+  type InspectorSection,
+} from "@/src/components/pages/worktrees/worktree-inspector-panel";
 import { Card, CardContent } from "@/src/components/ui/card";
 import { TooltipProvider } from "@/src/components/ui/tooltip";
 import type {
   CommentRecord,
+  PullRequestRecord,
   SummaryRecord,
   WorkspaceMeta,
 } from "@/src/lib/ipc";
@@ -28,11 +34,14 @@ import {
   grooveComment,
   grooveCommentMarkCommitted,
   grooveSummary,
+  grooveTerminalListSessions,
   grooveTerminalOpen,
+  grooveTerminalWrite,
 } from "@/src/lib/ipc";
 import { toast } from "@/src/lib/toast";
 import { playGrooveHookSound } from "@/src/lib/groove-sound-system";
 import { cn } from "@/src/lib/utils";
+import { detectTerminalInstanceKind } from "@/src/lib/utils/worktree/process-grouping";
 import {
   deriveWorktreeStatus,
   getActiveWorktreeRows,
@@ -107,7 +116,61 @@ export default function WorktreeDetailPage() {
   const [attackPendingFor, setAttackPendingFor] = useState<
     "single" | "all" | null
   >(null);
-  const [isChangesPanelExpanded, setIsChangesPanelExpanded] = useState(false);
+  const [isCommitHistoryOpen, setIsCommitHistoryOpen] = useState(false);
+  const [inspector, setInspector] = useState<{
+    expanded: boolean;
+    section: InspectorSection;
+  }>({ expanded: false, section: "changes" });
+
+  const toggleInspectorExpanded = useCallback(() => {
+    setInspector((prev) => ({ ...prev, expanded: !prev.expanded }));
+  }, []);
+
+  const selectInspectorSection = useCallback((section: InspectorSection) => {
+    setInspector((prev) =>
+      prev.expanded && prev.section === section
+        ? { ...prev, expanded: false }
+        : { expanded: true, section },
+    );
+  }, []);
+
+  // PR inspector "fake terminal" panes, shown in the terminal column. Ephemeral
+  // and reset when the worktree changes (see the effect below).
+  const [openPrPanes, setOpenPrPanes] = useState<PullRequestRecord[]>([]);
+  const [minimizedPrPanes, setMinimizedPrPanes] = useState<Set<string>>(
+    new Set(),
+  );
+
+  const openPrInspector = useCallback((record: PullRequestRecord) => {
+    setOpenPrPanes((prev) =>
+      prev.some((pane) => pane.url === record.url) ? prev : [...prev, record],
+    );
+    setMinimizedPrPanes((prev) => {
+      if (!prev.has(record.url)) return prev;
+      const next = new Set(prev);
+      next.delete(record.url);
+      return next;
+    });
+  }, []);
+
+  const closePrPane = useCallback((url: string) => {
+    setOpenPrPanes((prev) => prev.filter((pane) => pane.url !== url));
+    setMinimizedPrPanes((prev) => {
+      if (!prev.has(url)) return prev;
+      const next = new Set(prev);
+      next.delete(url);
+      return next;
+    });
+  }, []);
+
+  const toggleMinimizePrPane = useCallback((url: string) => {
+    setMinimizedPrPanes((prev) => {
+      const next = new Set(prev);
+      if (next.has(url)) next.delete(url);
+      else next.add(url);
+      return next;
+    });
+  }, []);
 
   const worktreeSummaries = useMemo(() => {
     const records = ipcWorkspaceMeta?.worktreeRecords;
@@ -221,6 +284,49 @@ export default function WorktreeDetailPage() {
             toast.error(response.error ?? "Commit comment failed.");
             clearCommentPending(worktree);
           }
+        })
+        .catch(() => {
+          toast.error("Commit comment request failed.");
+          clearCommentPending(worktree);
+        });
+    },
+    [
+      clearCommentPending,
+      commentingWorktrees,
+      ipcWorkspaceMeta,
+      worktreeComments,
+      worktreeRows,
+      workspaceRoot,
+    ],
+  );
+
+  // Changes-panel variant: draft from the diff AND the Claude conversation since
+  // the last commit, then open the viewer so the user can review and commit.
+  const handleDraftCommitCommentFromSession = useCallback(
+    (worktree: string) => {
+      if (!workspaceRoot || commentingWorktrees.has(worktree)) return;
+      commentPendingBaselineRef.current.set(
+        worktree,
+        worktreeComments[worktree]?.length ?? 0,
+      );
+      setCommentingWorktrees((prev) => new Set(prev).add(worktree));
+
+      void grooveComment({
+        rootName: ipcWorkspaceMeta?.rootName ?? "",
+        knownWorktrees: worktreeRows
+          .filter((r) => r.status !== "deleted")
+          .map((r) => r.worktree),
+        workspaceMeta: ipcWorkspaceMeta,
+        worktree,
+        includeSession: true,
+      })
+        .then((response) => {
+          if (!response.ok || !response.comment) {
+            toast.error(response.error ?? "Commit comment failed.");
+            clearCommentPending(worktree);
+            return;
+          }
+          setViewingComment({ worktree, comment: response.comment });
         })
         .catch(() => {
           toast.error("Commit comment request failed.");
@@ -359,6 +465,13 @@ export default function WorktreeDetailPage() {
       return worktreeParam;
     }
   }, [worktreeParam]);
+
+  // PR inspector panes are scoped to a worktree; clear them when it changes.
+  useEffect(() => {
+    setOpenPrPanes([]);
+    setMinimizedPrPanes(new Set());
+  }, [selectedWorktreeName]);
+
   const row = worktreeRows.find(
     (candidateRow) => candidateRow.worktree === selectedWorktreeName,
   );
@@ -386,6 +499,15 @@ export default function WorktreeDetailPage() {
     [worktreeRows],
   );
   const branchCopied = row ? copiedBranchPath === row.path : false;
+  const selectedCommittedComments = useMemo(
+    () =>
+      row
+        ? (worktreeComments[row.worktree] ?? []).filter(
+            (comment) => comment.state === "committed",
+          )
+        : [],
+    [row, worktreeComments],
+  );
   const emptyPageSidebar = useCallback(() => null, []);
   useAppLayout({
     pageSidebar: emptyPageSidebar,
@@ -433,6 +555,57 @@ export default function WorktreeDetailPage() {
         toast.error("In-app terminal open request failed.", {
           command: "groove_restore",
         });
+      }
+    },
+    [knownWorktrees, workspaceMeta],
+  );
+
+  // Append a PR comment to the oldest open Claude session for the worktree.
+  const sendCommentToClaude = useCallback(
+    async (worktree: string, text: string): Promise<void> => {
+      if (!workspaceMeta) {
+        toast.error("Select a workspace before sending to Claude.");
+        return;
+      }
+      const content = text.trim();
+      if (!content) {
+        return;
+      }
+      const context = {
+        rootName: workspaceMeta.rootName,
+        knownWorktrees,
+        workspaceMeta,
+        worktree,
+      };
+      try {
+        const listed = await grooveTerminalListSessions(context);
+        if (!listed.ok) {
+          toast.error(listed.error ?? "Failed to list terminal sessions.");
+          return;
+        }
+        const oldestClaude = listed.sessions
+          .filter((session) => session.worktree === worktree)
+          .filter(
+            (session) =>
+              detectTerminalInstanceKind(session.command) === "Claude",
+          )
+          .sort((a, b) => a.startedAt.localeCompare(b.startedAt))[0];
+        if (!oldestClaude) {
+          toast.error("No open Claude session in this worktree.");
+          return;
+        }
+        const result = await grooveTerminalWrite({
+          ...context,
+          sessionId: oldestClaude.sessionId,
+          input: content,
+        });
+        if (result.ok) {
+          toast.success("Sent to Claude.");
+        } else {
+          toast.error(result.error ?? "Failed to send to Claude.");
+        }
+      } catch {
+        toast.error("Send to Claude request failed.");
       }
     },
     [knownWorktrees, workspaceMeta],
@@ -600,7 +773,8 @@ export default function WorktreeDetailPage() {
           {row && status ? (
             workspaceRoot && workspaceMeta ? (
               <div className="flex min-h-0 flex-col gap-3 lg:flex-row lg:items-stretch">
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 space-y-3">
+                  {/* PR inspector "fake terminals" stack above the real ones. */}
                   {/*
                     Key on the worktree so navigating between two worktree detail
                     views cleanly unmounts the previous terminals and mounts fresh
@@ -623,21 +797,68 @@ export default function WorktreeDetailPage() {
                       }}
                     />
                   </ProfiledRegion>
+                  {/* PR inspector "fake terminals" append below the real ones,
+                      like pressing "new terminal". */}
+                  {openPrPanes.map((pane) => {
+                    const isMinimized = minimizedPrPanes.has(pane.url);
+                    return (
+                      <div
+                        key={pane.url}
+                        style={
+                          isMinimized
+                            ? undefined
+                            : { height: "60vh", minHeight: "280px" }
+                        }
+                      >
+                        <PrInspectorPane
+                          worktreePath={row.path}
+                          record={pane}
+                          minimized={isMinimized}
+                          onToggleMinimize={() => {
+                            toggleMinimizePrPane(pane.url);
+                          }}
+                          onClose={() => {
+                            closePrPane(pane.url);
+                          }}
+                          onSendCommentToClaude={(text) => {
+                            void sendCommentToClaude(row.worktree, text);
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
                 <div
                   className={cn(
                     "flex shrink-0",
-                    isChangesPanelExpanded
+                    inspector.expanded
                       ? "w-full lg:w-80 xl:w-96"
                       : "w-full lg:w-9",
                   )}
                 >
-                  <WorktreeGitChanges
+                  <WorktreeInspectorPanel
                     worktreePath={row.path}
-                    expanded={isChangesPanelExpanded}
-                    onToggleExpanded={() => {
-                      setIsChangesPanelExpanded((value) => !value);
+                    worktree={row.worktree}
+                    rootName={ipcWorkspaceMeta?.rootName ?? ""}
+                    knownWorktrees={knownWorktrees}
+                    workspaceMeta={ipcWorkspaceMeta}
+                    pullRequests={
+                      ipcWorkspaceMeta?.worktreeRecords?.[row.worktree]
+                        ?.pullRequests ?? []
+                    }
+                    expanded={inspector.expanded}
+                    activeSection={inspector.section}
+                    onToggleExpanded={toggleInspectorExpanded}
+                    onSelectSection={selectInspectorSection}
+                    onDraftCommitComment={() => {
+                      handleDraftCommitCommentFromSession(row.worktree);
                     }}
+                    isDraftPending={commentingWorktrees.has(row.worktree)}
+                    onViewCommitComments={() => {
+                      setIsCommitHistoryOpen(true);
+                    }}
+                    committedCommentCount={selectedCommittedComments.length}
+                    onOpenPrInspector={openPrInspector}
                   />
                 </div>
               </div>
@@ -701,6 +922,14 @@ export default function WorktreeDetailPage() {
             }}
             isAttackPending={attackPendingFor === "single"}
             isAttackAllPending={attackPendingFor === "all"}
+          />
+
+          <CommitCommentsHistoryModal
+            comments={selectedCommittedComments}
+            open={isCommitHistoryOpen}
+            onClose={() => {
+              setIsCommitHistoryOpen(false);
+            }}
           />
 
           <BarracksModals

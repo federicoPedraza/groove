@@ -794,6 +794,57 @@ fn open_groove_terminal_session(
     let worktree_clone = worktree.to_string();
     let telemetry_enabled_clone = telemetry_enabled;
     let snapshot_clone = snapshot.clone();
+
+    // The reader below produces output in small, high-frequency chunks (one per
+    // `read()`). Emitting a Tauri event per chunk floods the webview main thread
+    // (each event is deserialized + dispatched there), which can collapse the UI
+    // frame rate while a chatty session streams output. Instead, the reader feeds
+    // chunks into this channel and a dedicated flusher coalesces them into at most
+    // one `GROOVE_TERMINAL_OUTPUT_EVENT` per frame interval (or per size budget).
+    const TERMINAL_OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(16);
+    const TERMINAL_OUTPUT_FLUSH_MAX_BYTES: usize = 64 * 1024;
+    let (output_tx, output_rx) = std::sync::mpsc::channel::<String>();
+    {
+        let app_handle = app_handle.clone();
+        let session_id = session_id_clone.clone();
+        let workspace_root = workspace_root_clone.clone();
+        let worktree = worktree_clone.clone();
+        thread::spawn(move || {
+            let mut pending = String::new();
+            let flush = |buffer: &mut String| {
+                if buffer.is_empty() {
+                    return;
+                }
+                let _ = app_handle.emit(
+                    GROOVE_TERMINAL_OUTPUT_EVENT,
+                    GrooveTerminalOutputEvent {
+                        session_id: session_id.clone(),
+                        workspace_root: workspace_root.clone(),
+                        worktree: worktree.clone(),
+                        chunk: std::mem::take(buffer),
+                    },
+                );
+            };
+            loop {
+                match output_rx.recv_timeout(TERMINAL_OUTPUT_FLUSH_INTERVAL) {
+                    Ok(chunk) => {
+                        pending.push_str(&chunk);
+                        if pending.len() >= TERMINAL_OUTPUT_FLUSH_MAX_BYTES {
+                            flush(&mut pending);
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        flush(&mut pending);
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        flush(&mut pending);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
         loop {
@@ -825,18 +876,10 @@ fn open_groove_terminal_session(
                     );
                     if let Some(command) = closed_command {
                         let cwd = closed_cwd.unwrap_or_else(|| workspace_root_clone.clone());
-                        let _ = app_handle.emit(
-                            GROOVE_TERMINAL_OUTPUT_EVENT,
-                            GrooveTerminalOutputEvent {
-                                session_id: session_id_clone.clone(),
-                                workspace_root: workspace_root_clone.clone(),
-                                worktree: worktree_clone.clone(),
-                                chunk: format!(
-                                    "\r\n[groove] session ended: command=\"{}\" cwd=\"{}\" {}\r\n",
-                                    command, cwd, close_detail
-                                ),
-                            },
-                        );
+                        let _ = output_tx.send(format!(
+                            "\r\n[groove] session ended: command=\"{}\" cwd=\"{}\" {}\r\n",
+                            command, cwd, close_detail
+                        ));
                     }
                     log_play_telemetry(
                         telemetry_enabled_clone,
@@ -864,15 +907,7 @@ fn open_groove_terminal_session(
                 Ok(count) => {
                     append_terminal_snapshot(&snapshot_clone, &buffer[..count]);
                     let chunk = String::from_utf8_lossy(&buffer[..count]).to_string();
-                    let _ = app_handle.emit(
-                        GROOVE_TERMINAL_OUTPUT_EVENT,
-                        GrooveTerminalOutputEvent {
-                            session_id: session_id_clone.clone(),
-                            workspace_root: workspace_root_clone.clone(),
-                            worktree: worktree_clone.clone(),
-                            chunk,
-                        },
-                    );
+                    let _ = output_tx.send(chunk);
                 }
                 Err(error) => {
                     let state = app_handle.state::<GrooveTerminalState>();
@@ -905,18 +940,10 @@ fn open_groove_terminal_session(
                     );
                     if let Some(command) = closed_command {
                         let cwd = closed_cwd.unwrap_or_else(|| workspace_root_clone.clone());
-                        let _ = app_handle.emit(
-                            GROOVE_TERMINAL_OUTPUT_EVENT,
-                            GrooveTerminalOutputEvent {
-                                session_id: session_id_clone.clone(),
-                                workspace_root: workspace_root_clone.clone(),
-                                worktree: worktree_clone.clone(),
-                                chunk: format!(
-                                    "\r\n[groove] session error: command=\"{}\" cwd=\"{}\" {}\r\n",
-                                    command, cwd, close_detail
-                                ),
-                            },
-                        );
+                        let _ = output_tx.send(format!(
+                            "\r\n[groove] session error: command=\"{}\" cwd=\"{}\" {}\r\n",
+                            command, cwd, close_detail
+                        ));
                     }
                     log_play_telemetry(
                         telemetry_enabled_clone,

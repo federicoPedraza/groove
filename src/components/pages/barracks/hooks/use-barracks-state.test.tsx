@@ -24,6 +24,7 @@ const {
   workspaceEventsMock,
   listenWorkspaceChangeMock,
   listenWorkspaceReadyMock,
+  listenWorktreeEvictedMock,
   listenGrooveNotificationMock,
   getClaudeCodeSoundSettingsMock,
   getSoundLibraryMock,
@@ -57,6 +58,7 @@ const {
   workspaceEventsMock: vi.fn(),
   listenWorkspaceChangeMock: vi.fn(),
   listenWorkspaceReadyMock: vi.fn(),
+  listenWorktreeEvictedMock: vi.fn(),
   listenGrooveNotificationMock: vi.fn(),
   getClaudeCodeSoundSettingsMock: vi.fn(),
   getSoundLibraryMock: vi.fn(),
@@ -96,6 +98,7 @@ vi.mock("@/src/lib/ipc", () => ({
   getSoundLibrary: getSoundLibraryMock,
   listenWorkspaceChange: listenWorkspaceChangeMock,
   listenWorkspaceReady: listenWorkspaceReadyMock,
+  listenWorktreeEvicted: listenWorktreeEvictedMock,
   workspaceClearActive: workspaceClearActiveMock,
   workspaceEvents: workspaceEventsMock,
   workspaceGetActive: workspaceGetActiveMock,
@@ -133,6 +136,7 @@ describe("useBarracksState", () => {
     workspaceEventsMock.mockReset();
     listenWorkspaceChangeMock.mockReset();
     listenWorkspaceReadyMock.mockReset();
+    listenWorktreeEvictedMock.mockReset();
     listenGrooveNotificationMock.mockReset();
     getClaudeCodeSoundSettingsMock.mockReset();
     getSoundLibraryMock.mockReset();
@@ -190,6 +194,7 @@ describe("useBarracksState", () => {
     workspaceEventsMock.mockResolvedValue({ ok: true });
     listenWorkspaceChangeMock.mockResolvedValue(() => {});
     listenWorkspaceReadyMock.mockResolvedValue(() => {});
+    listenWorktreeEvictedMock.mockResolvedValue(() => {});
     listenGrooveNotificationMock.mockResolvedValue(() => {});
     getClaudeCodeSoundSettingsMock.mockReturnValue({
       notification: { enabled: false, soundId: null },

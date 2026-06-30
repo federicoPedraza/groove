@@ -3,9 +3,12 @@ export {
   GROOVE_BUSINESS_LABELS,
   resolveGrooveBusinessIcon,
   resolveGrooveBusinessLabel,
+  resolvePrStatusIcon,
+  resolvePrStatusLabel,
   resolveWorktreeStateLabel,
   type GrooveBusinessLabelKey,
   type GrooveBusinessMode,
+  type PrStatusKey,
 } from "./labels";
 export {
   useGrooveBusiness,

@@ -15,6 +15,7 @@ import {
 import { DiagnosticsHeader } from "@/src/components/pages/diagnostics/diagnostics-header";
 import { DiagnosticsSystemSidebar } from "@/src/components/pages/diagnostics/diagnostics-system-sidebar";
 import { EmergencyCard } from "@/src/components/pages/diagnostics/emergency-card";
+import { WorktreeStorageCard } from "@/src/components/pages/diagnostics/worktree-storage-card";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
 import { Badge } from "@/src/components/ui/badge";
 import { Button } from "@/src/components/ui/button";
@@ -967,6 +968,10 @@ export default function DiagnosticsPage() {
             {mostConsumingProgramsOutput}
           </pre>
         </div>
+      )}
+
+      {hasActiveWorkspace && (
+        <WorktreeStorageCard workspaceMeta={workspaceMeta} />
       )}
 
       <EmergencyCard

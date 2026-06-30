@@ -27,6 +27,7 @@ import {
 import { PageHeader } from "@/src/components/pages/page-header";
 import { OpencodeIntegrationPanel } from "@/src/components/opencode/opencode-integration-panel";
 import { ClaudeCodeIntegrationPanel } from "@/src/components/claudecode/claudecode-integration-panel";
+import { GitHubIntegrationPanel } from "@/src/components/github/github-integration-panel";
 import { AssistantMcpPanel } from "@/src/components/pages/settings/assistant-mcp-panel";
 import { AssistantRulesPanel } from "@/src/components/pages/settings/assistant-rules-panel";
 import { GrooveSoundSettingsPanel } from "@/src/components/groove-sound-settings-panel";
@@ -1371,6 +1372,7 @@ export default function SettingsPage() {
                   workspaceRoot={workspaceRoot}
                 />
                 <ClaudeCodeIntegrationPanel />
+                <GitHubIntegrationPanel workspaceRoot={workspaceRoot} />
               </CardContent>
             </CollapsibleContent>
           </Card>

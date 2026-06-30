@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Folder, FolderOpen, Settings2, Terminal, X } from "lucide-react";
+import { Folder, FolderOpen, LogIn, Settings, X } from "lucide-react";
 
 import { ConfirmModal } from "@/src/components/ui/confirm-modal";
 import { Button } from "@/src/components/ui/button";
@@ -188,7 +188,7 @@ export function WorkspaceDirectoryControls({
             <div
               className={
                 collapsed
-                  ? "flex flex-col items-center gap-1"
+                  ? "flex flex-col gap-1"
                   : "flex items-center gap-1"
               }
             >
@@ -196,7 +196,7 @@ export function WorkspaceDirectoryControls({
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant={collapsed ? "ghost" : "outline"}
                     size="sm"
                     onClick={() => {
                       void pickDirectory();
@@ -204,7 +204,7 @@ export function WorkspaceDirectoryControls({
                     disabled={isBusy}
                     className={
                       collapsed
-                        ? "group h-8 w-8 px-0"
+                        ? "group h-10 w-full px-0"
                         : "group h-8 min-w-0 flex-1 justify-start"
                     }
                     aria-label="Change directory"
@@ -228,16 +228,22 @@ export function WorkspaceDirectoryControls({
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
-                    variant={isWorkspaceSettingsActive ? "secondary" : "outline"}
+                    variant={
+                      isWorkspaceSettingsActive
+                        ? "secondary"
+                        : collapsed
+                          ? "ghost"
+                          : "outline"
+                    }
                     size="sm"
                     onClick={() => {
                       navigate("/workspace/settings");
                     }}
                     aria-pressed={isWorkspaceSettingsActive}
-                    className="h-8 w-8 px-0"
+                    className={collapsed ? "h-10 w-full px-0" : "h-8 w-8 px-0"}
                     aria-label="Workspace settings"
                   >
-                    <Settings2 aria-hidden="true" className="size-4" />
+                    <Settings aria-hidden="true" className="size-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Workspace settings</TooltipContent>
@@ -246,17 +252,23 @@ export function WorkspaceDirectoryControls({
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
-                    variant={isTerminalActive ? "secondary" : "outline"}
+                    variant={
+                      isTerminalActive
+                        ? "secondary"
+                        : collapsed
+                          ? "ghost"
+                          : "outline"
+                    }
                     size="sm"
                     onClick={() => {
                       navigate("/intelligence");
                     }}
                     disabled={isBusy || !hasDirectory}
                     aria-pressed={isTerminalActive}
-                    className="h-8 w-8 px-0"
+                    className={collapsed ? "h-10 w-full px-0" : "h-8 w-8 px-0"}
                     aria-label="Open terminal"
                   >
-                    <Terminal aria-hidden="true" className="size-4" />
+                    <LogIn aria-hidden="true" className="size-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Open terminal</TooltipContent>
@@ -265,13 +277,13 @@ export function WorkspaceDirectoryControls({
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant={collapsed ? "ghost" : "outline"}
                     size="sm"
                     onClick={() => {
                       setIsCloseConfirmOpen(true);
                     }}
                     disabled={isBusy || !hasDirectory}
-                    className="h-8 w-8 px-0"
+                    className={collapsed ? "h-10 w-full px-0" : "h-8 w-8 px-0"}
                     aria-label="Close directory"
                   >
                     <X aria-hidden="true" className="size-4" />

@@ -34,6 +34,9 @@ import type {
   DoctrineSetActiveResponse,
 } from "./types-doctrine";
 import type {
+  GitAheadBehindPayload,
+  GitAheadBehindResponse,
+  GitBooleanResponse,
   GitCommandResponse,
   GitCommitPayload,
   GitCurrentBranchPayload,
@@ -41,7 +44,24 @@ import type {
   GitDiffResponse,
   GitListBranchesPayload,
   GitListBranchesResponse,
+  GitPushPayload,
 } from "./types-git";
+import type {
+  GhAuthStatusResponse,
+  GhCommandResponse,
+  GhLoginPayload,
+  GhLogoutPayload,
+  GhPrCreateWebPayload,
+  GhPrListResponse,
+  GhPrViewPayload,
+  GhPrViewResponse,
+  GhRepoDefaultBranchResponse,
+  GhSshOverviewPayload,
+  GhSshOverviewResponse,
+  GhSshSetIdentityPayload,
+  GhSwitchPayload,
+  GhWorktreePayload,
+} from "./types-github";
 
 type GitPathPayload = { path: string };
 import type {
@@ -82,6 +102,30 @@ export function gitListBranches(
   });
 }
 
+export function gitAheadBehind(
+  payload: GitAheadBehindPayload,
+): Promise<GitAheadBehindResponse> {
+  return invokeCommand<GitAheadBehindResponse>(
+    "git_ahead_behind",
+    { payload },
+    { intent: "background" },
+  );
+}
+
+export function gitPush(payload: GitPushPayload): Promise<GitCommandResponse> {
+  return invokeCommand<GitCommandResponse>("git_push", { payload });
+}
+
+export function gitHasUpstream(
+  payload: GitPathPayload,
+): Promise<GitBooleanResponse> {
+  return invokeCommand<GitBooleanResponse>(
+    "git_has_upstream",
+    { payload },
+    { intent: "background" },
+  );
+}
+
 export function gitCommit(
   payload: GitCommitPayload,
 ): Promise<GitCommandResponse> {
@@ -90,6 +134,82 @@ export function gitCommit(
 
 export function gitAdd(payload: GitPathPayload): Promise<GitCommandResponse> {
   return invokeCommand<GitCommandResponse>("git_add", { payload });
+}
+
+export function ghAuthStatus(): Promise<GhAuthStatusResponse> {
+  return invokeCommand<GhAuthStatusResponse>("gh_auth_status", undefined, {
+    intent: "background",
+  });
+}
+
+export function ghAuthLogin(
+  payload: GhLoginPayload,
+): Promise<GhCommandResponse> {
+  return invokeCommand<GhCommandResponse>("gh_auth_login", { payload });
+}
+
+export function ghAuthSwitch(
+  payload: GhSwitchPayload,
+): Promise<GhCommandResponse> {
+  return invokeCommand<GhCommandResponse>("gh_auth_switch", { payload });
+}
+
+export function ghAuthLogout(
+  payload: GhLogoutPayload,
+): Promise<GhCommandResponse> {
+  return invokeCommand<GhCommandResponse>("gh_auth_logout", { payload });
+}
+
+export function ghSshOverview(
+  payload: GhSshOverviewPayload,
+): Promise<GhSshOverviewResponse> {
+  return invokeCommand<GhSshOverviewResponse>(
+    "gh_ssh_overview",
+    { payload },
+    { intent: "background" },
+  );
+}
+
+export function ghSshSetIdentity(
+  payload: GhSshSetIdentityPayload,
+): Promise<GhCommandResponse> {
+  return invokeCommand<GhCommandResponse>("gh_ssh_set_identity", { payload });
+}
+
+export function ghRepoDefaultBranch(
+  payload: GhWorktreePayload,
+): Promise<GhRepoDefaultBranchResponse> {
+  return invokeCommand<GhRepoDefaultBranchResponse>(
+    "gh_repo_default_branch",
+    { payload },
+    { intent: "background" },
+  );
+}
+
+export function ghPrList(
+  payload: GhWorktreePayload,
+): Promise<GhPrListResponse> {
+  return invokeCommand<GhPrListResponse>(
+    "gh_pr_list",
+    { payload },
+    { intent: "background" },
+  );
+}
+
+export function ghPrView(
+  payload: GhPrViewPayload,
+): Promise<GhPrViewResponse> {
+  return invokeCommand<GhPrViewResponse>(
+    "gh_pr_view",
+    { payload },
+    { intent: "background" },
+  );
+}
+
+export function ghPrCreateWeb(
+  payload: GhPrCreateWebPayload,
+): Promise<GhCommandResponse> {
+  return invokeCommand<GhCommandResponse>("gh_pr_create_web", { payload });
 }
 
 export function gitDiff(payload: GitPathPayload): Promise<GitDiffResponse> {

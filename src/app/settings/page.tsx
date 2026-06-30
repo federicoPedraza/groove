@@ -24,10 +24,10 @@ import {
   X,
 } from "lucide-react";
 
-import { CommandsSettingsForm } from "@/src/components/pages/settings/commands-settings-form";
-import { WorktreeSymlinkPathsModal } from "@/src/components/pages/settings/worktree-symlink-paths-modal";
+import { PageHeader } from "@/src/components/pages/page-header";
 import { OpencodeIntegrationPanel } from "@/src/components/opencode/opencode-integration-panel";
 import { ClaudeCodeIntegrationPanel } from "@/src/components/claudecode/claudecode-integration-panel";
+import { GitHubIntegrationPanel } from "@/src/components/github/github-integration-panel";
 import { AssistantMcpPanel } from "@/src/components/pages/settings/assistant-mcp-panel";
 import { AssistantRulesPanel } from "@/src/components/pages/settings/assistant-rules-panel";
 import { GrooveSoundSettingsPanel } from "@/src/components/groove-sound-settings-panel";
@@ -39,10 +39,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
 } from "@/src/components/ui/sidebar";
-import type {
-  SaveState,
-  WorkspaceMeta,
-} from "@/src/components/pages/settings/types";
+import type { SaveState } from "@/src/components/pages/settings/types";
 import {
   Card,
   CardContent,
@@ -95,7 +92,6 @@ import {
 } from "@/src/components/ui/dropdown-menu";
 import { Input } from "@/src/components/ui/input";
 import {
-  GROOVE_PLAY_COMMAND_SENTINEL,
   getGlobalSettingsSnapshot,
   getThemeMode,
   globalSettingsGet,
@@ -108,10 +104,6 @@ import {
   isTelemetryEnabled,
   subscribeToGlobalSettings,
   workspaceGetActive,
-  workspaceUpdateCommandsSettings,
-  workspaceUpdateRootDirectory,
-  workspaceUpdateWorktreeSymlinkPaths,
-  type WorkspaceCommandSettingsPayload,
   type SoundLibraryEntry,
 } from "@/src/lib/ipc";
 import { playCustomSound } from "@/src/lib/utils/sound";
@@ -134,12 +126,7 @@ function logSettingsTelemetry(
   console.info(`${UI_TELEMETRY_PREFIX} ${event}`, payload);
 }
 
-type SettingsSubpage =
-  | "personalization"
-  | "workspace"
-  | "general"
-  | "assistant"
-  | "about";
+type SettingsSubpage = "personalization" | "general" | "assistant" | "about";
 
 const SETTINGS_SUBPAGES: {
   id: SettingsSubpage;
@@ -148,7 +135,6 @@ const SETTINGS_SUBPAGES: {
   icon: typeof Palette;
 }[] = [
   { id: "general", label: "General", shortLabel: "Gen", icon: Settings2 },
-  { id: "workspace", label: "Workspace", shortLabel: "Work", icon: FolderOpen },
   { id: "personalization", label: "Personalization", shortLabel: "Style", icon: Palette },
   { id: "assistant", label: "Assistant", shortLabel: "AI", icon: Bot },
   { id: "about", label: "About", shortLabel: "Info", icon: Info },
@@ -184,17 +170,19 @@ export default function SettingsPage() {
     getGlobalSettingsSnapshot,
     getGlobalSettingsSnapshot,
   );
-  const [workspaceMeta, setWorkspaceMeta] = useState<WorkspaceMeta | null>(
-    null,
-  );
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [telemetryEnabled, setTelemetryEnabled] = useState(
     globalSettingsSnapshot.telemetryEnabled,
   );
   const [disableGrooveBusiness, setDisableGrooveBusiness] =
     useState(globalSettingsSnapshot.disableGrooveBusiness);
+  const [hideMascot, setHideMascot] = useState(
+    globalSettingsSnapshot.hideMascot,
+  );
+  const [hideLabels, setHideLabels] = useState(
+    globalSettingsSnapshot.hideLabels,
+  );
   const [showFps, setShowFps] = useState(globalSettingsSnapshot.showFps);
   const [alwaysShowDiagnosticsSidebar, setAlwaysShowDiagnosticsSidebar] =
     useState(globalSettingsSnapshot.alwaysShowDiagnosticsSidebar);
@@ -217,32 +205,6 @@ export default function SettingsPage() {
         OPEN_WORKTREE_DETAILS_LAUNCHER_COMMAND_ID
       ],
   );
-  const [playGrooveCommand, setPlayGrooveCommand] = useState(
-    GROOVE_PLAY_COMMAND_SENTINEL,
-  );
-  const [openTerminalAtWorktreeCommand, setOpenTerminalAtWorktreeCommand] =
-    useState("");
-  const [runLocalCommand, setRunLocalCommand] = useState("");
-  const [worktreeSymlinkPaths, setWorktreeSymlinkPaths] = useState<string[]>(
-    [],
-  );
-  const [rootDirectoryInput, setRootDirectoryInput] = useState("");
-  const [isRootDirectorySaving, setIsRootDirectorySaving] = useState(false);
-  const [rootDirectoryMessage, setRootDirectoryMessage] = useState<
-    string | null
-  >(null);
-  const [rootDirectoryMessageType, setRootDirectoryMessageType] = useState<
-    "success" | "error" | null
-  >(null);
-  const [isWorktreeSymlinkModalOpen, setIsWorktreeSymlinkModalOpen] =
-    useState(false);
-  const [isWorktreeSymlinkSaving, setIsWorktreeSymlinkSaving] = useState(false);
-  const [worktreeSymlinkMessage, setWorktreeSymlinkMessage] = useState<
-    string | null
-  >(null);
-  const [worktreeSymlinkMessageType, setWorktreeSymlinkMessageType] = useState<
-    "success" | "error" | null
-  >(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [soundLibrary, setSoundLibrary] = useState<SoundLibraryEntry[]>(
     globalSettingsSnapshot.soundLibrary,
@@ -270,10 +232,64 @@ export default function SettingsPage() {
     }
   }, [renamingSoundId]);
   const [themeMode, setThemeMode] = useState<ThemeMode>(getThemeMode());
+  const [previewThemeMode, setPreviewThemeMode] = useState<ThemeMode | null>(
+    null,
+  );
   const [activeSubpage, setActiveSubpage] = useState<SettingsSubpage>(
     isValidSubpage(initialSubpage) ? initialSubpage : "general",
   );
+  const sectionRefs = useRef<
+    Partial<Record<SettingsSubpage, HTMLElement | null>>
+  >({});
+  const setSectionRef = useCallback(
+    (id: SettingsSubpage) => (node: HTMLElement | null) => {
+      sectionRefs.current[id] = node;
+    },
+    [],
+  );
+  const scrollToSubpage = useCallback((id: SettingsSubpage) => {
+    setActiveSubpage(id);
+    sectionRefs.current[id]?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, []);
+
+  // Scroll-spy: highlight the sidebar entry whose section is nearest the top.
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const topmost = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort(
+            (a, b) => a.boundingClientRect.top - b.boundingClientRect.top,
+          )[0];
+        if (!topmost) {
+          return;
+        }
+        const id = topmost.target.getAttribute("data-subpage");
+        if (isValidSubpage(id)) {
+          setActiveSubpage(id);
+        }
+      },
+      { rootMargin: "0px 0px -70% 0px", threshold: 0 },
+    );
+    for (const { id } of SETTINGS_SUBPAGES) {
+      const node = sectionRefs.current[id];
+      if (node) {
+        observer.observe(node);
+      }
+    }
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
   const disableGrooveBusinessRequestVersionRef = useRef(0);
+  const hideMascotRequestVersionRef = useRef(0);
+  const hideLabelsRequestVersionRef = useRef(0);
   const telemetryEnabledRequestVersionRef = useRef(0);
   const showFpsRequestVersionRef = useRef(0);
   const alwaysShowDiagnosticsSidebarRequestVersionRef = useRef(0);
@@ -287,6 +303,8 @@ export default function SettingsPage() {
     setDisableGrooveBusiness(
       globalSettingsSnapshot.disableGrooveBusiness,
     );
+    setHideMascot(globalSettingsSnapshot.hideMascot);
+    setHideLabels(globalSettingsSnapshot.hideLabels);
     setShowFps(globalSettingsSnapshot.showFps);
     setAlwaysShowDiagnosticsSidebar(
       globalSettingsSnapshot.alwaysShowDiagnosticsSidebar,
@@ -310,99 +328,43 @@ export default function SettingsPage() {
     setSoundLibrary(globalSettingsSnapshot.soundLibrary);
   }, [globalSettingsSnapshot]);
 
-  const onSaveRootDirectory = useCallback(async () => {
-    if (!workspaceMeta) {
-      setRootDirectoryMessage(
-        "Connect a repository before changing the scope directory.",
-      );
-      setRootDirectoryMessageType("error");
-      return;
-    }
-    setIsRootDirectorySaving(true);
-    setRootDirectoryMessage(null);
-    setRootDirectoryMessageType(null);
-    try {
-      const trimmed = rootDirectoryInput.trim();
-      const result = await workspaceUpdateRootDirectory({
-        rootDirectory: trimmed.length === 0 ? null : trimmed,
-      });
-      if (!result.ok || !result.workspaceMeta) {
-        setRootDirectoryMessage(
-          result.error ?? "Failed to update scope directory.",
-        );
-        setRootDirectoryMessageType("error");
-        return;
-      }
-      setWorkspaceMeta(result.workspaceMeta);
-      setRootDirectoryInput(result.workspaceMeta.rootDirectory ?? "");
-      setRootDirectoryMessage(
-        result.workspaceMeta.rootDirectory
-          ? `Scope directory set to "${result.workspaceMeta.rootDirectory}".`
-          : "Scope directory cleared.",
-      );
-      setRootDirectoryMessageType("success");
-    } catch {
-      setRootDirectoryMessage("Failed to update scope directory.");
-      setRootDirectoryMessageType("error");
-    } finally {
-      setIsRootDirectorySaving(false);
-    }
-  }, [rootDirectoryInput, workspaceMeta]);
+  // Shared optimistic updater for the gamification toggles (master + subs).
+  const updateGamificationSetting = useCallback(
+    (
+      field: "disableGrooveBusiness" | "hideMascot" | "hideLabels",
+      next: boolean,
+      previous: boolean,
+      setLocal: (value: boolean) => void,
+      versionRef: { current: number },
+    ): void => {
+      setLocal(next);
+      setErrorMessage(null);
+      const requestVersion = ++versionRef.current;
 
-  const onSaveCommandSettings = useCallback(
-    async (payload: WorkspaceCommandSettingsPayload) => {
-      if (!workspaceMeta) {
-        return {
-          ok: false,
-          error: "Select an active workspace before saving command settings.",
-        };
-      }
-
-      try {
-        const result = await workspaceUpdateCommandsSettings({
-          playGrooveCommand: payload.playGrooveCommand,
-          openTerminalAtWorktreeCommand:
-            payload.openTerminalAtWorktreeCommand ?? null,
-          runLocalCommand: payload.runLocalCommand ?? null,
-        });
-
-        if (!result.ok || !result.workspaceMeta) {
-          return {
-            ok: false,
-            error: result.error ?? "Failed to save command settings.",
-          };
+      void (async () => {
+        try {
+          const result = await globalSettingsUpdate({ [field]: next });
+          if (requestVersion !== versionRef.current) {
+            return;
+          }
+          if (!result.ok || !result.globalSettings) {
+            setLocal(previous);
+            setErrorMessage(
+              result.error ?? "Failed to update gamification settings.",
+            );
+            return;
+          }
+          setLocal(result.globalSettings[field]);
+        } catch {
+          if (requestVersion !== versionRef.current) {
+            return;
+          }
+          setLocal(previous);
+          setErrorMessage("Failed to update gamification settings.");
         }
-
-        const savedPlayGrooveCommand =
-          result.workspaceMeta.playGrooveCommand ??
-          GROOVE_PLAY_COMMAND_SENTINEL;
-        const savedOpenTerminalAtWorktreeCommand =
-          result.workspaceMeta.openTerminalAtWorktreeCommand ?? "";
-        const savedRunLocalCommand = result.workspaceMeta.runLocalCommand ?? "";
-
-        setWorkspaceMeta(result.workspaceMeta);
-        setPlayGrooveCommand(savedPlayGrooveCommand);
-        setOpenTerminalAtWorktreeCommand(savedOpenTerminalAtWorktreeCommand);
-        setRunLocalCommand(savedRunLocalCommand);
-        setWorktreeSymlinkPaths(
-          result.workspaceMeta.worktreeSymlinkPaths ?? [],
-        );
-        return {
-          ok: true,
-          payload: {
-            playGrooveCommand: savedPlayGrooveCommand,
-            openTerminalAtWorktreeCommand: savedOpenTerminalAtWorktreeCommand,
-            runLocalCommand: savedRunLocalCommand,
-          },
-        };
-      } catch {
-        return {
-          ok: false,
-          error: "Failed to save command settings.",
-        };
-      }
+      })();
     },
-    [workspaceMeta],
+    [],
   );
 
   useEffect(() => {
@@ -451,7 +413,6 @@ export default function SettingsPage() {
 
     void (async () => {
       const startedAtMs = performance.now();
-      setIsLoading(true);
       setErrorMessage(null);
 
       try {
@@ -461,7 +422,6 @@ export default function SettingsPage() {
         }
 
         if (!result.ok) {
-          setWorkspaceMeta(null);
           setWorkspaceRoot(null);
           setErrorMessage(
             describeWorkspaceContextError(
@@ -473,74 +433,31 @@ export default function SettingsPage() {
           logSettingsTelemetry("workspace_get_active.settings", {
             duration_ms: Number(durationMs.toFixed(2)),
             outcome: "error",
-            has_workspace_meta: false,
             has_workspace_root: false,
           });
           return;
         }
 
-        if (!result.workspaceMeta) {
-          setWorkspaceMeta(null);
-          setWorkspaceRoot(null);
-          setPlayGrooveCommand(GROOVE_PLAY_COMMAND_SENTINEL);
-          setOpenTerminalAtWorktreeCommand("");
-          setRunLocalCommand("");
-          setWorktreeSymlinkPaths([]);
-          setRootDirectoryInput("");
-          const durationMs = Math.max(0, performance.now() - startedAtMs);
-          logSettingsTelemetry("workspace_get_active.settings", {
-            duration_ms: Number(durationMs.toFixed(2)),
-            outcome: "ok",
-            has_workspace_meta: false,
-            has_workspace_root: false,
-          });
-          return;
-        }
-
-        setWorkspaceMeta(result.workspaceMeta);
         setWorkspaceRoot(result.workspaceRoot ?? null);
-        setPlayGrooveCommand(
-          result.workspaceMeta.playGrooveCommand ??
-            GROOVE_PLAY_COMMAND_SENTINEL,
-        );
-        setOpenTerminalAtWorktreeCommand(
-          result.workspaceMeta.openTerminalAtWorktreeCommand ?? "",
-        );
-        setRunLocalCommand(result.workspaceMeta.runLocalCommand ?? "");
-        setWorktreeSymlinkPaths(
-          result.workspaceMeta.worktreeSymlinkPaths ?? [],
-        );
-        setRootDirectoryInput(result.workspaceMeta.rootDirectory ?? "");
         setSaveState("idle");
 
         const durationMs = Math.max(0, performance.now() - startedAtMs);
         logSettingsTelemetry("workspace_get_active.settings", {
           duration_ms: Number(durationMs.toFixed(2)),
           outcome: "ok",
-          has_workspace_meta: true,
           has_workspace_root: result.workspaceRoot != null,
         });
       } catch {
         if (!cancelled) {
-          setWorkspaceMeta(null);
           setWorkspaceRoot(null);
-          setPlayGrooveCommand(GROOVE_PLAY_COMMAND_SENTINEL);
-          setOpenTerminalAtWorktreeCommand("");
-          setRunLocalCommand("");
-          setWorktreeSymlinkPaths([]);
           setErrorMessage("Failed to load the active workspace context.");
 
           const durationMs = Math.max(0, performance.now() - startedAtMs);
           logSettingsTelemetry("workspace_get_active.settings", {
             duration_ms: Number(durationMs.toFixed(2)),
             outcome: "error",
-            has_workspace_meta: false,
             has_workspace_root: false,
           });
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
         }
       }
     })();
@@ -549,49 +466,6 @@ export default function SettingsPage() {
       cancelled = true;
     };
   }, []);
-
-  const onApplyWorktreeSymlinkPaths = useCallback(
-    async (paths: string[]) => {
-      if (!workspaceMeta) {
-        setWorktreeSymlinkMessageType("error");
-        setWorktreeSymlinkMessage(
-          "Connect a repository before editing worktree symlink paths.",
-        );
-        return;
-      }
-
-      setIsWorktreeSymlinkSaving(true);
-      setWorktreeSymlinkMessage(null);
-      setWorktreeSymlinkMessageType(null);
-
-      try {
-        const response = await workspaceUpdateWorktreeSymlinkPaths({
-          worktreeSymlinkPaths: paths,
-        });
-        if (!response.ok || !response.workspaceMeta) {
-          setWorktreeSymlinkMessageType("error");
-          setWorktreeSymlinkMessage(
-            response.error ?? "Failed to save worktree symlink paths.",
-          );
-          return;
-        }
-
-        setWorkspaceMeta(response.workspaceMeta);
-        setWorktreeSymlinkPaths(
-          response.workspaceMeta.worktreeSymlinkPaths ?? [],
-        );
-        setIsWorktreeSymlinkModalOpen(false);
-        setWorktreeSymlinkMessageType("success");
-        setWorktreeSymlinkMessage("Worktree symlink paths updated.");
-      } catch {
-        setWorktreeSymlinkMessageType("error");
-        setWorktreeSymlinkMessage("Failed to save worktree symlink paths.");
-      } finally {
-        setIsWorktreeSymlinkSaving(false);
-      }
-    },
-    [workspaceMeta],
-  );
 
   const onThemeModeChange = (nextTheme: ThemeMode): void => {
     const previousThemeMode = themeMode;
@@ -819,7 +693,7 @@ export default function SettingsPage() {
                 key={subpage.id}
                 isActive={activeSubpage === subpage.id}
                 collapsed={collapsed}
-                onClick={() => setActiveSubpage(subpage.id)}
+                onClick={() => scrollToSubpage(subpage.id)}
               >
                 <subpage.icon aria-hidden="true" className="size-4 shrink-0" />
                 {!collapsed && <span className="truncate">{subpage.label}</span>}
@@ -829,7 +703,7 @@ export default function SettingsPage() {
         </SidebarContent>
       </Sidebar>
     ),
-    [activeSubpage],
+    [activeSubpage, scrollToSubpage],
   );
 
   useAppLayout({
@@ -838,21 +712,24 @@ export default function SettingsPage() {
 
   return (
     <>
-      <div className="space-y-3">
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold text-foreground">
-            {SETTINGS_SUBPAGES.find((s) => s.id === activeSubpage)?.label ?? "Settings"}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {activeSubpage === "general" && "Toggles, keyboard shortcuts, and integrations for Groove."}
-            {activeSubpage === "workspace" && "Configure commands and paths for the active workspace."}
-            {activeSubpage === "personalization" && "Customize the look, feel, and sounds of Groove."}
-            {activeSubpage === "assistant" && "Connect Groove's MCP server to Claude Code and verify the connection."}
-            {activeSubpage === "about" && "Information about Groove."}
-          </p>
-        </div>
+      <div className="flex flex-col gap-6">
+        <PageHeader
+          title="Settings"
+          description="Toggles, shortcuts, integrations, and personalization for Groove."
+        />
 
-        {activeSubpage === "assistant" && (
+        <section
+          ref={setSectionRef("assistant")}
+          data-subpage="assistant"
+          className="order-3 scroll-mt-4 space-y-3"
+          aria-labelledby="settings-section-assistant"
+        >
+          <h2
+            id="settings-section-assistant"
+            className="text-sm font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            Assistant
+          </h2>
           <Collapsible defaultOpen>
             <Card className="gap-0 py-4">
               <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
@@ -878,184 +755,20 @@ export default function SettingsPage() {
               </CollapsibleContent>
             </Card>
           </Collapsible>
-        )}
+        </section>
 
-        {isLoading && activeSubpage === "workspace" && (
-          <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-            Loading active workspace...
-          </p>
-        )}
-
-        {activeSubpage === "workspace" && (
-        <Collapsible defaultOpen>
-          <Card className="gap-0 py-4">
-            <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-180"
-                  aria-label="Toggle workspace settings"
-                >
-                  <ChevronDown
-                    aria-hidden="true"
-                    className="size-4 text-muted-foreground transition-transform duration-200"
-                  />
-                  <CardTitle className="text-sm">Workspace settings</CardTitle>
-                </button>
-              </CollapsibleTrigger>
-            </CardHeader>
-            <CollapsibleContent>
-              <CardContent className="space-y-3">
-                <section className="space-y-3">
-                  <h3 className="text-sm font-medium text-foreground">
-                    Scope directory
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Optional path (relative to the workspace root) where Groove
-                    should create and look for <code>.worktrees/</code>. Leave
-                    blank to operate at the workspace root. Useful when you
-                    open a monorepo root in Groove but want to scope worktrees
-                    to a sub-app like <code>apps/next</code>.
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={rootDirectoryInput}
-                      onChange={(event) =>
-                        setRootDirectoryInput(event.target.value)
-                      }
-                      placeholder="apps/next"
-                      disabled={!workspaceMeta || isRootDirectorySaving}
-                      className="max-w-xs"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => {
-                        void onSaveRootDirectory();
-                      }}
-                      disabled={!workspaceMeta || isRootDirectorySaving}
-                    >
-                      {isRootDirectorySaving ? "Saving..." : "Save"}
-                    </Button>
-                    {workspaceMeta?.rootDirectory && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setRootDirectoryInput("");
-                          void onSaveRootDirectory();
-                        }}
-                        disabled={isRootDirectorySaving}
-                      >
-                        Clear
-                      </Button>
-                    )}
-                  </div>
-                  {!workspaceMeta && (
-                    <p className="text-xs text-muted-foreground">
-                      Connect a repository to configure the scope directory.
-                    </p>
-                  )}
-                  {rootDirectoryMessage &&
-                    rootDirectoryMessageType === "success" && (
-                      <p className="text-xs text-green-800">
-                        {rootDirectoryMessage}
-                      </p>
-                    )}
-                  {rootDirectoryMessage &&
-                    rootDirectoryMessageType === "error" && (
-                      <p className="text-xs text-destructive">
-                        {rootDirectoryMessage}
-                      </p>
-                    )}
-                </section>
-
-                <section className="space-y-3">
-                  <h3 className="text-sm font-medium text-foreground">
-                    Commands
-                  </h3>
-                  <CommandsSettingsForm
-                    playGrooveCommand={playGrooveCommand}
-                    openTerminalAtWorktreeCommand={
-                      openTerminalAtWorktreeCommand
-                    }
-                    runLocalCommand={runLocalCommand}
-                    section="commands"
-                    disabled={!workspaceMeta}
-                    disabledMessage={
-                      !workspaceMeta
-                        ? "Connect a repository to edit workspace command settings."
-                        : undefined
-                    }
-                    onSave={onSaveCommandSettings}
-                  />
-                </section>
-
-                <section className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-medium text-foreground">
-                      Worktree symlinked paths
-                    </h3>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!workspaceMeta || isWorktreeSymlinkSaving}
-                      onClick={() => {
-                        setWorktreeSymlinkMessage(null);
-                        setWorktreeSymlinkMessageType(null);
-                        setIsWorktreeSymlinkModalOpen(true);
-                      }}
-                    >
-                      Edit
-                    </Button>
-                  </div>
-
-                  <p className="text-xs text-muted-foreground">
-                    Groove symlinks these paths into worktrees when they exist
-                    in the repository root.
-                  </p>
-
-                  <ul className="space-y-1 text-sm text-foreground">
-                    {worktreeSymlinkPaths.map((path) => (
-                      <li key={path}>
-                        <code>{path}</code>
-                      </li>
-                    ))}
-                    {worktreeSymlinkPaths.length === 0 && (
-                      <li className="text-muted-foreground">
-                        No configured paths.
-                      </li>
-                    )}
-                  </ul>
-
-                  {!workspaceMeta && (
-                    <p className="text-xs text-muted-foreground">
-                      Connect a repository to edit this list.
-                    </p>
-                  )}
-                  {worktreeSymlinkMessage &&
-                    worktreeSymlinkMessageType === "success" && (
-                      <p className="text-xs text-green-800">
-                        {worktreeSymlinkMessage}
-                      </p>
-                    )}
-                  {worktreeSymlinkMessage &&
-                    worktreeSymlinkMessageType === "error" && (
-                      <p className="text-xs text-destructive">
-                        {worktreeSymlinkMessage}
-                      </p>
-                    )}
-                </section>
-              </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
-        )}
-
-        {activeSubpage === "personalization" && (
-        <>
+        <section
+          ref={setSectionRef("personalization")}
+          data-subpage="personalization"
+          className="order-2 scroll-mt-4 space-y-3"
+          aria-labelledby="settings-section-personalization"
+        >
+          <h2
+            id="settings-section-personalization"
+            className="text-sm font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            Personalization
+          </h2>
         <Collapsible defaultOpen>
           <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
@@ -1140,7 +853,7 @@ export default function SettingsPage() {
 
                   {soundLibrary.length > 0 && (
                     <TooltipProvider>
-                      <div className="rounded-lg border bg-card">
+                      <div className="overflow-hidden rounded-lg border bg-card">
                         <Table>
                           <TableBody>
                             {soundLibrary.map((sound) => (
@@ -1447,13 +1160,27 @@ export default function SettingsPage() {
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                   {THEME_MODE_OPTIONS.map((option) => {
                     const isSelected = themeMode === option.value;
-                    const isDark = DARK_THEME_MODES.has(option.value);
+                    const isPreviewing = previewThemeMode === option.value;
+                    const isDark =
+                      isPreviewing && DARK_THEME_MODES.has(option.value);
 
                     return (
                       <label
                         key={option.value}
-                        data-theme={option.value}
-                        className={`flex cursor-pointer items-start gap-3 rounded-md border border-border bg-background px-3 py-3 text-sm transition-colors hover:border-border/80 ${isDark ? "dark" : ""}`}
+                        data-theme={isPreviewing ? option.value : undefined}
+                        onMouseEnter={() => {
+                          setPreviewThemeMode(option.value);
+                        }}
+                        onMouseLeave={() => {
+                          setPreviewThemeMode(null);
+                        }}
+                        onFocus={() => {
+                          setPreviewThemeMode(option.value);
+                        }}
+                        onBlur={() => {
+                          setPreviewThemeMode(null);
+                        }}
+                        className={`group flex cursor-pointer items-start gap-3 rounded-md border border-border bg-background px-3 py-3 text-sm transition-colors hover:border-border/80 ${isDark ? "dark" : ""}`}
                       >
                         <input
                           type="radio"
@@ -1481,7 +1208,7 @@ export default function SettingsPage() {
                             </span>
                           </div>
 
-                          <div className="space-y-2">
+                          <div className="space-y-2 grayscale transition-[filter] duration-200 group-hover:grayscale-0">
                             <div className="flex items-center gap-1.5">
                               <span className="inline-flex h-6 items-center rounded-md bg-primary px-2 text-[11px] font-medium text-primary-foreground">
                                 Primary
@@ -1504,11 +1231,20 @@ export default function SettingsPage() {
             </CollapsibleContent>
           </Card>
         </Collapsible>
-        </>
-        )}
+        </section>
 
-        {activeSubpage === "general" && (
-        <>
+        <section
+          ref={setSectionRef("general")}
+          data-subpage="general"
+          className="order-1 scroll-mt-4 space-y-3"
+          aria-labelledby="settings-section-general"
+        >
+          <h2
+            id="settings-section-general"
+            className="text-sm font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            General
+          </h2>
         <Collapsible defaultOpen>
           <Card className="gap-0 py-4">
             <CardHeader className="py-3 [&:has([data-state=closed])]:gap-0">
@@ -1636,6 +1372,7 @@ export default function SettingsPage() {
                   workspaceRoot={workspaceRoot}
                 />
                 <ClaudeCodeIntegrationPanel />
+                <GitHubIntegrationPanel workspaceRoot={workspaceRoot} />
               </CardContent>
             </CollapsibleContent>
           </Card>
@@ -1727,70 +1464,71 @@ export default function SettingsPage() {
                       checked={disableGrooveBusiness}
                       disabled={saveState === "saving"}
                       onCheckedChange={(checked) => {
-                        const nextDisableGrooveBusiness =
-                          checked === true;
-                        const previousDisableGrooveBusiness =
-                          disableGrooveBusiness;
-                        setDisableGrooveBusiness(
-                          nextDisableGrooveBusiness,
+                        updateGamificationSetting(
+                          "disableGrooveBusiness",
+                          checked === true,
+                          disableGrooveBusiness,
+                          setDisableGrooveBusiness,
+                          disableGrooveBusinessRequestVersionRef,
                         );
-                        setErrorMessage(null);
-
-                        const requestVersion =
-                          ++disableGrooveBusinessRequestVersionRef.current;
-
-                        void (async () => {
-                          try {
-                            const result = await globalSettingsUpdate({
-                              disableGrooveBusiness:
-                                nextDisableGrooveBusiness,
-                            });
-
-                            if (
-                              requestVersion !==
-                              disableGrooveBusinessRequestVersionRef.current
-                            ) {
-                              return;
-                            }
-
-                            if (!result.ok || !result.globalSettings) {
-                              setDisableGrooveBusiness(
-                                previousDisableGrooveBusiness,
-                              );
-                              setErrorMessage(
-                                result.error ??
-                                  "Failed to update groove business visibility.",
-                              );
-                              return;
-                            }
-
-                            setDisableGrooveBusiness(
-                              result.globalSettings.disableGrooveBusiness,
-                            );
-                          } catch {
-                            if (
-                              requestVersion !==
-                              disableGrooveBusinessRequestVersionRef.current
-                            ) {
-                              return;
-                            }
-                            setDisableGrooveBusiness(
-                              previousDisableGrooveBusiness,
-                            );
-                            setErrorMessage(
-                              "Failed to update groove business visibility.",
-                            );
-                          }
-                        })();
                       }}
                     />
-                    <span>Disable groove business</span>
+                    <span>Hide gamification</span>
                   </span>
                   <span className="text-xs text-muted-foreground/70 sm:text-right">
-                    Hides the sidebar mascot and replaces themed labels and
-                    icons (Barracks, Stronghold, etc.) with plain ones.
+                    Hides all gamification at once — the mascot and the themed
+                    labels/icons (Barracks, Stronghold, etc.).
                   </span>
                 </label>
+                <div className="ml-3 flex flex-col gap-2 border-l border-dashed pl-3">
+                  <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
+                    <span className="inline-flex min-w-0 items-center gap-2">
+                      <Checkbox
+                        checked={disableGrooveBusiness || hideMascot}
+                        disabled={
+                          saveState === "saving" || disableGrooveBusiness
+                        }
+                        onCheckedChange={(checked) => {
+                          updateGamificationSetting(
+                            "hideMascot",
+                            checked === true,
+                            hideMascot,
+                            setHideMascot,
+                            hideMascotRequestVersionRef,
+                          );
+                        }}
+                      />
+                      <span>Hide mascot</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground/70 sm:text-right">
+                      Hides the sidebar mascot sprite.
+                    </span>
+                  </label>
+                  <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
+                    <span className="inline-flex min-w-0 items-center gap-2">
+                      <Checkbox
+                        checked={disableGrooveBusiness || hideLabels}
+                        disabled={
+                          saveState === "saving" || disableGrooveBusiness
+                        }
+                        onCheckedChange={(checked) => {
+                          updateGamificationSetting(
+                            "hideLabels",
+                            checked === true,
+                            hideLabels,
+                            setHideLabels,
+                            hideLabelsRequestVersionRef,
+                          );
+                        }}
+                      />
+                      <span>Hide labels</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground/70 sm:text-right">
+                      Uses plain labels and icons (Barracks → Home, etc.).
+                      Forced elements like gold still show.
+                    </span>
+                  </label>
+                </div>
                 <label className="flex items-center justify-between gap-3 rounded-md border border-dashed px-3 py-2 text-sm text-foreground">
                   <span className="inline-flex min-w-0 items-center gap-2">
                     <Checkbox
@@ -1974,10 +1712,20 @@ export default function SettingsPage() {
             </CollapsibleContent>
           </Card>
         </Collapsible>
-        </>
-        )}
+        </section>
 
-        {activeSubpage === "about" && (
+        <section
+          ref={setSectionRef("about")}
+          data-subpage="about"
+          className="order-4 scroll-mt-4 space-y-3"
+          aria-labelledby="settings-section-about"
+        >
+          <h2
+            id="settings-section-about"
+            className="text-sm font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            About
+          </h2>
           <Card className="gap-0 py-4">
             <CardHeader className="py-3">
               <CardTitle className="text-sm">About Groove</CardTitle>
@@ -1991,23 +1739,10 @@ export default function SettingsPage() {
               </p>
             </CardContent>
           </Card>
-        )}
-
-        <WorktreeSymlinkPathsModal
-          open={isWorktreeSymlinkModalOpen}
-          workspaceRoot={workspaceRoot}
-          selectedPaths={worktreeSymlinkPaths}
-          savePending={isWorktreeSymlinkSaving}
-          onApply={onApplyWorktreeSymlinkPaths}
-          onOpenChange={(open) => {
-            if (!isWorktreeSymlinkSaving) {
-              setIsWorktreeSymlinkModalOpen(open);
-            }
-          }}
-        />
+        </section>
 
         {errorMessage && (
-          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <p className="order-last rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {errorMessage}
           </p>
         )}

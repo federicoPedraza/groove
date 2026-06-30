@@ -1,8 +1,24 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DiagnosticsSystemSidebar } from "@/src/components/pages/diagnostics/diagnostics-system-sidebar";
 import type { DiagnosticsSystemOverview } from "@/src/lib/ipc";
+
+const { globalSettingsUpdateMock, isPinnedMock } = vi.hoisted(() => ({
+  globalSettingsUpdateMock: vi.fn(),
+  isPinnedMock: vi.fn<() => boolean>(() => false),
+}));
+
+vi.mock("@/src/lib/ipc", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/src/lib/ipc")>("@/src/lib/ipc");
+  return {
+    ...actual,
+    globalSettingsUpdate: (...args: unknown[]) =>
+      globalSettingsUpdateMock(...args),
+    isAlwaysShowDiagnosticsSidebarEnabled: () => isPinnedMock(),
+  };
+});
 
 const FULL_OVERVIEW: DiagnosticsSystemOverview = {
   cpuUsagePercent: 42.5,
@@ -25,7 +41,19 @@ describe("DiagnosticsSystemSidebar", () => {
 
   beforeEach(() => {
     onRefresh = vi.fn();
+    globalSettingsUpdateMock.mockReset();
+    globalSettingsUpdateMock.mockResolvedValue({ ok: true });
+    isPinnedMock.mockReset();
+    isPinnedMock.mockReturnValue(false);
   });
+
+  // The system details panel (hostname, platform, bytes, ...) is collapsed by
+  // default, so its content is not mounted until the toggle is clicked.
+  function openDetails(): void {
+    fireEvent.click(
+      screen.getByRole("button", { name: /toggle system details/i }),
+    );
+  }
 
   describe("expanded view", () => {
     it("renders system heading and refresh button", () => {
@@ -78,6 +106,89 @@ describe("DiagnosticsSystemSidebar", () => {
       ).toBeDisabled();
     });
 
+    it("renders an unpinned pin button when the sidebar is not pinned", () => {
+      isPinnedMock.mockReturnValue(false);
+      render(
+        <DiagnosticsSystemSidebar
+          collapsed={false}
+          overview={FULL_OVERVIEW}
+          isLoading={false}
+          errorMessage={null}
+          onRefresh={onRefresh}
+        />,
+      );
+
+      const pinButton = screen.getByRole("button", {
+        name: /pin diagnostics sidebar/i,
+      });
+      expect(pinButton).toBeInTheDocument();
+      expect(pinButton).toHaveAttribute("aria-pressed", "false");
+    });
+
+    it("renders a pressed unpin button when the sidebar is pinned", () => {
+      isPinnedMock.mockReturnValue(true);
+      render(
+        <DiagnosticsSystemSidebar
+          collapsed={false}
+          overview={FULL_OVERVIEW}
+          isLoading={false}
+          errorMessage={null}
+          onRefresh={onRefresh}
+        />,
+      );
+
+      const pinButton = screen.getByRole("button", {
+        name: /unpin diagnostics sidebar/i,
+      });
+      expect(pinButton).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("enables the pin setting when clicked while unpinned", async () => {
+      isPinnedMock.mockReturnValue(false);
+      render(
+        <DiagnosticsSystemSidebar
+          collapsed={false}
+          overview={FULL_OVERVIEW}
+          isLoading={false}
+          errorMessage={null}
+          onRefresh={onRefresh}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /pin diagnostics sidebar/i }),
+      );
+
+      await waitFor(() => {
+        expect(globalSettingsUpdateMock).toHaveBeenCalledWith({
+          alwaysShowDiagnosticsSidebar: true,
+        });
+      });
+    });
+
+    it("disables the pin setting when clicked while pinned", async () => {
+      isPinnedMock.mockReturnValue(true);
+      render(
+        <DiagnosticsSystemSidebar
+          collapsed={false}
+          overview={FULL_OVERVIEW}
+          isLoading={false}
+          errorMessage={null}
+          onRefresh={onRefresh}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /unpin diagnostics sidebar/i }),
+      );
+
+      await waitFor(() => {
+        expect(globalSettingsUpdateMock).toHaveBeenCalledWith({
+          alwaysShowDiagnosticsSidebar: false,
+        });
+      });
+    });
+
     it("renders metric progress bars for CPU, RAM, Swap, and Disk", () => {
       render(
         <DiagnosticsSystemSidebar
@@ -116,9 +227,45 @@ describe("DiagnosticsSystemSidebar", () => {
         />,
       );
 
+      openDetails();
+
       expect(screen.getByText("test-host")).toBeInTheDocument();
       expect(screen.getByText("linux")).toBeInTheDocument();
       expect(screen.getByText("8")).toBeInTheDocument();
+    });
+
+    it("collapses the system details panel by default", () => {
+      render(
+        <DiagnosticsSystemSidebar
+          collapsed={false}
+          overview={FULL_OVERVIEW}
+          isLoading={false}
+          errorMessage={null}
+          onRefresh={onRefresh}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: /toggle system details/i }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("test-host")).not.toBeInTheDocument();
+      expect(screen.queryByText("linux")).not.toBeInTheDocument();
+    });
+
+    it("reveals the system details panel when the toggle is clicked", () => {
+      render(
+        <DiagnosticsSystemSidebar
+          collapsed={false}
+          overview={FULL_OVERVIEW}
+          isLoading={false}
+          errorMessage={null}
+          onRefresh={onRefresh}
+        />,
+      );
+
+      expect(screen.queryByText("test-host")).not.toBeInTheDocument();
+      openDetails();
+      expect(screen.getByText("test-host")).toBeInTheDocument();
     });
 
     it("shows Unavailable when overview is null", () => {
@@ -179,6 +326,8 @@ describe("DiagnosticsSystemSidebar", () => {
         />,
       );
 
+      openDetails();
+
       const unavailableElements = screen.getAllByText("Unavailable");
       expect(unavailableElements.length).toBeGreaterThanOrEqual(1);
     });
@@ -221,6 +370,8 @@ describe("DiagnosticsSystemSidebar", () => {
         />,
       );
 
+      openDetails();
+
       expect(screen.getByText("macos")).toBeInTheDocument();
       const unavailableElements = screen.getAllByText("Unavailable");
       expect(unavailableElements.length).toBeGreaterThanOrEqual(3);
@@ -254,6 +405,8 @@ describe("DiagnosticsSystemSidebar", () => {
         />,
       );
 
+      openDetails();
+
       expect(screen.getByTitle("8.0 GB / 16.0 GB")).toBeInTheDocument();
       expect(screen.getByTitle("1.0 GB / 4.0 GB")).toBeInTheDocument();
       expect(screen.getByTitle("250 GB / 500 GB")).toBeInTheDocument();
@@ -275,6 +428,8 @@ describe("DiagnosticsSystemSidebar", () => {
         />,
       );
 
+      openDetails();
+
       expect(screen.getByTitle("0 B / 0 B")).toBeInTheDocument();
     });
 
@@ -293,6 +448,8 @@ describe("DiagnosticsSystemSidebar", () => {
           onRefresh={onRefresh}
         />,
       );
+
+      openDetails();
 
       expect(screen.getByTitle("Unavailable / 1.0 KB")).toBeInTheDocument();
     });
@@ -313,6 +470,8 @@ describe("DiagnosticsSystemSidebar", () => {
         />,
       );
 
+      openDetails();
+
       expect(screen.getByTitle("Unavailable / 1.0 MB")).toBeInTheDocument();
     });
 
@@ -331,6 +490,8 @@ describe("DiagnosticsSystemSidebar", () => {
           onRefresh={onRefresh}
         />,
       );
+
+      openDetails();
 
       expect(screen.getByTitle("2.0 TB / 4.0 TB")).toBeInTheDocument();
     });
@@ -351,6 +512,8 @@ describe("DiagnosticsSystemSidebar", () => {
         />,
       );
 
+      openDetails();
+
       expect(screen.getByTitle("200 KB / 300 KB")).toBeInTheDocument();
     });
 
@@ -364,6 +527,8 @@ describe("DiagnosticsSystemSidebar", () => {
           onRefresh={onRefresh}
         />,
       );
+
+      openDetails();
 
       expect(screen.getByText("unknown")).toBeInTheDocument();
     });
@@ -434,6 +599,22 @@ describe("DiagnosticsSystemSidebar", () => {
 
       expect(
         screen.queryByRole("button", { name: /refresh system diagnostics/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("does not render pin button in collapsed view", () => {
+      render(
+        <DiagnosticsSystemSidebar
+          collapsed={true}
+          overview={FULL_OVERVIEW}
+          isLoading={false}
+          errorMessage={null}
+          onRefresh={onRefresh}
+        />,
+      );
+
+      expect(
+        screen.queryByRole("button", { name: /pin diagnostics sidebar/i }),
       ).not.toBeInTheDocument();
     });
 

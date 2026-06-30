@@ -21,7 +21,9 @@ const DiagnosticsPage = lazy(async () => import("@/src/app/diagnostics/page"));
 const IntelligencePage = lazy(async () => import("@/src/app/intelligence/page"));
 const InventoryPage = lazy(async () => import("@/src/app/inventory/page"));
 const SettingsPage = lazy(async () => import("@/src/app/settings/page"));
-const WorktreesPage = lazy(async () => import("@/src/app/worktrees/page"));
+const WorkspaceSettingsPage = lazy(
+  async () => import("@/src/app/workspace/settings/page"),
+);
 const WorktreeDetailPage = lazy(
   async () => import("@/src/app/worktrees/worktree-detail-page"),
 );
@@ -32,7 +34,7 @@ type RouteFallbackProps = {
 
 function RouteFallback({ pageName }: RouteFallbackProps) {
   return (
-    <section aria-live="polite" className="mx-auto w-full max-w-7xl p-4 md:p-6">
+    <section aria-live="polite">
       <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
         Loading {pageName}...
       </p>
@@ -85,14 +87,6 @@ export function App() {
             }
           />
           <Route
-            path="worktrees"
-            element={
-              <Suspense fallback={<RouteFallback pageName="worktrees" />}>
-                <WorktreesPage />
-              </Suspense>
-            }
-          />
-          <Route
             path="worktrees/:worktree"
             element={
               <Suspense
@@ -139,6 +133,16 @@ export function App() {
             element={
               <Suspense fallback={<RouteFallback pageName="settings" />}>
                 <SettingsPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="workspace/settings"
+            element={
+              <Suspense
+                fallback={<RouteFallback pageName="workspace settings" />}
+              >
+                <WorkspaceSettingsPage />
               </Suspense>
             }
           />

@@ -65,6 +65,22 @@ pub fn open_url_in_browser(url: &str, cwd: &Path) -> Result<(), String> {
         .map_err(|error| format!("Failed to open URL with {program}: {error}"))
 }
 
+/// Reveal a directory in the platform's file manager (Finder / Explorer / xdg).
+pub fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
+    let path_str = path.to_string_lossy().to_string();
+    let (program, args): (&str, Vec<String>) = match Platform::current() {
+        Platform::Linux => ("xdg-open", vec![path_str]),
+        Platform::MacOS => ("open", vec![path_str]),
+        Platform::Windows => ("explorer", vec![path_str]),
+    };
+
+    Command::new(program)
+        .args(&args)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Failed to open directory with {program}: {error}"))
+}
+
 // ---------------------------------------------------------------------------
 // 2. Process termination
 // ---------------------------------------------------------------------------
@@ -220,9 +236,11 @@ pub fn read_cpu_usage_percent() -> Option<f64> {
 
 fn read_cpu_usage_linux() -> Option<f64> {
     use std::fs;
+    use std::sync::Mutex;
     use std::thread;
     use std::time::Duration;
 
+    // Returns (idle_all_ticks, total_ticks) from the aggregate `cpu` line.
     fn read_ticks() -> Option<(u64, u64)> {
         let stat = fs::read_to_string("/proc/stat").ok()?;
         let first_line = stat.lines().next()?;
@@ -251,18 +269,45 @@ fn read_cpu_usage_linux() -> Option<f64> {
         Some((idle_all, idle_all.saturating_add(non_idle)))
     }
 
-    let (first_idle, first_total) = read_ticks()?;
-    thread::sleep(Duration::from_millis(160));
-    let (second_idle, second_total) = read_ticks()?;
-
-    let total_delta = second_total.saturating_sub(first_total);
-    if total_delta == 0 {
-        return None;
+    fn usage_between(prev: (u64, u64), curr: (u64, u64)) -> Option<f64> {
+        let total_delta = curr.1.saturating_sub(prev.1);
+        if total_delta == 0 {
+            return None;
+        }
+        let idle_delta = curr.0.saturating_sub(prev.0);
+        let used_delta = total_delta.saturating_sub(idle_delta);
+        Some(clamp_percentage((used_delta as f64 / total_delta as f64) * 100.0))
     }
 
-    let idle_delta = second_idle.saturating_sub(first_idle);
-    let used_delta = total_delta.saturating_sub(idle_delta);
-    Some(clamp_percentage((used_delta as f64 / total_delta as f64) * 100.0))
+    // Cache the previous /proc/stat snapshot so repeated calls (the diagnostics
+    // page polls every few seconds) compute usage from the delta *between* calls
+    // instead of blocking the thread with an inline 160ms sample window on every
+    // request. The wider sampling window is also a steadier reading.
+    static LAST_SNAPSHOT: Mutex<Option<(u64, u64)>> = Mutex::new(None);
+
+    let current = read_ticks()?;
+    let previous = {
+        let mut guard = LAST_SNAPSHOT.lock().ok()?;
+        let prev = *guard;
+        *guard = Some(current);
+        prev
+    };
+
+    if let Some(prev) = previous {
+        if let Some(usage) = usage_between(prev, current) {
+            return Some(usage);
+        }
+    }
+
+    // First call in this process (or a zero-delta window): take a short inline
+    // sample so the UI gets a value immediately instead of waiting for the next
+    // poll. Subsequent calls reuse the cached snapshot and skip the sleep.
+    thread::sleep(Duration::from_millis(160));
+    let second = read_ticks()?;
+    if let Ok(mut guard) = LAST_SNAPSHOT.lock() {
+        *guard = Some(second);
+    }
+    usage_between(current, second)
 }
 
 fn read_cpu_usage_macos() -> Option<f64> {
@@ -532,6 +577,57 @@ pub fn read_disk_usage(path: &Path) -> Option<(u64, u64, f64)> {
         Platform::MacOS => read_disk_usage_df(path, &["-k"]),
         Platform::Windows => read_disk_usage_windows(path),
     }
+}
+
+/// Total size (in bytes) of all files under `path`, recursively. Best-effort:
+/// unreadable entries are skipped and a failure resolves to 0 rather than
+/// erroring, since this only powers an informational disk-usage panel.
+pub fn calculate_dir_size_bytes(path: &Path) -> u64 {
+    match Platform::current() {
+        Platform::Linux | Platform::MacOS => calculate_dir_size_du(path)
+            .unwrap_or_else(|| calculate_dir_size_walk(path)),
+        Platform::Windows => calculate_dir_size_walk(path),
+    }
+}
+
+fn calculate_dir_size_du(path: &Path) -> Option<u64> {
+    // `du -sk` reports apparent disk usage in KiB; first column is the size.
+    let output = Command::new("du")
+        .arg("-sk")
+        .arg(path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let first_field = stdout.split_whitespace().next()?;
+    let kib = first_field.parse::<u64>().ok()?;
+    Some(kib.saturating_mul(1024))
+}
+
+fn calculate_dir_size_walk(path: &Path) -> u64 {
+    let mut total: u64 = 0;
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                stack.push(entry.path());
+            } else if let Ok(metadata) = entry.metadata() {
+                total = total.saturating_add(metadata.len());
+            }
+        }
+    }
+    total
 }
 
 fn read_disk_usage_df(path: &Path, flags: &[&str]) -> Option<(u64, u64, f64)> {

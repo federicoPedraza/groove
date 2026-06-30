@@ -35,12 +35,12 @@ export type MascotDefinition = {
   };
 };
 
-export const DEFAULT_MASCOT_ID = "donkey-kong";
+export const DEFAULT_MASCOT_ID = "bramble";
 
 export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
   {
     id: DEFAULT_MASCOT_ID,
-    name: "Donkey Kong",
+    name: "Bramble",
     sprites: {
       idle: {
         src: "/idle.png",
@@ -72,8 +72,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "enguarde",
-    name: "Engarde",
+    id: "foil",
+    name: "Foil",
     sprites: {
       idle: {
         src: "/enguarde/idle.png",
@@ -87,8 +87,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "wilhem",
-    name: "Wilhem",
+    id: "wendell",
+    name: "Wendell",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -104,8 +104,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "winky",
-    name: "Winky",
+    id: "hopper",
+    name: "Hopper",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -121,8 +121,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "vladimir",
-    name: "Vladimir",
+    id: "vorlan",
+    name: "Vorlan",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -138,8 +138,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "tom",
-    name: "Tom",
+    id: "tabbs",
+    name: "Tabbs",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -155,8 +155,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "rango",
-    name: "Rango",
+    id: "camo",
+    name: "Camo",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -172,8 +172,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "grawl",
-    name: "Grawl",
+    id: "snarl",
+    name: "Snarl",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -189,8 +189,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "greptile",
-    name: "Greptile",
+    id: "scute",
+    name: "Scute",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -206,8 +206,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "trapped-greptile",
-    name: "Trapped Greptile",
+    id: "trapped-scute",
+    name: "Trapped Scute",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -223,8 +223,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "keeper",
-    name: "Keeper",
+    id: "warden",
+    name: "Warden",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -240,8 +240,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "bristleback",
-    name: "Bristleback",
+    id: "quill",
+    name: "Quill",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -257,8 +257,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "george",
-    name: "George",
+    id: "gordo",
+    name: "Gordo",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -274,8 +274,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "wicka",
-    name: "Wicka",
+    id: "wisp",
+    name: "Wisp",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -291,8 +291,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "jackie",
-    name: "Jackie",
+    id: "jett",
+    name: "Jett",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -308,8 +308,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "chef",
-    name: "Chef",
+    id: "brisket",
+    name: "Brisket",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -325,8 +325,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "lomp",
-    name: "Lomp",
+    id: "galoot",
+    name: "Galoot",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -342,8 +342,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "wile",
-    name: "Wile",
+    id: "coy",
+    name: "Coy",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -359,8 +359,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "knight",
-    name: "Knight",
+    id: "paladin",
+    name: "Paladin",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {
@@ -376,8 +376,8 @@ export const MASCOT_DEFINITIONS: readonly MascotDefinition[] = [
     },
   },
   {
-    id: "riso",
-    name: "Riso",
+    id: "pip",
+    name: "Pip",
     idleAnimationMode: "forward-loop",
     sprites: {
       idle: {

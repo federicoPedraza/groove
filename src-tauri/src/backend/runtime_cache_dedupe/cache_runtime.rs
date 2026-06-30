@@ -139,6 +139,78 @@ fn store_workspace_context_cache(
     );
 }
 
+fn terminal_resolution_cache_key(root_name: &Option<String>, worktree: &str) -> String {
+    format!("{}|{}", root_name.as_deref().unwrap_or_default(), worktree)
+}
+
+fn terminal_resolution_signature(
+    app: &AppHandle,
+    workspace_root: &Path,
+    worktree_path: &Path,
+) -> TerminalResolutionSignature {
+    let active_state_file = workspace_state_file(app)
+        .map(|path| snapshot_entry(&path))
+        .unwrap_or(SnapshotEntry {
+            exists: false,
+            mtime_ms: 0,
+        });
+    TerminalResolutionSignature {
+        active_state_file,
+        workspace_manifest: snapshot_entry(&workspace_root.join(".groove").join("workspace.json")),
+        worktree_dir: snapshot_entry(worktree_path),
+    }
+}
+
+/// Returns the cached resolution if its cheap signature still matches the
+/// filesystem. The signature recompute (a few `stat`s) replaces the O(worktree
+/// count) directory walk + manifest parse that a full resolve performs.
+fn try_cached_terminal_resolution(
+    app: &AppHandle,
+    root_name: &Option<String>,
+    worktree: &str,
+) -> Option<(PathBuf, PathBuf)> {
+    let cache_state = app.try_state::<TerminalResolutionCacheState>()?;
+    let key = terminal_resolution_cache_key(root_name, worktree);
+    let (workspace_root, worktree_path, cached_signature) = {
+        let entries = cache_state.entries.lock().ok()?;
+        let cached = entries.get(&key)?;
+        (
+            cached.workspace_root.clone(),
+            cached.worktree_path.clone(),
+            cached.signature.clone(),
+        )
+    };
+    // Compute the current signature without holding the cache lock.
+    if cached_signature != terminal_resolution_signature(app, &workspace_root, &worktree_path) {
+        return None;
+    }
+    Some((workspace_root, worktree_path))
+}
+
+fn store_terminal_resolution(
+    app: &AppHandle,
+    root_name: &Option<String>,
+    worktree: &str,
+    workspace_root: &Path,
+    worktree_path: &Path,
+) {
+    let Some(cache_state) = app.try_state::<TerminalResolutionCacheState>() else {
+        return;
+    };
+    let signature = terminal_resolution_signature(app, workspace_root, worktree_path);
+    let Ok(mut entries) = cache_state.entries.lock() else {
+        return;
+    };
+    entries.insert(
+        terminal_resolution_cache_key(root_name, worktree),
+        TerminalResolutionCacheEntry {
+            workspace_root: workspace_root.to_path_buf(),
+            worktree_path: worktree_path.to_path_buf(),
+            signature,
+        },
+    );
+}
+
 fn invalidate_workspace_context_cache(app: &AppHandle, workspace_root: &Path) {
     let Some(cache_state) = app.try_state::<WorkspaceContextCacheState>() else {
         return;

@@ -77,17 +77,6 @@ fn normalize_open_terminal_at_worktree_command(
     Ok(Some(trimmed.to_string()))
 }
 
-fn normalize_run_local_command(value: Option<&str>) -> Result<Option<String>, String> {
-    let Some(trimmed) = value.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-
-    parse_terminal_command_tokens(trimmed)
-        .map_err(|error| error.replace("terminalCustomCommand", "runLocalCommand"))?;
-
-    Ok(Some(trimmed.to_string()))
-}
-
 fn normalize_worktree_symlink_paths(paths: &[String]) -> Vec<String> {
     workspace::normalize_worktree_symlink_paths(paths)
 }
@@ -155,25 +144,6 @@ fn parse_custom_terminal_command(
 
     let Some((program, args)) = resolved_tokens.split_first() else {
         return Err("terminalCustomCommand must include an executable command.".to_string());
-    };
-
-    Ok((program.to_string(), args.to_vec()))
-}
-
-fn resolve_run_local_command(
-    command_template: &str,
-    worktree_path: &Path,
-) -> Result<(String, Vec<String>), String> {
-    let tokens = parse_terminal_command_tokens(command_template)
-        .map_err(|error| error.replace("terminalCustomCommand", "runLocalCommand"))?;
-    let worktree = worktree_path.display().to_string();
-    let resolved_tokens = tokens
-        .into_iter()
-        .map(|token| token.replace("{worktree}", &worktree))
-        .collect::<Vec<_>>();
-
-    let Some((program, args)) = resolved_tokens.split_first() else {
-        return Err("runLocalCommand must include an executable command.".to_string());
     };
 
     Ok((program.to_string(), args.to_vec()))
@@ -810,6 +780,7 @@ fn register_worktree_record(
             unit: None,
             summaries: Vec::new(),
             comments: Vec::new(),
+            pull_requests: Vec::new(),
         },
     );
     workspace_meta.updated_at = now_iso();
@@ -853,6 +824,7 @@ fn set_worktree_state(
             unit: None,
             summaries: Vec::new(),
             comments: Vec::new(),
+            pull_requests: Vec::new(),
         });
     record.state = state;
     let updated = record.clone();
@@ -1009,6 +981,7 @@ fn sync_worktree_records_with_disk(
                 unit: None,
                 summaries: Vec::new(),
                 comments: Vec::new(),
+                pull_requests: Vec::new(),
             },
         );
         added += 1;
@@ -1138,6 +1111,8 @@ fn default_global_settings() -> GlobalSettings {
     GlobalSettings {
         telemetry_enabled: true,
         disable_groove_business: false,
+        hide_mascot: false,
+        hide_labels: false,
         show_fps: false,
         always_show_diagnostics_sidebar: false,
         periodic_rerender_enabled: false,
@@ -1149,6 +1124,83 @@ fn default_global_settings() -> GlobalSettings {
         claude_code_sound_settings: ClaudeCodeSoundSettings::default(),
         groove_sound_settings: GrooveSoundSettings::default(),
     }
+}
+
+/// Sounds bundled with the app under the `sounds/` resource directory and
+/// seeded into every install's library. Stable ids keep hook assignments valid
+/// across machines. Tuple order is `(id, display name, bundled file name)`.
+const BUILTIN_SOUNDS: &[(&str, &str, &str)] = &[
+    ("builtin-water-drop", "Water Drop", "water-drop.wav"),
+    ("builtin-soft-stop", "Soft Stop", "soft-stop.wav"),
+    ("builtin-write", "Write", "write.wav"),
+    ("builtin-message-pop", "Message Pop", "message-pop.wav"),
+    ("builtin-pencil-drop", "Pencil Drop", "pencil-drop.wav"),
+    ("builtin-clop-chop", "Clop Chop", "clop-chop.wav"),
+    ("builtin-mic-off", "Mic Off", "mic-off.wav"),
+    ("builtin-veggie-chop", "Veggie Chop", "veggie-chop.wav"),
+    ("builtin-one-chop", "One Chop", "one-chop.wav"),
+];
+
+/// Candidate directories that may hold the bundled `sounds/` resources, in
+/// priority order: the packaged resource dir and the executable's directory
+/// (production), then the crate manifest and cwd (`tauri dev`, where resources
+/// are not yet copied next to the binary).
+fn builtin_sound_source_dirs(app: &AppHandle) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        roots.push(resource_dir);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            roots.push(parent.to_path_buf());
+        }
+    }
+    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd.join("src-tauri"));
+        roots.push(cwd);
+    }
+    roots.into_iter().map(|root| root.join("sounds")).collect()
+}
+
+/// Copy any missing bundled sound files into the app-data `sounds/` directory
+/// and register a library entry for each built-in not already present.
+/// Idempotent; returns `true` when `settings.sound_library` was modified.
+fn ensure_builtin_sounds(app: &AppHandle, settings: &mut GlobalSettings) -> bool {
+    let Ok(app_data_dir) = app.path().app_data_dir() else {
+        return false;
+    };
+    let sounds_dir = app_data_dir.join("sounds");
+    if fs::create_dir_all(&sounds_dir).is_err() {
+        return false;
+    }
+
+    let source_dirs = builtin_sound_source_dirs(app);
+    let mut changed = false;
+
+    for (id, name, file_name) in BUILTIN_SOUNDS {
+        let dest_path = sounds_dir.join(file_name);
+        if !dest_path.exists() {
+            if let Some(source) = source_dirs
+                .iter()
+                .map(|dir| dir.join(file_name))
+                .find(|candidate| candidate.is_file())
+            {
+                let _ = fs::copy(&source, &dest_path);
+            }
+        }
+
+        if !settings.sound_library.iter().any(|entry| entry.id == *id) {
+            settings.sound_library.push(SoundLibraryEntry {
+                id: (*id).to_string(),
+                name: (*name).to_string(),
+                file_name: (*file_name).to_string(),
+            });
+            changed = true;
+        }
+    }
+
+    changed
 }
 
 fn normalize_shortcut_key(value: &str, fallback: &str) -> String {
@@ -1190,14 +1242,6 @@ fn play_groove_command_for_workspace(workspace_root: &Path) -> String {
                 .unwrap_or_else(|_| default_play_groove_command())
         })
         .unwrap_or_else(|_| default_play_groove_command())
-}
-
-fn run_local_command_for_workspace(workspace_root: &Path) -> Option<String> {
-    ensure_workspace_meta(workspace_root)
-        .ok()
-        .and_then(|(workspace_meta, _)| {
-            normalize_run_local_command(workspace_meta.run_local_command.as_deref()).unwrap_or(None)
-        })
 }
 
 fn worktree_symlink_paths_for_workspace(workspace_root: &Path) -> Vec<String> {
@@ -1357,6 +1401,8 @@ fn seed_global_settings_from_active_workspace(app: &AppHandle, settings: &mut Gl
     if let Ok(workspace_meta) = read_workspace_meta_file(&workspace_json) {
         settings.telemetry_enabled = workspace_meta.telemetry_enabled;
         settings.disable_groove_business = workspace_meta.disable_groove_business;
+        settings.hide_mascot = workspace_meta.hide_mascot;
+        settings.hide_labels = workspace_meta.hide_labels;
         settings.show_fps = workspace_meta.show_fps;
     }
 }
@@ -1366,6 +1412,7 @@ fn ensure_global_settings(app: &AppHandle) -> Result<GlobalSettings, String> {
     if !path_is_file(&settings_file) {
         let mut settings = default_global_settings();
         seed_global_settings_from_active_workspace(app, &mut settings);
+        ensure_builtin_sounds(app, &mut settings);
         write_global_settings_file(&settings_file, &settings)?;
         return Ok(settings);
     }
@@ -1448,6 +1495,10 @@ fn ensure_global_settings(app: &AppHandle) -> Result<GlobalSettings, String> {
             != settings.opencode_settings.settings_directory
     {
         settings.opencode_settings = normalized_opencode_settings;
+        should_write_back = true;
+    }
+
+    if ensure_builtin_sounds(app, &mut settings) {
         should_write_back = true;
     }
 
@@ -1805,10 +1856,11 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         terminal_custom_command: None,
         telemetry_enabled: true,
         disable_groove_business: false,
+        hide_mascot: false,
+        hide_labels: false,
         show_fps: false,
         play_groove_command: default_play_groove_command(),
         open_terminal_at_worktree_command: None,
-        run_local_command: None,
         worktree_symlink_paths: default_worktree_symlink_paths(),
         opencode_settings: default_opencode_settings(),
         worktree_records: HashMap::new(),
@@ -1820,6 +1872,7 @@ fn default_workspace_meta(workspace_root: &Path) -> WorkspaceMeta {
         defeated_count: 0,
         known_bugs: Vec::new(),
         inventory: HashMap::new(),
+        max_worktree_count: None,
     }
 }
 
@@ -1915,11 +1968,6 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 .and_then(|parsed| parsed.as_object())
                 .map(|obj| obj.contains_key("playGrooveCommand"))
                 .unwrap_or(true);
-            let has_run_local_command = parsed_workspace_json
-                .as_ref()
-                .and_then(|parsed| parsed.as_object())
-                .map(|obj| obj.contains_key("runLocalCommand"))
-                .unwrap_or(true);
             let has_worktree_symlink_paths = parsed_workspace_json
                 .as_ref()
                 .and_then(|parsed| parsed.as_object())
@@ -1996,14 +2044,6 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
                 did_update = true;
             }
 
-            let normalized_run_local_command =
-                normalize_run_local_command(workspace_meta.run_local_command.as_deref())
-                    .unwrap_or(None);
-            if workspace_meta.run_local_command != normalized_run_local_command {
-                workspace_meta.run_local_command = normalized_run_local_command;
-                did_update = true;
-            }
-
             let normalized_worktree_symlink_paths =
                 normalize_worktree_symlink_paths(&workspace_meta.worktree_symlink_paths);
             if workspace_meta.worktree_symlink_paths != normalized_worktree_symlink_paths {
@@ -2025,11 +2065,6 @@ fn ensure_workspace_meta(workspace_root: &Path) -> Result<(WorkspaceMeta, String
 
             if !has_play_groove_command {
                 workspace_meta.play_groove_command = default_play_groove_command();
-                did_update = true;
-            }
-
-            if !has_run_local_command {
-                workspace_meta.run_local_command = None;
                 did_update = true;
             }
 
@@ -2423,6 +2458,7 @@ mod settings_runtime_tests {
                 unit: Some(unit),
                 summaries: Vec::new(),
                 comments: Vec::new(),
+                pull_requests: Vec::new(),
             },
         );
         let workspace_json = workspace_root.join(".groove").join("workspace.json");
@@ -2506,6 +2542,7 @@ mod settings_runtime_tests {
                 unit: None,
                 summaries: Vec::new(),
                 comments: Vec::new(),
+                pull_requests: Vec::new(),
             },
         );
         let workspace_json = workspace_root.join(".groove").join("workspace.json");
@@ -2572,6 +2609,7 @@ mod settings_runtime_tests {
                 unit: Some(unit),
                 summaries: Vec::new(),
                 comments: Vec::new(),
+                pull_requests: Vec::new(),
             },
         );
         let workspace_json = workspace_root.join(".groove").join("workspace.json");

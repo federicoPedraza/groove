@@ -64,7 +64,7 @@ describe("CommandHistoryPanel", () => {
     render(<CommandHistoryPanel />);
 
     expect(
-      screen.getByRole("button", { name: "Command history" }),
+      screen.getByRole("button", { name: "Terminal log" }),
     ).toBeInTheDocument();
     expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeInTheDocument();
   });
@@ -72,17 +72,17 @@ describe("CommandHistoryPanel", () => {
   it("trigger button has aria-expanded false when closed", () => {
     render(<CommandHistoryPanel />);
 
-    const trigger = screen.getByRole("button", { name: "Command history" });
+    const trigger = screen.getByRole("button", { name: "Terminal log" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
   it("opens panel when trigger is clicked", () => {
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(
-      screen.getByRole("dialog", { name: "Command history" }),
+      screen.getByRole("dialog", { name: "Terminal log" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Terminal Log")).toBeInTheDocument();
   });
@@ -90,17 +90,17 @@ describe("CommandHistoryPanel", () => {
   it("closes panel when trigger is clicked again", () => {
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("shows 'No commands yet' when there are no entries", () => {
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.getByText("No commands yet")).toBeInTheDocument();
   });
@@ -119,7 +119,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.getByText("Title for groove_restore")).toBeInTheDocument();
     expect(screen.getByText("Title for groove_new")).toBeInTheDocument();
@@ -134,7 +134,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.getByText("2")).toBeInTheDocument();
   });
@@ -143,7 +143,7 @@ describe("CommandHistoryPanel", () => {
     getCommandHistorySnapshotMock.mockReturnValue([]);
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     const header = screen.getByText("Terminal Log").closest("div");
     expect(header).not.toBeNull();
@@ -158,7 +158,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
     fireEvent.click(screen.getByRole("button", { name: "Clear history" }));
 
     expect(clearCommandHistoryMock).toHaveBeenCalledTimes(1);
@@ -169,7 +169,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(
       screen.getByRole("button", { name: "Clear history" }),
@@ -184,7 +184,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.getByText("Title for groove_restore")).toBeInTheDocument();
 
@@ -201,7 +201,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.getByText("Description for cmd1")).toBeInTheDocument();
 
@@ -223,7 +223,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.getByText("Disk full")).toBeInTheDocument();
   });
@@ -236,7 +236,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.queryByText(/Disk full/)).not.toBeInTheDocument();
   });
@@ -255,7 +255,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.getByText("1 running")).toBeInTheDocument();
   });
@@ -268,7 +268,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.queryByText(/running/)).not.toBeInTheDocument();
   });
@@ -288,7 +288,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.getByText("Title for done_cmd")).toBeInTheDocument();
     expect(screen.queryByText("Title for running_cmd")).not.toBeInTheDocument();
@@ -297,7 +297,7 @@ describe("CommandHistoryPanel", () => {
   it("closes panel on Escape key", () => {
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
@@ -313,7 +313,7 @@ describe("CommandHistoryPanel", () => {
       </div>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByTestId("outside"));
@@ -335,7 +335,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.getByText("20")).toBeInTheDocument();
   });
@@ -348,7 +348,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
     fireEvent.click(screen.getByText("Raw"));
 
     expect(screen.getByText("cmd1")).toBeInTheDocument();
@@ -372,7 +372,7 @@ describe("CommandHistoryPanel", () => {
 
     render(<CommandHistoryPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Command history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Terminal log" }));
 
     expect(screen.getByText("Some Title")).toBeInTheDocument();
   });

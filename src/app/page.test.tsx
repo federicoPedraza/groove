@@ -29,6 +29,8 @@ vi.mock("@/src/lib/ipc", () => ({
   grooveSummary: grooveSummaryMock,
   workspaceSetWorktreeState: vi.fn(async () => ({ ok: true })),
   isGrooveBusinessDisabled: vi.fn(() => false),
+  isMascotHidden: vi.fn(() => false),
+  isGamificationLabelsHidden: vi.fn(() => false),
   subscribeToGlobalSettings: vi.fn(() => () => {}),
 }));
 
@@ -124,7 +126,6 @@ vi.mock("@/src/components/pages/barracks/summary-viewer-modal", () => ({
 vi.mock("@/src/components/pages/barracks/worktrees-table", () => ({
   WorktreesTable: (props: {
     onSummarizeWorktree: (id: string) => void;
-    onSummarizeSection: (key: string, ids: string[]) => void;
     onViewWorktreeSummary: (s: SummaryRecord) => void;
     onViewSectionSummary: (s: SummaryRecord) => void;
     onForgetAllDeletedWorktrees: () => void;
@@ -138,11 +139,6 @@ vi.mock("@/src/components/pages/barracks/worktrees-table", () => ({
     <div data-testid="worktrees-table">
       <button onClick={() => props.onSummarizeWorktree("wt-1")}>
         Summarize WT
-      </button>
-      <button
-        onClick={() => props.onSummarizeSection("section-1", ["wt-1", "wt-2"])}
-      >
-        Summarize Section
       </button>
       <button
         onClick={() =>
@@ -681,7 +677,10 @@ describe("Home component", () => {
     const { default: Home } = await import("./page");
     render(<Home />);
     await act(async () => {
-      fireEvent.click(screen.getByText("Summarize Section"));
+      fireEvent.click(screen.getByText("View Section Summary"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Create New"));
     });
     await waitFor(() => {
       expect(grooveSummaryMock).toHaveBeenCalledWith(
@@ -720,7 +719,10 @@ describe("Home component", () => {
     const { default: Home } = await import("./page");
     render(<Home />);
     await act(async () => {
-      fireEvent.click(screen.getByText("Summarize Section"));
+      fireEvent.click(screen.getByText("View Section Summary"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Create New"));
     });
     await waitFor(() => {
       expect(toast.warning).toHaveBeenCalledWith(
@@ -938,110 +940,6 @@ describe("Home component", () => {
     expect(setCreateBranchMock).toHaveBeenCalledWith("");
     expect(setCreateBaseMock).toHaveBeenCalledWith("");
     expect(setIsCreateModalOpenMock).toHaveBeenCalledWith(true);
-  });
-
-  describe("sidebar rendering via useAppLayout", () => {
-    function renderWithSidebar(overrides: Record<string, unknown> = {}) {
-      let capturedOptions: {
-        pageSidebar?: (opts: { collapsed: boolean }) => React.ReactNode;
-      } = {};
-      useAppLayoutMock.mockImplementation(
-        (options: {
-          pageSidebar?: (opts: { collapsed: boolean }) => React.ReactNode;
-        }) => {
-          capturedOptions = options;
-        },
-      );
-      useBarracksStateMock.mockReturnValue(
-        makeBarracksState({
-          activeWorkspace: {
-            workspaceRoot: "/repo",
-            workspaceMeta: {
-              version: 1,
-              rootName: "groove",
-              createdAt: "2026-01-01",
-              updatedAt: "2026-01-01",
-            },
-            repositoryRemoteUrl: null,
-            rows: [],
-            hasWorktreesDirectory: true,
-          },
-          hasWorktreesDirectory: true,
-          worktreeRows: [
-            { worktree: "a", branchGuess: "main", path: "/p", status: "ready" },
-          ],
-          groupedWorktreeItems: [],
-          recentDirectories: ["/old/project"],
-          ...overrides,
-        }),
-      );
-      return { getCapturedOptions: () => capturedOptions };
-    }
-
-    it("renders sidebar with change directory button that calls pickDirectory", async () => {
-      const pickDirectoryMock = vi.fn();
-      const { getCapturedOptions } = renderWithSidebar({
-        pickDirectory: pickDirectoryMock,
-      });
-      const { default: Home } = await import("./page");
-      render(<Home />);
-      const sidebar = getCapturedOptions().pageSidebar?.({ collapsed: false });
-      const { container } = render(<>{sidebar}</>);
-      const changeBtn = container.querySelector(
-        '[aria-label="Change directory"]',
-      ) as HTMLElement;
-      expect(changeBtn).toBeTruthy();
-      fireEvent.click(changeBtn);
-      expect(pickDirectoryMock).toHaveBeenCalled();
-    });
-
-    it("renders sidebar with close directory button that opens confirm", async () => {
-      const setIsCloseWorkspaceConfirmOpenMock = vi.fn();
-      const { getCapturedOptions } = renderWithSidebar({
-        setIsCloseWorkspaceConfirmOpen: setIsCloseWorkspaceConfirmOpenMock,
-      });
-      const { default: Home } = await import("./page");
-      render(<Home />);
-      const sidebar = getCapturedOptions().pageSidebar?.({ collapsed: false });
-      const { container } = render(<>{sidebar}</>);
-      const closeBtn = container.querySelector(
-        '[aria-label="Close directory"]',
-      ) as HTMLElement;
-      expect(closeBtn).toBeTruthy();
-      fireEvent.click(closeBtn);
-      expect(setIsCloseWorkspaceConfirmOpenMock).toHaveBeenCalledWith(true);
-    });
-
-    it("renders sidebar with open terminal button that calls runOpenWorkspaceTerminalAction", async () => {
-      const runOpenWorkspaceTerminalActionMock = vi.fn();
-      const { getCapturedOptions } = renderWithSidebar({
-        runOpenWorkspaceTerminalAction: runOpenWorkspaceTerminalActionMock,
-      });
-      const { default: Home } = await import("./page");
-      render(<Home />);
-      const sidebar = getCapturedOptions().pageSidebar?.({ collapsed: false });
-      const { container } = render(<>{sidebar}</>);
-      const termBtn = container.querySelector(
-        '[aria-label="Open terminal at active directory"]',
-      ) as HTMLElement;
-      expect(termBtn).toBeTruthy();
-      fireEvent.click(termBtn);
-      expect(runOpenWorkspaceTerminalActionMock).toHaveBeenCalled();
-    });
-
-    it("renders sidebar in collapsed mode", async () => {
-      const { getCapturedOptions } = renderWithSidebar();
-      const { default: Home } = await import("./page");
-      render(<Home />);
-      const sidebar = getCapturedOptions().pageSidebar?.({ collapsed: true });
-      const { container } = render(<>{sidebar}</>);
-      expect(
-        container.querySelector('[aria-label="Change directory"]'),
-      ).toBeTruthy();
-      expect(
-        container.querySelector('[aria-label="Close directory"]'),
-      ).toBeTruthy();
-    });
   });
 
   describe("WorktreesTable callback wrappers", () => {

@@ -237,7 +237,7 @@ fn groove_mcp_tool_definitions() -> serde_json::Value {
         },
         {
             "name": "create_worktree",
-            "description": "Create a new Git worktree in the active workspace. \"branch\" is the full branch name (e.g. \"feat/foo-bar\"); the worktree directory is created automatically under the workspace's .worktrees/ (slashes in the branch become underscores), so no path is needed. Optionally set an initial Groove state, and optionally play it and send a first prompt in one call.",
+            "description": "Create a new Git worktree in the active workspace. \"branch\" is the full branch name (e.g. \"feat/foo-bar\"); the worktree directory is created automatically under the workspace's .worktrees/ (slashes in the branch become underscores), so no path is needed. Optionally set an initial Groove state, and optionally play it and send a first prompt in one call. When a first prompt is sent, the active Groove doctrine's directives are prepended by default so the session follows the workspace's working style (disable with applyDoctrine=false).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -260,12 +260,16 @@ fn groove_mcp_tool_definitions() -> serde_json::Value {
                     },
                     "mode": {
                         "type": "string",
-                        "enum": ["claudeCode", "opencode", "runLocal", "plain"],
+                        "enum": ["claudeCode", "opencode", "plain"],
                         "description": "What to launch when play is true. Defaults to \"claudeCode\".",
                     },
                     "prompt": {
                         "type": "string",
                         "description": "When play is true (claudeCode), a first prompt to type into the session after it starts.",
+                    },
+                    "applyDoctrine": {
+                        "type": "boolean",
+                        "description": "When sending the first prompt, prepend the active Groove doctrine's directives so the session follows the workspace's established working style. Defaults to true. Set false to send the prompt verbatim.",
                     },
                 },
                 "required": ["branch"],
@@ -320,7 +324,7 @@ fn groove_mcp_tool_definitions() -> serde_json::Value {
                     "worktree": worktree_property,
                     "mode": {
                         "type": "string",
-                        "enum": ["claudeCode", "opencode", "runLocal", "plain"],
+                        "enum": ["claudeCode", "opencode", "plain"],
                         "description": "What to launch in the terminal. Defaults to \"claudeCode\".",
                     },
                     "forceRestart": {
@@ -460,6 +464,10 @@ fn groove_mcp_handle_tool_call(app: &AppHandle, params: &serde_json::Value) -> s
                     .get("play")
                     .and_then(|value| value.as_bool())
                     .unwrap_or(false);
+                let apply_doctrine = arguments
+                    .get("applyDoctrine")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(true);
                 groove_mcp_create_worktree(
                     app,
                     &branch,
@@ -468,6 +476,7 @@ fn groove_mcp_handle_tool_call(app: &AppHandle, params: &serde_json::Value) -> s
                     play,
                     arg_str("mode").as_deref(),
                     arg_str("prompt").as_deref(),
+                    apply_doctrine,
                 )
             }
             None => Err("\"branch\" is required.".to_string()),
@@ -585,6 +594,7 @@ fn groove_mcp_create_worktree(
     play: bool,
     mode: Option<&str>,
     prompt: Option<&str>,
+    apply_doctrine: bool,
 ) -> Result<serde_json::Value, String> {
     let branch = branch.trim();
     if branch.is_empty() || !is_safe_path_token(branch) {
@@ -648,6 +658,10 @@ fn groove_mcp_create_worktree(
         set_worktree_state(&workspace_root, &stamped, parsed_state)?;
     }
 
+    // Honor the configured max worktree count (LRU eviction, skipping
+    // running/dirty worktrees); emits a "worktree-evicted" event on removal.
+    run_post_create_eviction(app, &workspace_root, &effective_root);
+
     invalidate_workspace_context_cache(app, &workspace_root);
     invalidate_groove_list_cache_for_workspace(app, &workspace_root);
 
@@ -659,6 +673,7 @@ fn groove_mcp_create_worktree(
         "created": true,
         "played": false,
         "promptSent": false,
+        "doctrineApplied": false,
     });
 
     if play {
@@ -670,10 +685,24 @@ fn groove_mcp_create_worktree(
 
         if let Some(prompt) = prompt {
             if mode.unwrap_or("claudeCode") == "claudeCode" {
+                // Optionally prepend the active doctrine's directives so the new
+                // session inherits the workspace's established working style.
+                let directives = if apply_doctrine {
+                    doctrine_active_directives(&workspace_root)
+                } else {
+                    None
+                };
+                let full_prompt = match &directives {
+                    Some(directives) => format!(
+                        "Follow these working-style directives (from the active Groove doctrine) for everything below:\n\n{directives}\n\n---\n\n{prompt}"
+                    ),
+                    None => prompt.to_string(),
+                };
                 // Let the Claude TUI boot before typing the first prompt.
                 thread::sleep(GROOVE_MCP_PLAY_PROMPT_SETTLE);
-                groove_mcp_send_worktree_prompt(app, &stamped, prompt, None)?;
+                groove_mcp_send_worktree_prompt(app, &stamped, &full_prompt, None)?;
                 response["promptSent"] = serde_json::Value::Bool(true);
+                response["doctrineApplied"] = serde_json::Value::Bool(directives.is_some());
             } else {
                 response["promptNote"] = serde_json::Value::String(
                     "prompt is only delivered for mode \"claudeCode\"; skipped.".to_string(),

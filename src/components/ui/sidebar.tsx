@@ -6,12 +6,12 @@ import { buttonVariants } from "@/src/components/ui/button";
 import { cn } from "@/src/lib/utils";
 
 const sidebarVariants = cva(
-  "hidden shrink-0 rounded-lg border bg-card text-card-foreground md:flex md:flex-col md:max-h-[calc(100vh-2rem)] transition-[width] duration-200",
+  "hidden shrink-0 rounded-xl border bg-sidebar text-sidebar-foreground shadow-panel md:flex md:flex-col md:max-h-[calc(100vh-2rem)] transition-[width] duration-200",
   {
     variants: {
       collapsed: {
         true: "w-16",
-        false: "w-56",
+        false: "w-64",
       },
     },
     defaultVariants: {

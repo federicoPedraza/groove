@@ -534,6 +534,30 @@ describe("SearchDropdown", () => {
     expect(screen.getByText("Foo")).toBeTruthy();
   });
 
+  it("hides options until a query is typed when requireQuery is set", async () => {
+    renderSearchDropdown({
+      requireQuery: true,
+      requireQueryLabel: "Type to search.",
+    });
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Search dropdown" }),
+      { button: 0, pointerType: "mouse" },
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Type to search.")).toBeTruthy();
+    });
+    expect(screen.queryByText("Foo")).toBeNull();
+    expect(screen.queryByText("Bar")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Search options"), {
+      target: { value: "fo" },
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Foo")).toBeTruthy();
+    });
+    expect(screen.queryByText("Bar")).toBeNull();
+  });
+
   it("shows no results label when search has no matches", async () => {
     renderSearchDropdown({ noResultsLabel: "Nothing found." });
     fireEvent.pointerDown(

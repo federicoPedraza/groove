@@ -9,6 +9,7 @@ import {
   Loader2,
 } from "lucide-react";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import {
   DELETED_STATUS_CLASSES,
@@ -63,7 +64,7 @@ export function DoctrineTable() {
     null,
   );
   const [pendingCopyId, setPendingCopyId] = useState<string | null>(null);
-  const [activePreviewOpen, setActivePreviewOpen] = useState(false);
+  const [storedOpen, setStoredOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,20 +124,59 @@ export function DoctrineTable() {
   return (
     <div
       role="region"
-      aria-label="Stored doctrines table"
-      className="rounded-lg border bg-card"
+      aria-label="Doctrine preview"
+      className="overflow-hidden rounded-lg border bg-card"
     >
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Stored doctrines
+          Doctrine preview
         </h3>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {NUMBER_FORMAT.format(doctrines.length)}{" "}
-          {doctrines.length === 1 ? "entry" : "entries"}
-        </span>
+        {activeDoctrine ? (
+          <span className="ml-auto font-mono text-xs text-muted-foreground">
+            {formatDate(activeDoctrine.createdAt)}
+          </span>
+        ) : null}
       </div>
 
-      {doctrines.length === 0 ? (
+      {activeDoctrine ? (
+        <div className="space-y-3 px-3 py-3">
+          {activeDoctrine.instructions ? (
+            <div className="rounded-md border border-dashed bg-muted/20 p-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Extra instructions
+              </p>
+              <p className="mt-1 whitespace-pre-wrap font-mono text-xs">
+                {activeDoctrine.instructions}
+              </p>
+            </div>
+          ) : null}
+          <div className="prose prose-sm dark:prose-invert max-h-[480px] max-w-none overflow-auto break-words">
+            <Markdown remarkPlugins={[remarkGfm]}>
+              {activeDoctrine.result}
+            </Markdown>
+          </div>
+        </div>
+      ) : (
+        <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+          No active doctrine yet. Expand the stored doctrines below and set one
+          as the preview.
+        </p>
+      )}
+
+      <Collapsible open={storedOpen} onOpenChange={setStoredOpen}>
+        <CollapsibleTrigger className="group flex w-full items-center gap-2 border-t px-3 py-2 text-left text-xs text-muted-foreground hover:text-foreground">
+          <ChevronRight
+            aria-hidden="true"
+            className="size-3.5 transition-transform group-data-[state=open]:rotate-90"
+          />
+          <span className="font-medium">Stored doctrines</span>
+          <span className="ml-auto">
+            {NUMBER_FORMAT.format(doctrines.length)}{" "}
+            {doctrines.length === 1 ? "entry" : "entries"}
+          </span>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          {doctrines.length === 0 ? (
         <p className="px-3 py-6 text-center text-sm text-muted-foreground">
           No doctrines yet. Generate a report and run step 2 to create one.
         </p>
@@ -257,41 +297,8 @@ export function DoctrineTable() {
           </Table>
         </TooltipProvider>
       )}
-
-      {activeDoctrine ? (
-        <Collapsible
-          open={activePreviewOpen}
-          onOpenChange={setActivePreviewOpen}
-        >
-          <CollapsibleTrigger className="group flex w-full items-center gap-2 border-t px-3 py-2 text-left text-xs text-muted-foreground hover:text-foreground">
-            <ChevronRight
-              aria-hidden="true"
-              className="size-3.5 transition-transform group-data-[state=open]:rotate-90"
-            />
-            <span className="font-medium">Doctrine preview</span>
-            <span className="font-mono">
-              · {formatDate(activeDoctrine.createdAt)}
-            </span>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="space-y-3 px-3 pb-3 pt-1">
-              {activeDoctrine.instructions ? (
-                <div className="rounded-md border border-dashed bg-muted/20 p-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Extra instructions
-                  </p>
-                  <p className="mt-1 whitespace-pre-wrap font-mono text-xs">
-                    {activeDoctrine.instructions}
-                  </p>
-                </div>
-              ) : null}
-              <div className="prose prose-sm dark:prose-invert max-h-[480px] max-w-none overflow-auto break-words">
-                <Markdown>{activeDoctrine.result}</Markdown>
-              </div>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      ) : null}
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }

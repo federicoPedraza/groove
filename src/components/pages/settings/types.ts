@@ -12,7 +12,6 @@ export type WorkspaceMeta = {
   showFps?: boolean;
   playGrooveCommand?: string;
   openTerminalAtWorktreeCommand?: string | null;
-  runLocalCommand?: string | null;
   worktreeSymlinkPaths?: string[];
   opencodeSettings?: OpencodeSettings;
   rootDirectory?: string | null;

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, GitBranch, Loader2 } from "lucide-react";
 
 import { Button } from "@/src/components/ui/button";
+import { Checkbox } from "@/src/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -55,6 +56,8 @@ function CreateWorktreeModal({
     string | null
   >(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
+  const [useExistingBranch, setUseExistingBranch] = useState(false);
+  const [existingBranch, setExistingBranch] = useState("");
   const existingBranchOptions = useMemo(() => {
     return existingBranches.map((branchName) => ({
       value: branchName,
@@ -67,6 +70,8 @@ function CreateWorktreeModal({
     if (!open) {
       setExistingBranchesError(null);
       setSelectionError(null);
+      setUseExistingBranch(false);
+      setExistingBranch("");
     }
   }, [open]);
 
@@ -139,10 +144,14 @@ function CreateWorktreeModal({
           className="space-y-4"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!loading) {
-              const selectedBranch = base.trim();
+            if (loading) {
+              return;
+            }
+
+            if (useExistingBranch) {
+              const selectedBranch = existingBranch.trim();
               if (!selectedBranch) {
-                setSelectionError("Select an existing base branch.");
+                setSelectionError("Select an existing branch.");
                 return;
               }
 
@@ -154,8 +163,25 @@ function CreateWorktreeModal({
               }
 
               setSelectionError(null);
-              onSubmit({ baseOverride: selectedBranch });
+              onSubmit({ branchOverride: selectedBranch, baseOverride: "" });
+              return;
             }
+
+            const selectedBranch = base.trim();
+            if (!selectedBranch) {
+              setSelectionError("Select an existing base branch.");
+              return;
+            }
+
+            if (!existingBranches.includes(selectedBranch)) {
+              setSelectionError(
+                "Select a branch from the existing branch list.",
+              );
+              return;
+            }
+
+            setSelectionError(null);
+            onSubmit({ baseOverride: selectedBranch });
           }}
         >
           <DialogHeader>
@@ -185,7 +211,7 @@ function CreateWorktreeModal({
             </button>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-4">
             <div className="space-y-2">
               <label
                 htmlFor="create-worktree-branch"
@@ -203,7 +229,7 @@ function CreateWorktreeModal({
                 placeholder="feature/my-branch"
                 required
                 autoFocus
-                disabled={loading}
+                disabled={loading || useExistingBranch}
               />
             </div>
 
@@ -220,6 +246,8 @@ function CreateWorktreeModal({
                     : "Select a branch"
                 }
                 searchPlaceholder="Filter branches"
+                requireQuery
+                requireQueryLabel="Type to search branches."
                 onValueChange={(nextValue) => {
                   setSelectionError(null);
                   onBaseChange(nextValue);
@@ -227,7 +255,8 @@ function CreateWorktreeModal({
                 disabled={
                   loading ||
                   isExistingBranchesLoading ||
-                  existingBranches.length === 0
+                  existingBranches.length === 0 ||
+                  useExistingBranch
                 }
               />
               {existingBranchesError ? (
@@ -235,7 +264,9 @@ function CreateWorktreeModal({
                   {existingBranchesError}
                 </p>
               ) : null}
-              {!existingBranchesError && selectionError ? (
+              {!existingBranchesError &&
+              !useExistingBranch &&
+              selectionError ? (
                 <p className="text-xs text-destructive">{selectionError}</p>
               ) : null}
               {!isExistingBranchesLoading &&
@@ -244,6 +275,61 @@ function CreateWorktreeModal({
                 <p className="text-xs text-muted-foreground">
                   No branches were found in this repository.
                 </p>
+              ) : null}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="create-worktree-use-existing"
+                checked={useExistingBranch}
+                onCheckedChange={(checked) => {
+                  setSelectionError(null);
+                  setUseExistingBranch(checked === true);
+                }}
+                disabled={
+                  loading ||
+                  isExistingBranchesLoading ||
+                  existingBranches.length === 0
+                }
+              />
+              <label
+                htmlFor="create-worktree-use-existing"
+                className="text-sm font-medium"
+              >
+                Create the worktree from an existing branch instead
+              </label>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Existing branch</label>
+              <SearchDropdown
+                ariaLabel="Select existing branch"
+                searchAriaLabel="Search existing branches"
+                options={existingBranchOptions}
+                value={existingBranch}
+                placeholder={
+                  isExistingBranchesLoading
+                    ? "Loading branches..."
+                    : "Select a branch"
+                }
+                searchPlaceholder="Filter branches"
+                requireQuery
+                requireQueryLabel="Type to search branches."
+                onValueChange={(nextValue) => {
+                  setSelectionError(null);
+                  setExistingBranch(nextValue);
+                }}
+                disabled={
+                  loading ||
+                  isExistingBranchesLoading ||
+                  existingBranches.length === 0 ||
+                  !useExistingBranch
+                }
+              />
+              {!existingBranchesError &&
+              useExistingBranch &&
+              selectionError ? (
+                <p className="text-xs text-destructive">{selectionError}</p>
               ) : null}
             </div>
           </div>
@@ -263,7 +349,7 @@ function CreateWorktreeModal({
                 loading ||
                 isExistingBranchesLoading ||
                 existingBranches.length === 0 ||
-                !base.trim()
+                (useExistingBranch ? !existingBranch.trim() : !base.trim())
               }
             >
               {loading ? (

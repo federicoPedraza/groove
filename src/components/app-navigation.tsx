@@ -1,7 +1,7 @@
 "use client";
 
 import { Link, useLocation } from "react-router-dom";
-import { Coins, PanelLeft, TreeDeciduous, TriangleAlert } from "lucide-react";
+import { PanelLeft, TriangleAlert } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -25,6 +25,8 @@ import {
   SidebarMenu,
   sidebarMenuButtonClassName,
 } from "@/src/components/ui/sidebar";
+import { WorkspaceDirectoryControls } from "@/src/components/pages/workspace-directory-controls";
+import { SidebarGoldCounter } from "@/src/components/sidebar-gold-counter";
 import {
   Tooltip,
   TooltipContent,
@@ -49,7 +51,10 @@ import {
 } from "@/src/lib/utils/mascots";
 import {
   DEFAULT_WORKTREE_STATE,
+  grooveTerminalClose,
+  grooveTerminalListSessions,
   isGrooveBusinessDisabled,
+  isMascotHidden,
   isShowFpsEnabled,
   isTelemetryEnabled,
   listenGrooveTerminalLifecycle,
@@ -61,7 +66,13 @@ import {
   workspaceSetWorktreeState,
 } from "@/src/lib/ipc";
 import { WorktreeStateContextMenu } from "@/src/components/pages/barracks/state-selector";
+import {
+  getWorktreeStateIcon,
+  getWorktreeStateIconColorClass,
+  getWorktreeStateTitle,
+} from "@/src/components/pages/barracks/worktree-state";
 import { toast } from "@/src/lib/toast";
+import { playGrooveHookSound } from "@/src/lib/groove-sound-system";
 import { getActiveWorktreeRows } from "@/src/lib/utils/worktree/status";
 import {
   applyOptimisticWorktreeState,
@@ -210,7 +221,11 @@ function getIsShowFpsEnabledSnapshot(): boolean {
   return isShowFpsEnabled();
 }
 
-function getIsGrooveBusinessDisabledSnapshot(): boolean {
+function getIsMascotHiddenSnapshot(): boolean {
+  return isMascotHidden();
+}
+
+function getIsGamificationHiddenSnapshot(): boolean {
   return isGrooveBusinessDisabled();
 }
 
@@ -358,7 +373,7 @@ function GrooveLoadingSprite({
         }}
       />
       {shouldRenderFrameIndex && (
-        <span className="pointer-events-none absolute bottom-1 right-1 rounded bg-background/75 px-1.5 py-0.5 font-mono text-[10px] leading-none text-foreground/80">
+        <span className="pointer-events-none absolute bottom-1 right-1 rounded-[3px] bg-background/75 px-1.5 py-0.5 font-mono text-[10px] leading-none text-foreground/80">
           frame {frameIndex}
         </span>
       )}
@@ -402,10 +417,15 @@ function AppNavigation({
     getIsShowFpsEnabledSnapshot,
     getIsShowFpsEnabledSnapshot,
   );
-  const shouldDisableGrooveBusiness = useSyncExternalStore(
+  const isMascotHiddenState = useSyncExternalStore(
     subscribeToGlobalSettings,
-    getIsGrooveBusinessDisabledSnapshot,
-    getIsGrooveBusinessDisabledSnapshot,
+    getIsMascotHiddenSnapshot,
+    getIsMascotHiddenSnapshot,
+  );
+  const isGamificationHidden = useSyncExternalStore(
+    subscribeToGlobalSettings,
+    getIsGamificationHiddenSnapshot,
+    getIsGamificationHiddenSnapshot,
   );
   const grooveBusiness = useGrooveBusiness();
   const WildernessIcon = grooveBusiness.Icon("wilderness");
@@ -413,25 +433,20 @@ function AppNavigation({
   const SituationRoomIcon = grooveBusiness.Icon("situationRoom");
   const BestiaryIcon = grooveBusiness.Icon("bestiary");
   const InventoryIcon = grooveBusiness.Icon("inventory");
-  const IntelligenceIcon = grooveBusiness.Icon("intelligence");
   const StrongholdIcon = grooveBusiness.Icon("stronghold");
 
   const isHomeActive = pathname === "/";
-  const isWorktreesActive =
-    pathname === "/worktrees" || pathname.startsWith("/worktrees/");
   const isDiagnosticsActive = pathname === "/diagnostics";
   const isBestiaryActive = pathname === "/bestiary";
   const isInventoryActive = pathname === "/inventory";
-  const isIntelligenceActive = pathname === "/intelligence";
   const isSettingsActive = pathname === "/settings";
 
-  const showIntelligenceLink = hasOpenWorkspace;
   const homeLabel = hasOpenWorkspace
     ? grooveBusiness.label("barracks")
     : grooveBusiness.label("home");
   const goldCount =
     workspaceContextStoreSnapshot.context?.workspaceMeta?.gold ?? 0;
-  const goldCountLabel = goldCount.toLocaleString();
+  const isGoldReady = workspaceContextStoreSnapshot.context != null;
   const hasActiveNavigationWorktrees = navigationWorktrees.length > 0;
   const notifiedWorktrees = useSyncExternalStore(
     subscribeToNotifiedWorktrees,
@@ -441,8 +456,8 @@ function AppNavigation({
   const navigationWorktreeItems = useMemo(() => {
     return navigationWorktrees.map((workspaceRow) => ({
       workspaceRow,
-      displayLabel: workspaceRow.worktree,
-      titleLabel: workspaceRow.worktree,
+      displayLabel: workspaceRow.branchGuess || workspaceRow.worktree,
+      titleLabel: workspaceRow.branchGuess || workspaceRow.worktree,
     }));
   }, [navigationWorktrees]);
   const inspectedWorktree = useMemo(() => {
@@ -534,6 +549,52 @@ function AppNavigation({
         });
     },
     [],
+  );
+
+  const handlePauseGrooveForWorktree = useCallback(
+    (worktree: string) => {
+      const context = workspaceContextStoreSnapshot.context;
+      const workspaceMeta = context?.workspaceMeta ?? null;
+      if (!workspaceMeta) {
+        toast.error("No workspace is open.");
+        return;
+      }
+      const knownWorktrees = normalizeWorkspaceRows(
+        (context as { rows?: unknown } | null)?.rows,
+      )
+        .filter((workspaceRow) => workspaceRow.status !== "deleted")
+        .map((workspaceRow) => workspaceRow.worktree);
+      const terminalPayloadBase = {
+        rootName: workspaceMeta.rootName,
+        knownWorktrees,
+        workspaceMeta,
+        worktree,
+      };
+
+      void (async () => {
+        try {
+          const sessionListResult =
+            await grooveTerminalListSessions(terminalPayloadBase);
+          if (!sessionListResult.ok) {
+            toast.error(
+              sessionListResult.error ?? "Failed to list terminal sessions.",
+            );
+            return;
+          }
+          for (const session of sessionListResult.sessions) {
+            await grooveTerminalClose({
+              ...terminalPayloadBase,
+              sessionId: session.sessionId,
+            });
+          }
+          playGrooveHookSound("pause");
+          void refreshNavigationWorktreesRef.current({ force: true });
+        } catch {
+          toast.error("Failed to pause Groove.");
+        }
+      })();
+    },
+    [workspaceContextStoreSnapshot],
   );
 
   useEffect(() => {
@@ -631,49 +692,51 @@ function AppNavigation({
 
   return (
     <>
-      <div className="hidden shrink-0 md:sticky md:top-4 md:flex md:self-start md:flex-col md:gap-4">
+      <div className="groove-hide-scrollbar hidden shrink-0 md:sticky md:top-4 md:flex md:max-h-[calc(100vh-2rem)] md:flex-col md:gap-4 md:self-start md:overflow-y-auto">
         <Sidebar collapsed={isSidebarCollapsed}>
           <SidebarHeader>
-            {!shouldDisableGrooveBusiness && (
+            {/* Mascot hides only when "hide gamification" or "hide mascot" is set. */}
+            {!isMascotHiddenState && (
               <div className="flex items-center justify-center">
                 <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div
-                        className={cn(
-                          "flex shrink-0 items-center justify-center overflow-hidden rounded-sm border",
-                          isSidebarCollapsed
-                            ? "h-12 w-12"
-                            : "h-[128px] w-[144px]",
-                        )}
-                      >
-                        <GrooveLoadingSprite
-                          mascot={mascotDisplay.mascot}
-                          mascotColorClassName={
-                            mascotDisplay.mascotColorClassName
-                          }
-                          isCompact={isSidebarCollapsed}
-                          shouldShowFrameIndex={shouldShowFps}
-                        />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      {mascotDisplay.mascot.name}
-                    </TooltipContent>
-                  </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div
+                      className={cn(
+                        "flex shrink-0 items-center justify-center overflow-hidden rounded-sm border",
+                        isSidebarCollapsed
+                          ? "h-12 w-12"
+                          : "h-[128px] w-[144px]",
+                      )}
+                    >
+                      <GrooveLoadingSprite
+                        mascot={mascotDisplay.mascot}
+                        mascotColorClassName={
+                          mascotDisplay.mascotColorClassName
+                        }
+                        isCompact={isSidebarCollapsed}
+                        shouldShowFrameIndex={shouldShowFps}
+                      />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {mascotDisplay.mascot.name}
+                  </TooltipContent>
+                </Tooltip>
                 </TooltipProvider>
               </div>
             )}
             <div
               className={cn(
-                "flex items-center justify-between gap-2",
-                !shouldDisableGrooveBusiness && "mt-4",
+                "flex items-center gap-2",
+                isSidebarCollapsed ? "flex-col" : "justify-between",
+                !isMascotHiddenState && "mt-4",
               )}
             >
-              {grooveBusiness.isBusiness ? (
+              {isGamificationHidden ? (
                 <div
                   className={cn(
-                    "flex items-center text-sm font-bold tracking-widest text-foreground",
+                    "font-display flex items-center text-base font-bold tracking-[0.18em] text-foreground",
                     isSidebarCollapsed ? "justify-center px-0" : "px-2",
                   )}
                   aria-label="Groove"
@@ -681,29 +744,11 @@ function AppNavigation({
                   {isSidebarCollapsed ? "G" : "GROOVE"}
                 </div>
               ) : (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div
-                        className={cn(
-                          "flex items-center gap-1.5 text-sm font-bold text-yellow-500",
-                          isSidebarCollapsed ? "px-0" : "px-2",
-                        )}
-                        aria-label={`Gold: ${goldCountLabel}`}
-                      >
-                        <Coins aria-hidden="true" className="size-4 shrink-0" />
-                        {!isSidebarCollapsed && (
-                          <span className="tabular-nums">{goldCountLabel}</span>
-                        )}
-                      </div>
-                    </TooltipTrigger>
-                    {isSidebarCollapsed && (
-                      <TooltipContent side="right">
-                        {goldCountLabel}
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                </TooltipProvider>
+                <SidebarGoldCounter
+                  gold={goldCount}
+                  collapsed={isSidebarCollapsed}
+                  ready={isGoldReady}
+                />
               )}
               <SidebarCollapseButton
                 collapsed={isSidebarCollapsed}
@@ -716,15 +761,11 @@ function AppNavigation({
               <SidebarMenu>
                 {hasOpenWorkspace && hasActiveNavigationWorktrees && (
                   <>
-                    <Link
-                      to="/worktrees"
-                      className={sidebarMenuButtonClassName({
-                        isActive: isWorktreesActive,
-                        collapsed: isSidebarCollapsed,
-                      })}
-                      onClick={() => {
-                        recordNavigationStart("/worktrees");
-                      }}
+                    <div
+                      className={cn(
+                        "flex h-10 items-center gap-2 overflow-hidden rounded-md px-4 text-sm font-medium text-foreground",
+                        isSidebarCollapsed && "justify-center px-0",
+                      )}
                     >
                       <WildernessIcon
                         aria-hidden="true"
@@ -733,18 +774,12 @@ function AppNavigation({
                       {!isSidebarCollapsed && (
                         <span>{grooveBusiness.label("wilderness")}</span>
                       )}
-                    </Link>
+                    </div>
                     {!isSidebarCollapsed ? (
-                      <div className="ml-2 grid gap-1 border-l border-border/70 pl-2">
+                      <div className="ml-1 grid gap-1 border-l border-border-strong pl-1">
                         {navigationWorktreeItems.map(
                           ({ workspaceRow, displayLabel, titleLabel }) => {
                             const worktreeRoute = `/worktrees/${encodeURIComponent(workspaceRow.worktree)}`;
-                            const mascotAssignment =
-                              getWorktreeMascotAssignment(
-                                workspaceRow.worktree,
-                              );
-                            const worktreeColorClassName =
-                              getMascotColorClassNames(mascotAssignment.color);
                             const currentState =
                               navigationWorktreeStates[workspaceRow.worktree] ??
                               DEFAULT_WORKTREE_STATE;
@@ -753,11 +788,17 @@ function AppNavigation({
                               <WorktreeStateContextMenu
                                 key={workspaceRow.path}
                                 worktree={workspaceRow.worktree}
+                                worktreePath={workspaceRow.path}
                                 currentState={currentState}
                                 onSelect={(nextState) => {
                                   handleSetNavigationWorktreeState(
                                     workspaceRow.worktree,
                                     nextState,
+                                  );
+                                }}
+                                onPauseGroove={() => {
+                                  handlePauseGrooveForWorktree(
+                                    workspaceRow.worktree,
                                   );
                                 }}
                               >
@@ -773,14 +814,19 @@ function AppNavigation({
                                   }}
                                   title={titleLabel}
                                 >
-                                  <span className="relative shrink-0">
-                                    <TreeDeciduous
-                                      aria-hidden="true"
-                                      className={cn(
-                                        "size-3.5 shrink-0",
-                                        worktreeColorClassName,
-                                      )}
-                                    />
+                                  <span
+                                    className={cn(
+                                      "relative inline-flex shrink-0 items-center justify-center [&>svg]:size-3.5",
+                                      getWorktreeStateIconColorClass(
+                                        currentState,
+                                      ),
+                                    )}
+                                    title={getWorktreeStateTitle(currentState)}
+                                  >
+                                    {getWorktreeStateIcon(
+                                      currentState,
+                                      grooveBusiness.mode,
+                                    )}
                                     {notifiedWorktrees.has(
                                       workspaceRow.worktree,
                                     ) && (
@@ -798,26 +844,6 @@ function AppNavigation({
                       </div>
                     ) : null}
                   </>
-                )}
-                {showIntelligenceLink && (
-                  <Link
-                    to="/intelligence"
-                    className={sidebarMenuButtonClassName({
-                      isActive: isIntelligenceActive,
-                      collapsed: isSidebarCollapsed,
-                    })}
-                    onClick={() => {
-                      recordNavigationStart("/intelligence");
-                    }}
-                  >
-                    <IntelligenceIcon
-                      aria-hidden="true"
-                      className="size-4 shrink-0"
-                    />
-                    {!isSidebarCollapsed && (
-                      <span>{grooveBusiness.label("intelligence")}</span>
-                    )}
-                  </Link>
                 )}
                 <Link
                   to="/"
@@ -898,7 +924,7 @@ function AppNavigation({
                     )}
                   </Link>
                 )}
-                {hasOpenWorkspace && (
+                {hasOpenWorkspace && !isGamificationHidden && (
                   <Link
                     to="/inventory"
                     className={sidebarMenuButtonClassName({
@@ -943,6 +969,7 @@ function AppNavigation({
             </TooltipProvider>
           </SidebarContent>
         </Sidebar>
+        <WorkspaceDirectoryControls collapsed={isSidebarCollapsed} />
         {resolvedPageSidebar}
       </div>
 
@@ -951,7 +978,7 @@ function AppNavigation({
         onOpenChange={setIsMobileSidebarOpen}
         className="rounded-lg border bg-card p-2 md:hidden"
       >
-        <CollapsibleTrigger className="inline-flex h-9 w-full items-center justify-start gap-2 rounded-md px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none">
+        <CollapsibleTrigger className="inline-flex h-9 w-full items-center justify-start gap-2 rounded-[3px] px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none">
           <PanelLeft aria-hidden="true" className="size-4" />
           <span>Navigation</span>
         </CollapsibleTrigger>
@@ -960,32 +987,17 @@ function AppNavigation({
             <SidebarMenu>
               {hasOpenWorkspace && hasActiveNavigationWorktrees && (
                 <>
-                  <Link
-                    to="/worktrees"
-                    className={sidebarMenuButtonClassName({
-                      isActive: isWorktreesActive,
-                    })}
-                    onClick={() => {
-                      recordNavigationStart("/worktrees");
-                      setIsMobileSidebarOpen(false);
-                    }}
-                  >
+                  <div className="flex h-10 items-center gap-2 overflow-hidden rounded-md px-4 text-sm font-medium text-foreground">
                     <WildernessIcon
                       aria-hidden="true"
                       className="size-4 shrink-0"
                     />
                     <span>{grooveBusiness.label("wilderness")}</span>
-                  </Link>
-                  <div className="ml-2 grid gap-1 border-l border-border/70 pl-2">
+                  </div>
+                  <div className="ml-1 grid gap-1 border-l border-border/70 pl-1">
                     {navigationWorktreeItems.map(
                       ({ workspaceRow, displayLabel, titleLabel }) => {
                         const worktreeRoute = `/worktrees/${encodeURIComponent(workspaceRow.worktree)}`;
-                        const mascotAssignment = getWorktreeMascotAssignment(
-                          workspaceRow.worktree,
-                        );
-                        const worktreeColorClassName = getMascotColorClassNames(
-                          mascotAssignment.color,
-                        );
                         const currentState =
                           navigationWorktreeStates[workspaceRow.worktree] ??
                           DEFAULT_WORKTREE_STATE;
@@ -994,11 +1006,17 @@ function AppNavigation({
                           <WorktreeStateContextMenu
                             key={workspaceRow.path}
                             worktree={workspaceRow.worktree}
+                            worktreePath={workspaceRow.path}
                             currentState={currentState}
                             onSelect={(nextState) => {
                               handleSetNavigationWorktreeState(
                                 workspaceRow.worktree,
                                 nextState,
+                              );
+                            }}
+                            onPauseGroove={() => {
+                              handlePauseGrooveForWorktree(
+                                workspaceRow.worktree,
                               );
                             }}
                           >
@@ -1014,14 +1032,17 @@ function AppNavigation({
                               }}
                               title={titleLabel}
                             >
-                              <span className="relative shrink-0">
-                                <TreeDeciduous
-                                  aria-hidden="true"
-                                  className={cn(
-                                    "size-3.5 shrink-0",
-                                    worktreeColorClassName,
-                                  )}
-                                />
+                              <span
+                                className={cn(
+                                  "relative inline-flex shrink-0 items-center justify-center [&>svg]:size-3.5",
+                                  getWorktreeStateIconColorClass(currentState),
+                                )}
+                                title={getWorktreeStateTitle(currentState)}
+                              >
+                                {getWorktreeStateIcon(
+                                  currentState,
+                                  grooveBusiness.mode,
+                                )}
                                 {notifiedWorktrees.has(
                                   workspaceRow.worktree,
                                 ) && (
@@ -1036,24 +1057,6 @@ function AppNavigation({
                     )}
                   </div>
                 </>
-              )}
-              {showIntelligenceLink && (
-                <Link
-                  to="/intelligence"
-                  className={sidebarMenuButtonClassName({
-                    isActive: isIntelligenceActive,
-                  })}
-                  onClick={() => {
-                    recordNavigationStart("/intelligence");
-                    setIsMobileSidebarOpen(false);
-                  }}
-                >
-                  <IntelligenceIcon
-                    aria-hidden="true"
-                    className="size-4 shrink-0"
-                  />
-                  <span>{grooveBusiness.label("intelligence")}</span>
-                </Link>
               )}
               <Link
                 to="/"
@@ -1120,7 +1123,7 @@ function AppNavigation({
                   <span>{grooveBusiness.label("bestiary")}</span>
                 </Link>
               )}
-              {hasOpenWorkspace && (
+              {hasOpenWorkspace && !isGamificationHidden && (
                 <Link
                   to="/inventory"
                   className={sidebarMenuButtonClassName({

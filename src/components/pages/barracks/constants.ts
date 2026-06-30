@@ -37,3 +37,5 @@ export const SOFT_AMBER_BUTTON_CLASSES =
   "transition-colors hover:bg-amber-500/20 hover:text-amber-800 hover:border-amber-700/55 active:bg-amber-500/25 active:text-amber-800 active:border-amber-700/60 dark:hover:text-amber-200 dark:hover:border-amber-300/70 dark:active:text-amber-100 dark:active:border-amber-200/75";
 export const SOFT_ORANGE_BUTTON_CLASSES =
   "transition-colors hover:bg-orange-500/20 hover:text-orange-700 hover:border-orange-700/55 active:bg-orange-500/25 active:text-orange-700 active:border-orange-700/60 dark:hover:text-orange-200 dark:hover:border-orange-300/70 dark:active:text-orange-100 dark:active:border-orange-200/75";
+export const SOFT_BLUE_BUTTON_CLASSES =
+  "transition-colors hover:bg-blue-500/20 hover:text-blue-700 hover:border-blue-700/55 active:bg-blue-500/25 active:text-blue-700 active:border-blue-700/60 dark:hover:text-blue-200 dark:hover:border-blue-300/70 dark:active:text-blue-100 dark:active:border-blue-200/75";

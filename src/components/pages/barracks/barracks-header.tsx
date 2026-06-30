@@ -1,5 +1,7 @@
 import { Loader2, Plus, RefreshCw } from "lucide-react";
 
+import { PageHeader } from "@/src/components/pages/page-header";
+import { useGrooveBusiness } from "@/src/lib/groove-business";
 import { Button } from "@/src/components/ui/button";
 import {
   Tooltip,
@@ -21,16 +23,13 @@ export function BarracksHeader({
   onCreate,
   onRefresh,
 }: BarracksHeaderProps) {
+  const grooveBusiness = useGrooveBusiness();
   return (
-    <header className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-card p-4">
-      <div className="space-y-1">
-        <h1 className="text-xl font-semibold tracking-tight">Barracks</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage worktrees and runtime state.
-        </p>
-      </div>
-      <TooltipProvider>
-        <div className="flex flex-wrap gap-2">
+    <PageHeader
+      title={grooveBusiness.label("barracks")}
+      description="Manage worktrees and runtime state."
+      actions={
+        <TooltipProvider>
           <Button
             type="button"
             variant="default"
@@ -60,8 +59,8 @@ export function BarracksHeader({
             </TooltipTrigger>
             <TooltipContent>Refresh</TooltipContent>
           </Tooltip>
-        </div>
-      </TooltipProvider>
-    </header>
+        </TooltipProvider>
+      }
+    />
   );
 }

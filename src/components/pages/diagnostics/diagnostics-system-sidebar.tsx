@@ -1,12 +1,24 @@
-import { RefreshCw } from "lucide-react";
+import { useCallback, useState, useSyncExternalStore } from "react";
+import { ChevronDown, Pin, RefreshCw } from "lucide-react";
 
 import { Button } from "@/src/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/src/components/ui/collapsible";
 import {
   Sidebar,
   SidebarContent,
   SidebarHeader,
 } from "@/src/components/ui/sidebar";
-import type { DiagnosticsSystemOverview } from "@/src/lib/ipc";
+import {
+  globalSettingsUpdate,
+  isAlwaysShowDiagnosticsSidebarEnabled,
+  subscribeToGlobalSettings,
+  type DiagnosticsSystemOverview,
+} from "@/src/lib/ipc";
+import { formatBytes } from "@/src/lib/format-bytes";
 
 type DiagnosticsSystemSidebarProps = {
   collapsed: boolean;
@@ -36,24 +48,6 @@ function formatPercent(value: number): string {
 
 function formatIntegerPercent(value: number): string {
   return `${Math.round(value)}%`;
-}
-
-function formatBytes(value: number): string {
-  if (!Number.isFinite(value) || value < 0) {
-    return "Unavailable";
-  }
-
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let size = value;
-  let unitIndex = 0;
-
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-
-  const precision = size >= 100 || unitIndex === 0 ? 0 : 1;
-  return `${size.toFixed(precision)} ${units[unitIndex]}`;
 }
 
 function MetricRow({
@@ -118,6 +112,28 @@ export function DiagnosticsSystemSidebar({
   errorMessage,
   onRefresh,
 }: DiagnosticsSystemSidebarProps) {
+  const isPinned = useSyncExternalStore(
+    subscribeToGlobalSettings,
+    isAlwaysShowDiagnosticsSidebarEnabled,
+    isAlwaysShowDiagnosticsSidebarEnabled,
+  );
+  const [isPinPending, setIsPinPending] = useState(false);
+
+  const togglePinned = useCallback(async (): Promise<void> => {
+    setIsPinPending(true);
+    try {
+      await globalSettingsUpdate({ alwaysShowDiagnosticsSidebar: !isPinned });
+    } catch {
+      // Leave the store value as-is; the subscription keeps the icon in sync.
+    } finally {
+      setIsPinPending(false);
+    }
+  }, [isPinned]);
+
+  const pinLabel = isPinned
+    ? "Unpin diagnostics sidebar"
+    : "Pin diagnostics sidebar";
+
   const hostnameLabel = overview?.hostname?.trim() || "Unavailable";
   const platformLabel = overview?.platform || "unknown";
   const cpuCoresLabel =
@@ -145,20 +161,40 @@ export function DiagnosticsSystemSidebar({
         ) : (
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">System</h2>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-7 w-7 p-0"
-              onClick={onRefresh}
-              disabled={isLoading}
-              aria-label="Refresh system diagnostics"
-            >
-              <RefreshCw
-                aria-hidden="true"
-                className={`size-3.5 ${isLoading ? "animate-spin" : ""}`}
-              />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                onClick={() => {
+                  void togglePinned();
+                }}
+                disabled={isPinPending}
+                aria-label={pinLabel}
+                aria-pressed={isPinned}
+                title={pinLabel}
+              >
+                <Pin
+                  aria-hidden="true"
+                  className={`size-3.5 ${isPinned ? "fill-current text-foreground" : "text-muted-foreground"}`}
+                />
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                onClick={onRefresh}
+                disabled={isLoading}
+                aria-label="Refresh system diagnostics"
+              >
+                <RefreshCw
+                  aria-hidden="true"
+                  className={`size-3.5 ${isLoading ? "animate-spin" : ""}`}
+                />
+              </Button>
+            </div>
           </div>
         )}
       </SidebarHeader>
@@ -219,43 +255,73 @@ export function DiagnosticsSystemSidebar({
               />
             </div>
 
-            <div className="space-y-2 rounded-md border bg-muted/10 p-2.5 text-xs">
-              <p className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Hostname</span>
-                <span
-                  className="max-w-[9rem] truncate font-medium"
-                  title={hostnameLabel}
+            <Collapsible className="rounded-md border bg-muted/10 text-xs">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-2.5 py-2 text-left font-medium text-muted-foreground [&[data-state=open]>svg]:rotate-180"
+                  aria-label="Toggle system details"
                 >
-                  {hostnameLabel}
-                </span>
-              </p>
-              <p className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Platform</span>
-                <span className="font-medium">{platformLabel}</span>
-              </p>
-              <p className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">CPU cores</span>
-                <span className="font-medium">{cpuCoresLabel}</span>
-              </p>
-              <p className="space-y-0.5">
-                <span className="block text-muted-foreground">RAM used</span>
-                <span className="block truncate font-medium" title={ramLabel}>
-                  {ramLabel}
-                </span>
-              </p>
-              <p className="space-y-0.5">
-                <span className="block text-muted-foreground">Swap used</span>
-                <span className="block truncate font-medium" title={swapLabel}>
-                  {swapLabel}
-                </span>
-              </p>
-              <p className="space-y-0.5">
-                <span className="block text-muted-foreground">Disk used</span>
-                <span className="block truncate font-medium" title={diskLabel}>
-                  {diskLabel}
-                </span>
-              </p>
-            </div>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="size-3.5 transition-transform duration-200"
+                  />
+                  <span>Details</span>
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="space-y-2 px-2.5 pb-2.5">
+                  <p className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Hostname</span>
+                    <span
+                      className="max-w-[9rem] truncate font-medium"
+                      title={hostnameLabel}
+                    >
+                      {hostnameLabel}
+                    </span>
+                  </p>
+                  <p className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Platform</span>
+                    <span className="font-medium">{platformLabel}</span>
+                  </p>
+                  <p className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">CPU cores</span>
+                    <span className="font-medium">{cpuCoresLabel}</span>
+                  </p>
+                  <p className="space-y-0.5">
+                    <span className="block text-muted-foreground">RAM used</span>
+                    <span
+                      className="block truncate font-medium"
+                      title={ramLabel}
+                    >
+                      {ramLabel}
+                    </span>
+                  </p>
+                  <p className="space-y-0.5">
+                    <span className="block text-muted-foreground">
+                      Swap used
+                    </span>
+                    <span
+                      className="block truncate font-medium"
+                      title={swapLabel}
+                    >
+                      {swapLabel}
+                    </span>
+                  </p>
+                  <p className="space-y-0.5">
+                    <span className="block text-muted-foreground">
+                      Disk used
+                    </span>
+                    <span
+                      className="block truncate font-medium"
+                      title={diskLabel}
+                    >
+                      {diskLabel}
+                    </span>
+                  </p>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
 
             {overview?.warnings && overview.warnings.length > 0 && (
               <div className="space-y-1 rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-2">

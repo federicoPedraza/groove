@@ -12,6 +12,8 @@ import type { GlobalSettings, WorkspaceContextResponse } from "@/src/lib/ipc";
 const defaultGlobalSettings: GlobalSettings = {
   telemetryEnabled: false,
   disableGrooveBusiness: false,
+  hideMascot: false,
+  hideLabels: false,
   showFps: false,
   alwaysShowDiagnosticsSidebar: false,
   periodicRerenderEnabled: false,
@@ -52,6 +54,8 @@ const globalSettingsSnapshotRef = vi.hoisted(() => ({
   current: {
     telemetryEnabled: false,
     disableGrooveBusiness: false,
+    hideMascot: false,
+    hideLabels: false,
     showFps: false,
     alwaysShowDiagnosticsSidebar: false,
     periodicRerenderEnabled: false,
@@ -145,7 +149,6 @@ vi.mock("@/src/components/pages/settings/commands-settings-form", () => ({
           void onSave({
             playGrooveCommand: "npm start",
             openTerminalAtWorktreeCommand: "bash",
-            runLocalCommand: "npm run dev",
           });
         }}
       >
@@ -239,7 +242,6 @@ describe("SettingsPage", () => {
         updatedAt: "",
         playGrooveCommand: "__groove_terminal__",
         openTerminalAtWorktreeCommand: "",
-        runLocalCommand: "",
         worktreeSymlinkPaths: ["node_modules"],
       },
     });
@@ -252,7 +254,6 @@ describe("SettingsPage", () => {
         updatedAt: "",
         playGrooveCommand: "npm start",
         openTerminalAtWorktreeCommand: "bash",
-        runLocalCommand: "npm run dev",
         worktreeSymlinkPaths: [],
       },
     });
@@ -289,97 +290,6 @@ describe("SettingsPage", () => {
     });
   });
 
-  it("shows loading state initially", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    // Make workspaceGetActive hang to see loading
-    workspaceGetActiveMock.mockReturnValue(new Promise(() => {}));
-    const mod = await import("@/src/app/settings/page");
-    const SettingsPage = mod.default;
-    render(<SettingsPage />);
-    expect(screen.getByText("Loading active workspace...")).toBeInTheDocument();
-  });
-
-  it("renders workspace settings section", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    await renderPage();
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /Toggle workspace settings/ }),
-      ).toBeInTheDocument();
-    });
-  });
-
-  it("renders commands settings form", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    await renderPage();
-    await waitFor(() => {
-      expect(screen.getByTestId("commands-settings-form")).toBeInTheDocument();
-    });
-  });
-
-  it("disables commands form when no workspace meta", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    workspaceGetActiveMock.mockResolvedValue({
-      ok: true,
-      workspaceRoot: undefined,
-      rows: [],
-    });
-    await renderPage();
-    await waitFor(() => {
-      expect(screen.getByTestId("commands-disabled")).toBeInTheDocument();
-    });
-  });
-
-  it("saves command settings via onSave callback", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    await renderPage();
-    await waitFor(() => {
-      expect(screen.getByTestId("save-commands-btn")).not.toBeDisabled();
-    });
-
-    await act(async () => {
-      screen.getByTestId("save-commands-btn").click();
-      await vi.advanceTimersByTimeAsync(0);
-    });
-
-    expect(workspaceUpdateCommandsSettingsMock).toHaveBeenCalled();
-  });
-
-  it("handles save command settings failure", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    workspaceUpdateCommandsSettingsMock.mockResolvedValue({
-      ok: false,
-      error: "Save failed",
-    });
-    await renderPage();
-    await waitFor(() => {
-      expect(screen.getByTestId("save-commands-btn")).not.toBeDisabled();
-    });
-
-    await act(async () => {
-      screen.getByTestId("save-commands-btn").click();
-      await vi.advanceTimersByTimeAsync(0);
-    });
-
-    expect(workspaceUpdateCommandsSettingsMock).toHaveBeenCalled();
-  });
-
-  it("handles save command settings exception", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    workspaceUpdateCommandsSettingsMock.mockRejectedValue(new Error("Net"));
-    await renderPage();
-    await waitFor(() => {
-      expect(screen.getByTestId("save-commands-btn")).not.toBeDisabled();
-    });
-
-    await act(async () => {
-      screen.getByTestId("save-commands-btn").click();
-      await vi.advanceTimersByTimeAsync(0);
-    });
-
-    expect(workspaceUpdateCommandsSettingsMock).toHaveBeenCalled();
-  });
-
   it("renders keyboard shortcuts section", async () => {
     mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
@@ -405,7 +315,7 @@ describe("SettingsPage", () => {
       screen.getByRole("button", { name: /Toggle Groove settings/ }),
     ).toBeInTheDocument();
     expect(screen.getByText("Enable telemetry")).toBeInTheDocument();
-    expect(screen.getByText("Disable groove business")).toBeInTheDocument();
+    expect(screen.getByText("Hide gamification")).toBeInTheDocument();
     expect(screen.getByText("Show FPS")).toBeInTheDocument();
     expect(screen.getByText("Trigger periodic re-renders")).toBeInTheDocument();
     expect(
@@ -420,34 +330,6 @@ describe("SettingsPage", () => {
       screen.getByRole("button", { name: /Toggle integrations/ }),
     ).toBeInTheDocument();
     expect(screen.getByTestId("opencode-panel")).toBeInTheDocument();
-  });
-
-  it("renders worktree symlink paths", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    await renderPage();
-    await waitFor(() => {
-      expect(screen.getByText("node_modules")).toBeInTheDocument();
-    });
-  });
-
-  it("shows no configured paths when empty", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    workspaceGetActiveMock.mockResolvedValue({
-      ok: true,
-      workspaceRoot: "/test",
-      rows: [],
-      workspaceMeta: {
-        version: 1,
-        rootName: "test",
-        createdAt: "",
-        updatedAt: "",
-        worktreeSymlinkPaths: [],
-      },
-    });
-    await renderPage();
-    await waitFor(() => {
-      expect(screen.getByText("No configured paths.")).toBeInTheDocument();
-    });
   });
 
   it("handles theme change", async () => {
@@ -538,56 +420,6 @@ describe("SettingsPage", () => {
       expect(
         screen.getByText("Failed to load global settings."),
       ).toBeInTheDocument();
-    });
-  });
-
-  it("handles workspace with no meta", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    workspaceGetActiveMock.mockResolvedValue({
-      ok: true,
-      workspaceRoot: undefined,
-      rows: [],
-    });
-    await renderPage();
-    await waitFor(() => {
-      expect(screen.getByText("No configured paths.")).toBeInTheDocument();
-    });
-  });
-
-  it("renders symlink modal", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    await renderPage();
-    expect(screen.getByTestId("symlink-modal")).toBeInTheDocument();
-  });
-
-  it("shows connect repository message when no workspace meta for commands", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    workspaceGetActiveMock.mockResolvedValue({
-      ok: true,
-      workspaceRoot: undefined,
-      rows: [],
-    });
-    await renderPage();
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          "Connect a repository to edit workspace command settings.",
-        ),
-      ).toBeInTheDocument();
-    });
-  });
-
-  it("handles save command settings when no workspace meta returns error", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    workspaceGetActiveMock.mockResolvedValue({
-      ok: true,
-      workspaceRoot: undefined,
-      rows: [],
-    });
-    await renderPage();
-    // Save button is disabled when no workspace meta, which is correct behavior
-    await waitFor(() => {
-      expect(screen.getByTestId("save-commands-btn")).toBeDisabled();
     });
   });
 
@@ -827,27 +659,6 @@ describe("SettingsPage", () => {
     expect(screen.getByText("General")).toBeInTheDocument();
   });
 
-  it("shows worktree symlink paths from meta", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    workspaceGetActiveMock.mockResolvedValue({
-      ok: true,
-      workspaceRoot: "/test",
-      rows: [],
-      workspaceMeta: {
-        version: 1,
-        rootName: "test",
-        createdAt: "",
-        updatedAt: "",
-        worktreeSymlinkPaths: ["node_modules", ".env"],
-      },
-    });
-    await renderPage();
-    await waitFor(() => {
-      expect(screen.getByText("node_modules")).toBeInTheDocument();
-      expect(screen.getByText(".env")).toBeInTheDocument();
-    });
-  });
-
   it("toggles telemetry checkbox and calls globalSettingsUpdate", async () => {
     mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
@@ -905,11 +716,11 @@ describe("SettingsPage", () => {
     mockSearchParams = new URLSearchParams("subpage=general");
     await renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Disable groove business")).toBeInTheDocument();
+      expect(screen.getByText("Hide gamification")).toBeInTheDocument();
     });
 
     const grooveBusinessLabel = screen
-      .getByText("Disable groove business")
+      .getByText("Hide gamification")
       .closest("label");
     const checkbox = grooveBusinessLabel!.querySelector(
       "[role='checkbox']",
@@ -1105,7 +916,7 @@ describe("SettingsPage", () => {
     });
 
     const grooveBusinessLabel = screen
-      .getByText("Disable groove business")
+      .getByText("Hide gamification")
       .closest("label");
     const checkbox = grooveBusinessLabel!.querySelector(
       "[role='checkbox']",
@@ -1130,7 +941,7 @@ describe("SettingsPage", () => {
     globalSettingsUpdateMock.mockRejectedValue(new Error("Net"));
 
     const grooveBusinessLabel = screen
-      .getByText("Disable groove business")
+      .getByText("Hide gamification")
       .closest("label");
     const checkbox = grooveBusinessLabel!.querySelector(
       "[role='checkbox']",
@@ -1143,7 +954,7 @@ describe("SettingsPage", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Failed to update groove business visibility."),
+        screen.getByText("Failed to update gamification settings."),
       ).toBeInTheDocument();
     });
   });
@@ -1252,18 +1063,4 @@ describe("SettingsPage", () => {
     });
   });
 
-  it("shows connect repository message for symlinks when no workspace meta", async () => {
-    mockSearchParams = new URLSearchParams("subpage=workspace");
-    workspaceGetActiveMock.mockResolvedValue({
-      ok: true,
-      workspaceRoot: undefined,
-      rows: [],
-    });
-    await renderPage();
-    await waitFor(() => {
-      expect(
-        screen.getByText("Connect a repository to edit this list."),
-      ).toBeInTheDocument();
-    });
-  });
 });

@@ -1,7 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { act } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 
 const { grooveTerminalOpenMock } = vi.hoisted(() => ({
   grooveTerminalOpenMock: vi.fn(),
@@ -10,6 +15,8 @@ const { grooveTerminalOpenMock } = vi.hoisted(() => ({
 vi.mock("@/src/lib/ipc", () => ({
   grooveTerminalOpen: grooveTerminalOpenMock,
   isGrooveBusinessDisabled: vi.fn(() => false),
+  isMascotHidden: vi.fn(() => false),
+  isGamificationLabelsHidden: vi.fn(() => false),
   subscribeToGlobalSettings: vi.fn(() => () => {}),
 }));
 
@@ -28,9 +35,11 @@ vi.mock("@/src/components/pages/barracks/barracks-modals", () => ({
 vi.mock("@/src/components/pages/barracks/worktree-row-actions", () => ({
   WorktreeRowActions: ({
     onOpenTerminal,
+    onStop,
     row,
   }: {
     onOpenTerminal?: (worktree: string) => void;
+    onStop?: (row: { worktree: string }) => void;
     row: { worktree: string };
   }) => (
     <div data-testid="worktree-row-actions">
@@ -43,16 +52,48 @@ vi.mock("@/src/components/pages/barracks/worktree-row-actions", () => ({
           Open Terminal
         </button>
       )}
+      {onStop && (
+        <button
+          type="button"
+          data-testid="pause-groove-btn"
+          onClick={() => onStop(row)}
+        >
+          Pause Groove
+        </button>
+      )}
     </div>
   ),
 }));
 
 vi.mock("@/src/components/pages/worktrees/groove-worktree-terminal", () => ({
-  GrooveWorktreeTerminal: () => <div data-testid="groove-terminal" />,
+  GrooveWorktreeTerminal: ({
+    onPauseWorktree,
+  }: {
+    onPauseWorktree?: () => void;
+  }) => (
+    <div data-testid="groove-terminal">
+      {onPauseWorktree && (
+        <button
+          type="button"
+          data-testid="terminal-pause-btn"
+          onClick={onPauseWorktree}
+        >
+          Pause Worktree
+        </button>
+      )}
+    </div>
+  ),
 }));
 
 vi.mock("@/src/lib/utils/worktree/status", () => ({
   deriveWorktreeStatus: vi.fn((status: string) => status),
+  getActiveWorktreeRows: vi.fn(
+    (
+      rows: { worktree: string }[],
+      activeWorktrees: ReadonlySet<string>,
+    ): { worktree: string }[] =>
+      rows.filter((row) => activeWorktrees.has(row.worktree)),
+  ),
 }));
 
 vi.mock("@/src/lib/toast", () => ({
@@ -121,16 +162,24 @@ import WorktreeDetailPage from "@/src/app/worktrees/worktree-detail-page";
 function renderWithRoute(
   worktreeParam: string,
   overrides: Record<string, unknown> = {},
+  { withLocationProbe = false }: { withLocationProbe?: boolean } = {},
 ) {
   mockUseBarracksState.mockReturnValue(createDefaultBarracksState(overrides));
 
   return render(
     <MemoryRouter initialEntries={[`/worktrees/${worktreeParam}`]}>
+      {withLocationProbe ? <LocationProbe /> : null}
       <Routes>
         <Route path="/worktrees/:worktree" element={<WorktreeDetailPage />} />
+        <Route path="/" element={<div data-testid="dashboard" />} />
       </Routes>
     </MemoryRouter>,
   );
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location-probe">{location.pathname}</div>;
 }
 
 describe("WorktreeDetailPage", () => {
@@ -220,6 +269,103 @@ describe("WorktreeDetailPage", () => {
       },
     });
     expect(screen.getByTestId("groove-terminal")).toBeInTheDocument();
+  });
+
+  it("navigates to another open worktree after pausing Groove", async () => {
+    const rows = [
+      {
+        worktree: "feature-1",
+        path: "/test/.worktrees/feature-1",
+        branchGuess: "feature/branch-1",
+        status: "active",
+      },
+      {
+        worktree: "feature-2",
+        path: "/test/.worktrees/feature-2",
+        branchGuess: "feature/branch-2",
+        status: "active",
+      },
+    ];
+    const runStopAction = vi.fn().mockResolvedValue(true);
+    renderWithRoute("feature-1", {
+      activeWorkspace: { workspaceRoot: "/test" },
+      worktreeRows: rows,
+      activeTerminalWorktrees: new Set(["feature-1", "feature-2"]),
+      workspaceRoot: "/test",
+      workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+      runStopAction,
+    }, { withLocationProbe: true });
+
+    await act(async () => {
+      screen.getByTestId("pause-groove-btn").click();
+    });
+
+    expect(runStopAction).toHaveBeenCalledWith(
+      expect.objectContaining({ worktree: "feature-1" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("location-probe").textContent).toBe(
+        "/worktrees/feature-2",
+      );
+    });
+  });
+
+  it("navigates to the dashboard after pausing the only open worktree", async () => {
+    const rows = [
+      {
+        worktree: "feature-1",
+        path: "/test/.worktrees/feature-1",
+        branchGuess: "feature/branch-1",
+        status: "active",
+      },
+    ];
+    const runStopAction = vi.fn().mockResolvedValue(true);
+    renderWithRoute("feature-1", {
+      activeWorkspace: { workspaceRoot: "/test" },
+      worktreeRows: rows,
+      activeTerminalWorktrees: new Set(["feature-1"]),
+      workspaceRoot: "/test",
+      workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+      runStopAction,
+    }, { withLocationProbe: true });
+
+    await act(async () => {
+      screen.getByTestId("pause-groove-btn").click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location-probe").textContent).toBe("/");
+    });
+    expect(screen.getByTestId("dashboard")).toBeInTheDocument();
+  });
+
+  it("does not navigate when pausing Groove fails", async () => {
+    const rows = [
+      {
+        worktree: "feature-1",
+        path: "/test/.worktrees/feature-1",
+        branchGuess: "feature/branch-1",
+        status: "active",
+      },
+    ];
+    const runStopAction = vi.fn().mockResolvedValue(false);
+    renderWithRoute("feature-1", {
+      activeWorkspace: { workspaceRoot: "/test" },
+      worktreeRows: rows,
+      activeTerminalWorktrees: new Set(["feature-1"]),
+      workspaceRoot: "/test",
+      workspaceMeta: { version: 1, rootName: "test", createdAt: "", updatedAt: "" },
+      runStopAction,
+    }, { withLocationProbe: true });
+
+    await act(async () => {
+      screen.getByTestId("pause-groove-btn").click();
+    });
+
+    expect(runStopAction).toHaveBeenCalled();
+    expect(screen.getByTestId("location-probe").textContent).toBe(
+      "/worktrees/feature-1",
+    );
   });
 
   it("shows no .worktrees directory message", () => {

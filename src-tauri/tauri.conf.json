@@ -28,7 +28,8 @@
   "bundle": {
     "active": true,
     "resources": {
-      "binaries/*": "./"
+      "binaries/*": "./",
+      "sounds/*": "sounds/"
     },
     "targets": [
       "appimage",

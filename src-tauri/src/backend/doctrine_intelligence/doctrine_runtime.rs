@@ -374,9 +374,13 @@ struct DoctrineRecord {
     state: DoctrineState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
+    // Imperative directives distilled from `result`'s `## Doctrine Directives`
+    // section, stored verbatim so prompt injection never re-parses Markdown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    directives: Option<String>,
 }
 
-const DOCTRINE_STORE_VERSION: u32 = 1;
+const DOCTRINE_STORE_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -427,6 +431,50 @@ fn write_doctrine_store(workspace_root: &Path, store: &DoctrineStore) -> Result<
         .map_err(|error| format!("Failed to serialize doctrine store: {error}"))?;
     fs::write(&path, body)
         .map_err(|error| format!("Failed to write {}: {error}", path.display()))
+}
+
+/// Extract the body of the `## Doctrine Directives` section from a generated
+/// doctrine Markdown document. Returns the trimmed text between that heading
+/// and the next `## ` heading (or end of document), or None if absent/empty.
+fn doctrine_parse_directives(markdown: &str) -> Option<String> {
+    let mut lines = markdown.lines();
+    // Find the directives heading (match on the heading text, ignore case/level).
+    for line in lines.by_ref() {
+        let h = line.trim_start_matches('#').trim();
+        if line.trim_start().starts_with('#') && h.eq_ignore_ascii_case("Doctrine Directives") {
+            break;
+        }
+    }
+    let mut body = String::new();
+    for line in lines {
+        // Stop at the next top-level (## or #) heading.
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("# ") || trimmed.starts_with("## ") {
+            break;
+        }
+        body.push_str(line);
+        body.push('\n');
+    }
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// Read the workspace's doctrine store and return the directives of the active
+/// (`Ready`) doctrine, if one exists and has non-empty directives.
+fn doctrine_active_directives(workspace_root: &Path) -> Option<String> {
+    let store = read_doctrine_store(workspace_root).ok()?;
+    store
+        .doctrines
+        .iter()
+        .find(|record| record.state == DoctrineState::Ready)
+        .and_then(|record| record.directives.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn doctrine_now_iso() -> String {
@@ -502,6 +550,7 @@ Produce a single Markdown document with this structure:
 2. `## Categorization` — a table or bullet list with one row per case. Each row must include: the branch (in code formatting), a one-sentence \"About:\" derived from the summary so the reader knows what each branch was, and one or more categories (e.g. \"bug\", \"feature\", \"fix\", \"frontend fix\", \"refactor\", \"infrastructure\", \"investigation\", \"docs\", \"performance\", \"tests\" — invent more when the report calls for them).
 3. `## Approach by category` — for each category that has at least one case, write a `### {category}` subsection. Under it, write **How is the user approaching these issues?** and describe recurring patterns in scope, level of detail, iteration style, blockers. For every claim, name at least one specific branch (and what that branch was about, per its summary) and quote short fragments from real prompts as evidence.
 4. `## Cross-cutting observations` — a short closing section noting patterns that span categories.
+5. `## Doctrine Directives` — distill everything above into 5-10 **imperative, actionable** bullet points that a coding agent should follow when starting brand-new work in this codebase. Each bullet is a directive (\"Scope each change to a single concern.\", \"Write the failing test before the fix.\", \"State the acceptance check up front.\"), grounded in the observed patterns — not a description of what the user did. Keep each bullet to one sentence. This section is consumed verbatim as guidance injected into new sessions, so write directives that stand on their own without the rest of the document.
 
 If a case has no summary, say so explicitly when you mention it instead of inventing intent from its branch name or prompts.
 
@@ -657,6 +706,7 @@ fn doctrine_generate_result_blocking(
         record.state = DoctrineState::Inactive;
     }
 
+    let directives = doctrine_parse_directives(&markdown);
     let new_record = DoctrineRecord {
         id: Uuid::new_v4().to_string(),
         created_at: doctrine_now_iso(),
@@ -665,6 +715,7 @@ fn doctrine_generate_result_blocking(
         result: markdown,
         state: DoctrineState::Ready,
         instructions: extra_instructions.map(str::to_string),
+        directives,
     };
     let new_id = new_record.id.clone();
     store.doctrines.push(new_record);
@@ -797,5 +848,78 @@ fn doctrine_set_active_blocking(
         ok: true,
         doctrines: store.doctrines,
         error: None,
+    }
+}
+
+#[cfg(test)]
+mod doctrine_directives_tests {
+    use super::*;
+
+    fn record(id: &str, state: DoctrineState, directives: Option<&str>) -> DoctrineRecord {
+        DoctrineRecord {
+            id: id.to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            input_tokens: 0,
+            output_tokens: 0,
+            result: String::new(),
+            state,
+            instructions: None,
+            directives: directives.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn parse_directives_extracts_section_and_stops_at_next_heading() {
+        let markdown = "# Doctrine Analysis\n\nOverview.\n\n## Doctrine Directives\n\n- Scope each change to one concern.\n- Write the failing test first.\n\n## Cross-cutting observations\n\nIgnored.\n";
+        let parsed = doctrine_parse_directives(markdown).expect("directives present");
+        assert!(parsed.contains("Scope each change to one concern."));
+        assert!(parsed.contains("Write the failing test first."));
+        assert!(!parsed.contains("Ignored."));
+        assert!(!parsed.contains("Cross-cutting"));
+    }
+
+    #[test]
+    fn parse_directives_returns_none_when_absent_or_empty() {
+        assert!(doctrine_parse_directives("# Doctrine Analysis\n\nNo directives here.\n").is_none());
+        // Heading present but body empty.
+        assert!(doctrine_parse_directives("## Doctrine Directives\n\n## Next\n").is_none());
+    }
+
+    #[test]
+    fn active_directives_returns_ready_record_only() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("groove-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(workspace_root.join(".groove")).expect("mkdir workspace");
+
+        let store = DoctrineStore {
+            version: DOCTRINE_STORE_VERSION,
+            doctrines: vec![
+                record("old", DoctrineState::Inactive, Some("- Stale directive.")),
+                record("active", DoctrineState::Ready, Some("- Use the active directive.")),
+            ],
+        };
+        write_doctrine_store(&workspace_root, &store).expect("write store");
+
+        let directives = doctrine_active_directives(&workspace_root);
+        assert_eq!(directives.as_deref(), Some("- Use the active directive."));
+
+        let _ = std::fs::remove_dir_all(&workspace_root);
+    }
+
+    #[test]
+    fn active_directives_none_when_no_ready_or_empty_directives() {
+        let workspace_root =
+            std::env::temp_dir().join(format!("groove-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(workspace_root.join(".groove")).expect("mkdir workspace");
+
+        // Ready record but no directives stored.
+        let store = DoctrineStore {
+            version: DOCTRINE_STORE_VERSION,
+            doctrines: vec![record("active", DoctrineState::Ready, None)],
+        };
+        write_doctrine_store(&workspace_root, &store).expect("write store");
+        assert!(doctrine_active_directives(&workspace_root).is_none());
+
+        let _ = std::fs::remove_dir_all(&workspace_root);
     }
 }

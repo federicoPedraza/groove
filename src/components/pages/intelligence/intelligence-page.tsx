@@ -8,10 +8,9 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Loader2, PencilRuler, Sparkles, SquareTerminal } from "lucide-react";
+import { Loader2, Sparkles, SquareTerminal } from "lucide-react";
 
-import { DoctrineSection } from "@/src/components/pages/intelligence/doctrine-section";
-import { DoctrineTable } from "@/src/components/pages/intelligence/doctrine-table";
+import { PageHeader } from "@/src/components/pages/page-header";
 import { GrooveWorktreeTerminal } from "@/src/components/pages/worktrees/groove-worktree-terminal";
 import { Button } from "@/src/components/ui/button";
 import {
@@ -86,7 +85,7 @@ export function IntelligencePage() {
     [knownWorktrees, workspaceMeta],
   );
 
-  // Auto-start a Claude Code session at the workspace root on first visit;
+  // Auto-start a plain terminal session at the workspace root on first visit;
   // later visits reattach to whatever sessions are still running.
   const autoOpenAttemptedRef = useRef(false);
   useEffect(() => {
@@ -109,54 +108,54 @@ export function IntelligencePage() {
       } catch {
         // Fall through and try to open a fresh session.
       }
-      await openSession("claudeCode", false);
+      await openSession("plain", false);
     })();
   }, [knownWorktrees, openSession, workspaceMeta]);
 
   return (
-    <section className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <PencilRuler aria-hidden="true" className="size-6" />
-          <div>
-            <h1 className="text-lg font-semibold">Intelligence</h1>
-            <p className="text-sm text-muted-foreground">
-              {workspaceRoot
-                ? `Claude Code at the workspace root: ${workspaceRoot}`
-                : "Terminal sessions at the workspace root."}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={!workspaceMeta || pendingOpenMode !== null}
-            onClick={() => void openSession("plain", true)}
-          >
-            {pendingOpenMode === "plain" ? (
-              <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-            ) : (
-              <SquareTerminal aria-hidden="true" className="size-4" />
-            )}
-            <span>New terminal</span>
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={!workspaceMeta || pendingOpenMode !== null}
-            onClick={() => void openSession("claudeCode", true)}
-          >
-            {pendingOpenMode === "claudeCode" ? (
-              <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-            ) : (
-              <Sparkles aria-hidden="true" className="size-4" />
-            )}
-            <span>New Claude session</span>
-          </Button>
-        </div>
-      </header>
+    <section className="space-y-4">
+      <PageHeader
+        title="Terminal"
+        description={
+          workspaceRoot
+            ? `Sessions at the workspace root: ${workspaceRoot}`
+            : "Sessions at the workspace root."
+        }
+        actions={
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8"
+              disabled={!workspaceMeta || pendingOpenMode !== null}
+              onClick={() => void openSession("claudeCode", true)}
+            >
+              {pendingOpenMode === "claudeCode" ? (
+                <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+              ) : (
+                <Sparkles aria-hidden="true" className="size-4" />
+              )}
+              <span>New Claude session</span>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              className="h-8"
+              disabled={!workspaceMeta || pendingOpenMode !== null}
+              onClick={() => void openSession("plain", true)}
+            >
+              {pendingOpenMode === "plain" ? (
+                <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+              ) : (
+                <SquareTerminal aria-hidden="true" className="size-4" />
+              )}
+              <span>New terminal</span>
+            </Button>
+          </>
+        }
+      />
 
       {workspaceRoot && workspaceMeta ? (
         <GrooveWorktreeTerminal
@@ -171,9 +170,6 @@ export function IntelligencePage() {
           Select a workspace to open the Intelligence terminal.
         </div>
       )}
-
-      <DoctrineSection />
-      <DoctrineTable />
     </section>
   );
 }

@@ -57,7 +57,7 @@ export function ItemCard({ item, count, onSelect, className }: ItemCardProps) {
       )}
     >
       {owned ? (
-        <span className="absolute right-2 top-2 z-10 rounded bg-background/85 px-2 py-0.5 text-xs font-semibold tabular-nums text-foreground/85 shadow-sm">
+        <span className="absolute right-2 top-2 z-10 rounded-none bg-background/85 px-2 py-0.5 text-xs font-semibold tabular-nums text-foreground/85 shadow-sm">
           ×{String(count)}
         </span>
       ) : null}
@@ -70,7 +70,7 @@ export function ItemCard({ item, count, onSelect, className }: ItemCardProps) {
         <div className="flex items-center gap-1.5">
           <span
             className={cn(
-              "rounded border px-1.5 py-px text-[9px] font-medium uppercase tracking-wide",
+              "rounded-sm border px-1.5 py-px text-[9px] font-medium uppercase tracking-wide",
               getRarityBadgeClassName(item.rarity),
             )}
           >

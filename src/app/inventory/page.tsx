@@ -4,7 +4,9 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 
 import { ItemCard } from "@/src/components/pages/items/item-card";
 import { ItemDetailCard } from "@/src/components/pages/items/item-detail-card";
+import { PageHeader } from "@/src/components/pages/page-header";
 import { useAppLayout } from "@/src/components/pages/use-app-layout";
+import { useGrooveBusiness } from "@/src/lib/groove-business";
 import { KINGDOMS, type BugKingdom } from "@/src/lib/bestiary/definitions";
 import {
   ITEM_DEFINITIONS,
@@ -33,6 +35,7 @@ type CategoryRender = {
 export default function InventoryPage() {
   useAppLayout({});
 
+  const grooveBusiness = useGrooveBusiness();
   const snapshot = useSyncExternalStore(
     subscribeToWorkspaceContextStore,
     getWorkspaceContextStoreSnapshot,
@@ -100,7 +103,7 @@ export default function InventoryPage() {
 
   if (!workspaceMeta) {
     return (
-      <section className="mx-auto w-full max-w-7xl space-y-3 p-4 md:p-6">
+      <section className="space-y-3">
         <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
           Open a workspace to view its inventory.
         </p>
@@ -109,14 +112,16 @@ export default function InventoryPage() {
   }
 
   return (
-    <section className="mx-auto w-full max-w-7xl space-y-6 p-4 md:p-6">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold">Inventory</h1>
-        <p className="text-sm text-muted-foreground tabular-nums">
-          {distinctOwned} / {ITEM_DEFINITIONS.length} discovered ·{" "}
-          {totalOwned} total items
-        </p>
-      </header>
+    <section className="space-y-6">
+      <PageHeader
+        title={grooveBusiness.label("inventory")}
+        description={
+          <p className="text-sm text-muted-foreground tabular-nums">
+            {distinctOwned} / {ITEM_DEFINITIONS.length} discovered ·{" "}
+            {totalOwned} total items
+          </p>
+        }
+      />
 
       <div className="space-y-6">
         {renderable.map(({ section, ownedTotal }) => (

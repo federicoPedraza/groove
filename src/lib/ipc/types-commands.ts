@@ -1,5 +1,6 @@
 import type {
   CommentRecord,
+  PullRequestRecord,
   WorkspaceMeta,
   WorktreeUnit,
 } from "./types-core";
@@ -145,6 +146,8 @@ export type GrooveCommentPayload = {
   knownWorktrees: string[];
   workspaceMeta?: WorkspaceMeta;
   worktree: string;
+  /** Also feed the Claude conversation since the last commit into the draft. */
+  includeSession?: boolean;
 };
 
 export type GrooveCommentResponse = {
@@ -166,6 +169,32 @@ export type GrooveCommentMarkCommittedResponse = {
   requestId?: string;
   ok: boolean;
   comment?: CommentRecord;
+  error?: string;
+};
+
+export type GroovePrAttachPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree: string;
+  url: string;
+  title?: string;
+  base?: string;
+  head?: string;
+};
+
+export type GroovePrDetachPayload = {
+  rootName: string;
+  knownWorktrees: string[];
+  workspaceMeta?: WorkspaceMeta;
+  worktree: string;
+  url: string;
+};
+
+export type GroovePrResponse = {
+  requestId?: string;
+  ok: boolean;
+  pullRequest?: PullRequestRecord;
   error?: string;
 };
 

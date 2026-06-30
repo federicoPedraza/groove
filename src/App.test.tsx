@@ -32,10 +32,6 @@ vi.mock("@/src/app/settings/page", () => ({
   default: () => <div data-testid="settings-page">Settings</div>,
 }));
 
-vi.mock("@/src/app/worktrees/page", () => ({
-  default: () => <div data-testid="worktrees-page">Worktrees</div>,
-}));
-
 vi.mock("@/src/app/worktrees/worktree-detail-page", () => ({
   default: () => <div data-testid="worktree-detail-page">Worktree Detail</div>,
 }));
@@ -131,15 +127,6 @@ describe("App", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByTestId("diagnostics-page")).toBeTruthy();
-  });
-
-  it("renders worktrees page at /worktrees route", async () => {
-    render(
-      <MemoryRouter initialEntries={["/worktrees"]}>
-        <App />
-      </MemoryRouter>,
-    );
-    expect(await screen.findByTestId("worktrees-page")).toBeTruthy();
   });
 
   it("renders worktree detail page at /worktrees/:worktree route", async () => {

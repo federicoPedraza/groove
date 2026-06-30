@@ -2,6 +2,7 @@ pub(crate) fn run() {
     tauri::Builder::default()
         .manage(WorkspaceEventState::default())
         .manage(WorkspaceContextCacheState::default())
+        .manage(TerminalResolutionCacheState::default())
         .manage(GrooveListCacheState::default())
         .manage(GrooveBinStatusState::default())
         .manage(GrooveTerminalState::default())
@@ -55,6 +56,7 @@ pub(crate) fn run() {
             sound_library_open_directory,
             workspace_update_terminal_settings,
             workspace_update_commands_settings,
+            workspace_update_max_worktree_count,
             workspace_update_root_directory,
             workspace_mark_onboarding_configured,
             workspace_update_worktree_symlink_paths,
@@ -64,6 +66,7 @@ pub(crate) fn run() {
             workspace_list_symlink_entries,
             workspace_open_terminal,
             workspace_open_workspace_terminal,
+            workspace_open_directory,
             groove_terminal_open,
             groove_terminal_write,
             groove_terminal_resize,
@@ -90,6 +93,16 @@ pub(crate) fn run() {
             git_unstage_files,
             git_add,
             git_commit,
+            gh_auth_status,
+            gh_auth_login,
+            gh_auth_switch,
+            gh_auth_logout,
+            gh_ssh_overview,
+            gh_ssh_set_identity,
+            gh_repo_default_branch,
+            gh_pr_list,
+            gh_pr_view,
+            gh_pr_create_web,
             open_external_url,
             groove_list,
             groove_new,
@@ -98,9 +111,12 @@ pub(crate) fn run() {
             groove_stop,
             groove_recoverable_list,
             groove_recoverable_clear,
+            worktree_storage_stats,
             groove_summary,
             groove_comment,
             groove_comment_mark_committed,
+            groove_pr_attach,
+            groove_pr_detach,
             groove_discover_worktree_unit,
             groove_bin_status,
             groove_bin_repair,

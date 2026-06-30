@@ -57,7 +57,7 @@ export function ItemTile({
         {labelText}
       </span>
       {typeof count === "number" && count > 1 ? (
-        <span className="absolute right-1 top-1 rounded bg-background/75 px-1 text-[10px] tabular-nums text-foreground/80">
+        <span className="absolute right-1 top-1 rounded-xs bg-background/75 px-1 text-[10px] tabular-nums text-foreground/80">
           ×{String(count)}
         </span>
       ) : null}

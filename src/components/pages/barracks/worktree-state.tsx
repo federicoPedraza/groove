@@ -77,45 +77,45 @@ export function getWorktreeStateIcon(
 ) {
   if (mode === "business") {
     if (state === "hunting") {
-      return <Stethoscope aria-hidden="true" />;
+      return <Stethoscope aria-hidden="true" fill="currentColor" />;
     }
     if (state === "fighting") {
-      return <Hammer aria-hidden="true" />;
+      return <Hammer aria-hidden="true" fill="currentColor" />;
     }
     if (state === "wounded") {
-      return <Clock aria-hidden="true" />;
+      return <Clock aria-hidden="true" fill="currentColor" />;
     }
     if (state === "defeated") {
-      return <CircleCheck aria-hidden="true" />;
+      return <CircleCheck aria-hidden="true" fill="currentColor" />;
     }
     if (state === "blocked") {
-      return <Ban aria-hidden="true" />;
+      return <Ban aria-hidden="true" fill="currentColor" />;
     }
     if (state === "forgotten") {
-      return <Archive aria-hidden="true" />;
+      return <Archive aria-hidden="true" fill="currentColor" />;
     }
-    return <CircleDashed aria-hidden="true" />;
+    return <CircleDashed aria-hidden="true" fill="currentColor" />;
   }
 
   if (state === "hunting") {
-    return <Crosshair aria-hidden="true" />;
+    return <Crosshair aria-hidden="true" fill="currentColor" />;
   }
   if (state === "fighting") {
-    return <Swords aria-hidden="true" />;
+    return <Swords aria-hidden="true" fill="currentColor" />;
   }
   if (state === "wounded") {
-    return <Droplet aria-hidden="true" />;
+    return <Droplet aria-hidden="true" fill="currentColor" />;
   }
   if (state === "defeated") {
-    return <ShieldCheck aria-hidden="true" />;
+    return <ShieldCheck aria-hidden="true" fill="currentColor" />;
   }
   if (state === "blocked") {
-    return <BrickWallShield aria-hidden="true" />;
+    return <BrickWallShield aria-hidden="true" fill="currentColor" />;
   }
   if (state === "forgotten") {
-    return <ShieldOff aria-hidden="true" />;
+    return <ShieldOff aria-hidden="true" fill="currentColor" />;
   }
-  return <Shield aria-hidden="true" />;
+  return <Shield aria-hidden="true" fill="currentColor" />;
 }
 
 export function getWorktreeStateIconColorClass(state: WorktreeState): string {

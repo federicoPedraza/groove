@@ -73,7 +73,7 @@ export function UnitCard({ open, definition, onClose }: UnitCardProps) {
                   : `Show back of ${definition.name} card`
               }
               className={cn(
-                "relative block aspect-[3/4] w-full rounded-lg transition-transform duration-500 [transform-style:preserve-3d]",
+                "relative block aspect-[3/4] w-full rounded-lg transition-transform duration-500 will-change-transform [transform-style:preserve-3d]",
                 isFlipped
                   ? "[transform:rotateY(180deg)]"
                   : "[transform:rotateY(0deg)]",
@@ -88,7 +88,7 @@ export function UnitCard({ open, definition, onClose }: UnitCardProps) {
               >
                 <div
                   className={cn(
-                    "flex h-full w-full flex-col items-center justify-center gap-2 rounded-md border-4 p-4 text-center",
+                    "flex h-full w-full flex-col items-center justify-center gap-2 rounded-2xs border-4 p-4 text-center",
                     kingdom.cardInnerBorderClassName,
                   )}
                 >
@@ -118,7 +118,7 @@ export function UnitCard({ open, definition, onClose }: UnitCardProps) {
                 >
                   <div
                     className={cn(
-                      "flex h-full w-full flex-col gap-3 overflow-y-auto rounded-md border-4 p-4 text-left",
+                      "flex h-full w-full flex-col gap-3 overflow-y-auto rounded-2xs border-4 p-4 text-left",
                       kingdom.cardInnerBorderClassName,
                     )}
                   >

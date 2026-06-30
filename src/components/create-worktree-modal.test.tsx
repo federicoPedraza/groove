@@ -300,6 +300,87 @@ describe("CreateWorktreeModal", () => {
     expect(props.onSubmit).not.toHaveBeenCalled();
   });
 
+  it("disables branch name and base branch when using an existing branch", async () => {
+    gitListBranchesMock.mockResolvedValue({
+      ok: true,
+      branches: ["main", "develop"],
+    });
+    gitCurrentBranchMock.mockResolvedValue({ ok: true, branch: "main" });
+
+    renderModal({ branch: "feature/test", base: "main" });
+
+    const checkbox = await screen.findByLabelText(
+      "Create the worktree from an existing branch instead",
+    );
+
+    await waitFor(() => {
+      expect(checkbox).toBeEnabled();
+    });
+
+    fireEvent.click(checkbox);
+
+    expect(screen.getByLabelText("Branch name")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Select base branch" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Select existing branch" }),
+    ).toBeEnabled();
+  });
+
+  it("submits the existing branch with no base when existing-branch mode is on", async () => {
+    gitListBranchesMock.mockResolvedValue({
+      ok: true,
+      branches: ["main", "develop"],
+    });
+    gitCurrentBranchMock.mockResolvedValue({ ok: true, branch: "main" });
+
+    const { props } = renderModal({ branch: "feature/test", base: "main" });
+
+    const checkbox = await screen.findByLabelText(
+      "Create the worktree from an existing branch instead",
+    );
+    fireEvent.click(checkbox);
+
+    const existingDropdown = screen.getByRole("button", {
+      name: "Select existing branch",
+    });
+    fireEvent.pointerDown(existingDropdown, { button: 0, pointerType: "mouse" });
+    fireEvent.click(existingDropdown);
+
+    const filterInput = await screen.findByLabelText("Search existing branches");
+    fireEvent.change(filterInput, { target: { value: "develop" } });
+
+    fireEvent.click(await screen.findByRole("menuitem", { name: "develop" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /create/i }));
+
+    expect(props.onSubmit).toHaveBeenCalledWith({
+      branchOverride: "develop",
+      baseOverride: "",
+    });
+  });
+
+  it("requires an existing branch selection before submitting in existing-branch mode", async () => {
+    gitListBranchesMock.mockResolvedValue({
+      ok: true,
+      branches: ["main", "develop"],
+    });
+    gitCurrentBranchMock.mockResolvedValue({ ok: true, branch: "main" });
+
+    const { props } = renderModal({ branch: "feature/test", base: "main" });
+
+    const checkbox = await screen.findByLabelText(
+      "Create the worktree from an existing branch instead",
+    );
+    fireEvent.click(checkbox);
+
+    expect(
+      screen.getByRole("button", { name: /create/i }),
+    ).toBeDisabled();
+    expect(props.onSubmit).not.toHaveBeenCalled();
+  });
+
   it("clears errors when modal is closed and reopened", async () => {
     gitListBranchesMock.mockResolvedValue({ ok: false, error: "Some error" });
     gitCurrentBranchMock.mockResolvedValue({ ok: true, branch: "main" });

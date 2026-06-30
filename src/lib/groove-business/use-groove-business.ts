@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 import {
-  isGrooveBusinessDisabled,
+  isGamificationLabelsHidden,
   subscribeToGlobalSettings,
 } from "@/src/lib/ipc";
 import type { WorktreeState } from "@/src/lib/ipc/types-core";
@@ -16,7 +16,9 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 function getGrooveBusinessModeSnapshot(): GrooveBusinessMode {
-  return isGrooveBusinessDisabled() ? "business" : "groove";
+  // "business" mode = plain (non-gamified) labels/icons. Driven by the master
+  // "hide gamification" toggle or the dedicated "hide labels" sub-toggle.
+  return isGamificationLabelsHidden() ? "business" : "groove";
 }
 
 export type UseGrooveBusinessResult = {

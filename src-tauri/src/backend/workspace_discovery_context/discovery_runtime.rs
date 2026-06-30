@@ -279,6 +279,8 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         .get("disableGrooveBusiness")
         .or_else(|| obj.get("disableGrooveLoadingSection"))
         .and_then(|v| v.as_bool());
+    let hide_mascot = obj.get("hideMascot").and_then(|v| v.as_bool());
+    let hide_labels = obj.get("hideLabels").and_then(|v| v.as_bool());
     let show_fps = obj.get("showFps").and_then(|v| v.as_bool());
     let play_groove_command = obj
         .get("playGrooveCommand")
@@ -286,10 +288,6 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         .map(|v| v.to_string());
     let open_terminal_at_worktree_command = obj
         .get("openTerminalAtWorktreeCommand")
-        .and_then(|v| v.as_str())
-        .map(|v| v.to_string());
-    let run_local_command = obj
-        .get("runLocalCommand")
         .and_then(|v| v.as_str())
         .map(|v| v.to_string());
     let worktree_symlink_paths = obj.get("worktreeSymlinkPaths").and_then(|v| {
@@ -320,7 +318,6 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         && show_fps.is_none()
         && play_groove_command.is_none()
         && open_terminal_at_worktree_command.is_none()
-        && run_local_command.is_none()
         && worktree_symlink_paths.is_none()
         && opencode_settings.is_none()
         && worktree_records.is_none()
@@ -338,10 +335,11 @@ fn read_workspace_meta(workspace_root: &Path) -> Option<WorkspaceMetaContext> {
         terminal_custom_command,
         telemetry_enabled,
         disable_groove_business,
+        hide_mascot,
+        hide_labels,
         show_fps,
         play_groove_command,
         open_terminal_at_worktree_command,
-        run_local_command,
         worktree_symlink_paths,
         opencode_settings,
         worktree_records,
@@ -406,12 +404,6 @@ fn workspace_meta_matches(
         if observed.open_terminal_at_worktree_command.as_ref()
             != Some(expected_open_terminal_at_worktree_command)
         {
-            return false;
-        }
-    }
-
-    if let Some(expected_run_local_command) = &expected.run_local_command {
-        if observed.run_local_command.as_ref() != Some(expected_run_local_command) {
             return false;
         }
     }

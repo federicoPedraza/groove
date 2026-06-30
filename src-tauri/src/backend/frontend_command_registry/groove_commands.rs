@@ -1475,6 +1475,7 @@ async fn groove_comment(app: AppHandle, payload: GrooveCommentPayload) -> Groove
 }
 
 const GROOVE_COMMENT_DIFF_BUDGET: usize = 48 * 1024;
+const GROOVE_COMMENT_SESSION_BUDGET: usize = 24 * 1024;
 
 fn truncate_to_budget(value: &str, budget: usize) -> String {
     if value.len() <= budget {
@@ -1483,6 +1484,70 @@ fn truncate_to_budget(value: &str, budget: usize) -> String {
     let mut truncated = value[..budget].to_string();
     truncated.push_str("\n... [truncated]\n");
     truncated
+}
+
+fn parse_rfc3339_opt(value: &str) -> Option<OffsetDateTime> {
+    OffsetDateTime::parse(value.trim(), &Rfc3339).ok()
+}
+
+/// Keep transcript messages newer than `boundary` (the last commit's time).
+/// Messages with a missing/unparseable timestamp are kept rather than dropped;
+/// a missing/unparseable `boundary` keeps everything.
+fn transcript_messages_after<'a>(
+    messages: &'a [GrooveMcpTranscriptMessage],
+    boundary: Option<&str>,
+) -> Vec<&'a GrooveMcpTranscriptMessage> {
+    let boundary_dt = boundary.and_then(parse_rfc3339_opt);
+    messages
+        .iter()
+        .filter(|message| {
+            match (
+                boundary_dt.as_ref(),
+                message.timestamp.as_deref().and_then(parse_rfc3339_opt),
+            ) {
+                (Some(boundary), Some(timestamp)) => timestamp > *boundary,
+                _ => true,
+            }
+        })
+        .collect()
+}
+
+/// Build the "conversation since the last commit" context block for the
+/// drafting prompt. Returns an empty string when there is no transcript.
+fn build_commit_session_context(worktree_path: &Path, worktree_id: &str) -> String {
+    let Some(transcript_path) = resolve_existing_claude_session_id(worktree_path, worktree_id)
+        .and_then(|session_id| groove_mcp_claude_transcript_path(worktree_path, &session_id))
+        .filter(|path| path.is_file())
+    else {
+        return String::new();
+    };
+
+    let messages = match groove_mcp_parse_claude_transcript(&transcript_path) {
+        Ok(messages) => messages,
+        Err(_) => return String::new(),
+    };
+
+    let head_time_result =
+        run_git_command_at_path(worktree_path, &["show", "-s", "--format=%cI", "HEAD"]);
+    let head_time = if head_time_result.exit_code == Some(0) {
+        first_non_empty_line(&head_time_result.stdout)
+    } else {
+        None
+    };
+
+    let mut block = String::new();
+    for message in transcript_messages_after(&messages, head_time.as_deref()) {
+        let text = message.text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        block.push_str(&message.role);
+        block.push_str(": ");
+        block.push_str(text);
+        block.push_str("\n\n");
+    }
+
+    truncate_to_budget(block.trim(), GROOVE_COMMENT_SESSION_BUDGET)
 }
 
 fn groove_comment_blocking(
@@ -1608,14 +1673,32 @@ fn groove_comment_blocking(
     }
     let diff_text = truncate_to_budget(&diff_text, GROOVE_COMMENT_DIFF_BUDGET);
 
-    let prompt = format!(
-        "Write a single conventional-commit message for the changes below. \
+    let session_block = if payload.include_session {
+        build_commit_session_context(&worktree_path, &worktree_id)
+    } else {
+        String::new()
+    };
+
+    let prompt = if session_block.is_empty() {
+        format!(
+            "Write a single conventional-commit message for the changes below. \
 Output ONLY the commit message text — no quotes, no markdown fences, no preamble. \
 First line: type(scope?): subject (<= 72 chars, imperative, lowercase after type). \
 If meaningful, add a blank line and a short body explaining the why. \
 Do not include file lists or trivia.\n\n# git status --porcelain\n{}\n\n{}",
-        status_output, diff_text
-    );
+            status_output, diff_text
+        )
+    } else {
+        format!(
+            "Write a single conventional-commit message for the changes below. \
+Output ONLY the commit message text — no quotes, no markdown fences, no preamble. \
+First line: type(scope?): subject (<= 72 chars, imperative, lowercase after type). \
+If meaningful, add a blank line and a short body explaining the why. \
+Use the discussion with the assistant for the *why* and the diff for the *what*. \
+Do not include file lists or trivia.\n\n## Discussion with the assistant since the last commit\n{}\n\n# git status --porcelain\n{}\n\n{}",
+            session_block, status_output, diff_text
+        )
+    };
 
     let claude_bin = resolve_claude_code_bin();
     eprintln!(
@@ -1691,6 +1774,274 @@ Do not include file lists or trivia.\n\n# git status --porcelain\n{}\n\n{}",
         request_id,
         ok: true,
         comment: Some(new_record),
+        error: None,
+    }
+}
+
+#[tauri::command]
+async fn groove_pr_attach(app: AppHandle, payload: GroovePrAttachPayload) -> GroovePrResponse {
+    let request_id = request_id();
+    let fallback_request_id = request_id.clone();
+
+    match tauri::async_runtime::spawn_blocking(move || {
+        groove_pr_attach_blocking(app, payload, request_id)
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => GroovePrResponse {
+            request_id: fallback_request_id,
+            ok: false,
+            pull_request: None,
+            error: Some(format!("Failed to run groove pr attach worker thread: {error}")),
+        },
+    }
+}
+
+fn groove_pr_attach_blocking(
+    app: AppHandle,
+    payload: GroovePrAttachPayload,
+    request_id: String,
+) -> GroovePrResponse {
+    let trimmed_worktree = payload.worktree.trim();
+    if trimmed_worktree.is_empty() {
+        return GroovePrResponse {
+            request_id,
+            ok: false,
+            pull_request: None,
+            error: Some("worktree is required.".to_string()),
+        };
+    }
+
+    let url = payload.url.trim().to_string();
+    if !(url.starts_with("https://") && url.contains("/pull/")) {
+        return GroovePrResponse {
+            request_id,
+            ok: false,
+            pull_request: None,
+            error: Some("A github.com pull-request URL is required.".to_string()),
+        };
+    }
+    let Some(number) = parse_pr_number_from_url(&url) else {
+        return GroovePrResponse {
+            request_id,
+            ok: false,
+            pull_request: None,
+            error: Some("Could not read a PR number from the URL.".to_string()),
+        };
+    };
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(value) => value,
+        Err(error) => {
+            return GroovePrResponse {
+                request_id,
+                ok: false,
+                pull_request: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return GroovePrResponse {
+                request_id,
+                ok: false,
+                pull_request: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    let mut workspace_meta = match read_workspace_meta_file(&workspace_json) {
+        Ok(meta) => meta,
+        Err(error) => {
+            return GroovePrResponse {
+                request_id,
+                ok: false,
+                pull_request: None,
+                error: Some(format!("Failed to read workspace.json: {error}")),
+            }
+        }
+    };
+
+    let Some(record) = workspace_meta.worktree_records.get_mut(trimmed_worktree) else {
+        return GroovePrResponse {
+            request_id,
+            ok: false,
+            pull_request: None,
+            error: Some(format!(
+                "No worktree record for \"{trimmed_worktree}\". Discover the worktree first."
+            )),
+        };
+    };
+
+    // Already attached (by number or URL): refresh its cached metadata instead
+    // of adding a duplicate.
+    if let Some(existing) = record
+        .pull_requests
+        .iter_mut()
+        .find(|pr| pr.number == number || pr.url == url)
+    {
+        if payload.title.is_some() {
+            existing.title = payload.title.clone();
+        }
+        if payload.base.is_some() {
+            existing.base = payload.base.clone();
+        }
+        if payload.head.is_some() {
+            existing.head = payload.head.clone();
+        }
+        let updated = existing.clone();
+        workspace_meta.updated_at = now_iso();
+        if let Err(error) = write_workspace_meta_file(&workspace_json, &workspace_meta) {
+            return GroovePrResponse {
+                request_id,
+                ok: false,
+                pull_request: None,
+                error: Some(error),
+            };
+        }
+        return GroovePrResponse {
+            request_id,
+            ok: true,
+            pull_request: Some(updated),
+            error: None,
+        };
+    }
+
+    let new_record = PullRequestRecord {
+        number,
+        url,
+        title: payload.title.clone(),
+        base: payload.base.clone(),
+        head: payload.head.clone(),
+        added_at: now_iso(),
+    };
+    record.pull_requests.push(new_record.clone());
+    workspace_meta.updated_at = now_iso();
+    if let Err(error) = write_workspace_meta_file(&workspace_json, &workspace_meta) {
+        return GroovePrResponse {
+            request_id,
+            ok: false,
+            pull_request: None,
+            error: Some(error),
+        };
+    }
+
+    GroovePrResponse {
+        request_id,
+        ok: true,
+        pull_request: Some(new_record),
+        error: None,
+    }
+}
+
+#[tauri::command]
+async fn groove_pr_detach(app: AppHandle, payload: GroovePrDetachPayload) -> GroovePrResponse {
+    let request_id = request_id();
+    let fallback_request_id = request_id.clone();
+
+    match tauri::async_runtime::spawn_blocking(move || {
+        groove_pr_detach_blocking(app, payload, request_id)
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => GroovePrResponse {
+            request_id: fallback_request_id,
+            ok: false,
+            pull_request: None,
+            error: Some(format!("Failed to run groove pr detach worker thread: {error}")),
+        },
+    }
+}
+
+fn groove_pr_detach_blocking(
+    app: AppHandle,
+    payload: GroovePrDetachPayload,
+    request_id: String,
+) -> GroovePrResponse {
+    let trimmed_worktree = payload.worktree.trim();
+    if trimmed_worktree.is_empty() {
+        return GroovePrResponse {
+            request_id,
+            ok: false,
+            pull_request: None,
+            error: Some("worktree is required.".to_string()),
+        };
+    }
+    let url = payload.url.trim().to_string();
+
+    let known_worktrees = match validate_known_worktrees(&payload.known_worktrees) {
+        Ok(value) => value,
+        Err(error) => {
+            return GroovePrResponse {
+                request_id,
+                ok: false,
+                pull_request: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_root = match resolve_workspace_root(
+        &app,
+        &payload.root_name,
+        None,
+        &known_worktrees,
+        &payload.workspace_meta,
+    ) {
+        Ok(root) => root,
+        Err(error) => {
+            return GroovePrResponse {
+                request_id,
+                ok: false,
+                pull_request: None,
+                error: Some(error),
+            }
+        }
+    };
+
+    let workspace_json = workspace_root.join(".groove").join("workspace.json");
+    let mut workspace_meta = match read_workspace_meta_file(&workspace_json) {
+        Ok(meta) => meta,
+        Err(error) => {
+            return GroovePrResponse {
+                request_id,
+                ok: false,
+                pull_request: None,
+                error: Some(format!("Failed to read workspace.json: {error}")),
+            }
+        }
+    };
+
+    if let Some(record) = workspace_meta.worktree_records.get_mut(trimmed_worktree) {
+        record.pull_requests.retain(|pr| pr.url != url);
+        workspace_meta.updated_at = now_iso();
+        if let Err(error) = write_workspace_meta_file(&workspace_json, &workspace_meta) {
+            return GroovePrResponse {
+                request_id,
+                ok: false,
+                pull_request: None,
+                error: Some(error),
+            };
+        }
+    }
+
+    GroovePrResponse {
+        request_id,
+        ok: true,
+        pull_request: None,
         error: None,
     }
 }
@@ -1834,6 +2185,64 @@ fn groove_comment_mark_committed_blocking(
 #[cfg(test)]
 mod groove_commands_tests {
     use super::*;
+
+    fn transcript_msg(
+        role: &str,
+        text: &str,
+        timestamp: Option<&str>,
+    ) -> GrooveMcpTranscriptMessage {
+        GrooveMcpTranscriptMessage {
+            role: role.to_string(),
+            text: text.to_string(),
+            tool_uses: Vec::new(),
+            timestamp: timestamp.map(|value| value.to_string()),
+        }
+    }
+
+    #[test]
+    fn transcript_slice_keeps_only_messages_after_boundary() {
+        let messages = vec![
+            transcript_msg("user", "old", Some("2026-06-30T10:00:00Z")),
+            transcript_msg("assistant", "new", Some("2026-06-30T12:00:00Z")),
+        ];
+        let kept = transcript_messages_after(&messages, Some("2026-06-30T11:00:00Z"));
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].text, "new");
+    }
+
+    #[test]
+    fn transcript_slice_compares_instants_across_offsets() {
+        // boundary 12:00+02:00 == 10:00Z; the 11:00Z message is later.
+        let messages = vec![transcript_msg("assistant", "after", Some("2026-06-30T11:00:00Z"))];
+        let kept = transcript_messages_after(&messages, Some("2026-06-30T12:00:00+02:00"));
+        assert_eq!(kept.len(), 1);
+    }
+
+    #[test]
+    fn transcript_slice_keeps_all_when_boundary_absent_or_unparseable() {
+        let messages = vec![
+            transcript_msg("user", "a", Some("2026-06-30T10:00:00Z")),
+            transcript_msg("assistant", "b", Some("2026-06-30T12:00:00Z")),
+        ];
+        assert_eq!(transcript_messages_after(&messages, None).len(), 2);
+        assert_eq!(
+            transcript_messages_after(&messages, Some("not-a-date")).len(),
+            2
+        );
+    }
+
+    #[test]
+    fn transcript_slice_keeps_messages_with_unparseable_timestamps() {
+        let messages = vec![
+            transcript_msg("user", "weird", Some("t1")),
+            transcript_msg("assistant", "none", None),
+            transcript_msg("assistant", "old", Some("2026-06-30T09:00:00Z")),
+        ];
+        let kept = transcript_messages_after(&messages, Some("2026-06-30T11:00:00Z"));
+        assert_eq!(kept.len(), 2);
+        assert!(kept.iter().any(|message| message.text == "weird"));
+        assert!(kept.iter().any(|message| message.text == "none"));
+    }
 
     #[test]
     fn resolves_existing_stamped_worktree_path_from_branch_like_token() {
@@ -2023,6 +2432,10 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
             ensure_claude_hooks(&worktree_path, &stamped_worktree);
         }
 
+        // Honor the configured max worktree count by evicting the
+        // least-recently-used worktree(s); emits a "worktree-evicted" event.
+        run_post_create_eviction(&app, &workspace_root, &effective_root);
+
         invalidate_workspace_context_cache(&app, &workspace_root);
         invalidate_groove_list_cache_for_workspace(&app, &workspace_root);
     }
@@ -2034,6 +2447,257 @@ fn groove_new(app: AppHandle, payload: GrooveNewPayload) -> GrooveCommandRespons
         stdout: result.stdout,
         stderr: result.stderr,
         error: result.error,
+    }
+}
+
+#[tauri::command]
+fn worktree_storage_stats(
+    app: AppHandle,
+    payload: WorktreeStorageStatsPayload,
+) -> WorktreeStorageStatsResponse {
+    let request_id = request_id();
+    let include_sizes = payload.include_sizes;
+
+    let storage_error = |workspace_root: Option<String>, error: String| {
+        WorktreeStorageStatsResponse {
+            request_id: request_id.clone(),
+            ok: false,
+            total_count: 0,
+            total_bytes: 0,
+            sizes_included: false,
+            max_worktree_count: None,
+            worktrees: Vec::new(),
+            workspace_root,
+            error: Some(error),
+        }
+    };
+
+    let persisted_root = match read_persisted_active_workspace_root(&app) {
+        Ok(Some(value)) => value,
+        Ok(None) => return storage_error(None, "No active workspace selected.".to_string()),
+        Err(error) => return storage_error(None, error),
+    };
+
+    let workspace_root = match validate_workspace_root_path(&persisted_root) {
+        Ok(root) => root,
+        Err(error) => return storage_error(Some(persisted_root), error),
+    };
+
+    let (workspace_meta, _) = match ensure_workspace_meta(&workspace_root) {
+        Ok(result) => result,
+        Err(error) => {
+            return storage_error(Some(workspace_root.display().to_string()), error);
+        }
+    };
+
+    let effective_root = effective_workspace_root(&workspace_root, &workspace_meta);
+    let rows = match scan_workspace_worktrees(
+        &app,
+        &workspace_root,
+        &effective_root,
+        &workspace_meta.worktree_records,
+    ) {
+        Ok((_, rows)) => rows,
+        Err(error) => {
+            return WorktreeStorageStatsResponse {
+                max_worktree_count: workspace_meta.max_worktree_count,
+                ..storage_error(Some(workspace_root.display().to_string()), error)
+            };
+        }
+    };
+
+    let mut worktrees = Vec::new();
+    let mut total_bytes: u64 = 0;
+    for row in rows {
+        // Only count worktrees that physically exist on disk (skip tombstones).
+        if row.status == "deleted" {
+            continue;
+        }
+        // Sizing walks every file (`du`), which is expensive — only when asked.
+        let bytes = if include_sizes {
+            crate::backend::common::platform_env::calculate_dir_size_bytes(Path::new(&row.path))
+        } else {
+            0
+        };
+        total_bytes = total_bytes.saturating_add(bytes);
+        worktrees.push(WorktreeStorageRow {
+            worktree: row.worktree,
+            path: row.path,
+            bytes,
+            last_executed_at: row.last_executed_at,
+        });
+    }
+    if include_sizes {
+        worktrees.sort_by(|left, right| right.bytes.cmp(&left.bytes));
+    } else {
+        worktrees.sort_by(|left, right| left.worktree.cmp(&right.worktree));
+    }
+
+    WorktreeStorageStatsResponse {
+        request_id,
+        ok: true,
+        total_count: worktrees.len(),
+        total_bytes,
+        sizes_included: include_sizes,
+        max_worktree_count: workspace_meta.max_worktree_count,
+        worktrees,
+        workspace_root: Some(workspace_root.display().to_string()),
+        error: None,
+    }
+}
+
+/// True when the worktree has uncommitted changes. If git status cannot be
+/// determined, errs on the safe side (treated as dirty → never evicted).
+fn worktree_is_dirty(worktree_path: &Path) -> bool {
+    let result = run_git_command_at_path(worktree_path, &["status", "--porcelain=v1"]);
+    if result.exit_code != Some(0) || result.error.is_some() {
+        return true;
+    }
+    parse_git_porcelain_counts(&result.stdout).dirty()
+}
+
+/// Force-removes a worktree's folder (reusing the same steps as `groove_rm`'s
+/// force path) and records a tombstone. Used by eviction only.
+fn remove_worktree_for_eviction(
+    app: &AppHandle,
+    workspace_root: &Path,
+    effective_root: &Path,
+    worktree: &str,
+    worktree_path: &Path,
+) -> Result<(), String> {
+    let branch_name = resolve_branch_from_worktree(worktree_path);
+    let result = run_command(
+        &PathBuf::from("git"),
+        &[
+            "worktree".to_string(),
+            "remove".to_string(),
+            "--force".to_string(),
+            worktree_path.display().to_string(),
+        ],
+        effective_root,
+    );
+    let ok = result.exit_code == Some(0) && result.error.is_none();
+    if !ok && path_is_directory(worktree_path) {
+        let detail = if result.stderr.trim().is_empty() {
+            result.error.unwrap_or_default()
+        } else {
+            result.stderr
+        };
+        return Err(format!("git worktree remove failed: {detail}"));
+    }
+    let _ = record_worktree_tombstone(app, workspace_root, worktree, worktree_path, branch_name);
+    Ok(())
+}
+
+/// Removes least-recently-used worktrees until the workspace is within its
+/// configured `max_worktree_count`, skipping any that are currently running or
+/// have uncommitted changes. Returns the names of the worktrees removed.
+/// Best-effort: per-worktree failures are skipped rather than fatal.
+fn evict_worktrees_over_limit(
+    app: &AppHandle,
+    workspace_root: &Path,
+    effective_root: &Path,
+) -> Result<Vec<String>, String> {
+    let (workspace_meta, _) = ensure_workspace_meta(workspace_root)?;
+    let Some(max) = workspace_meta.max_worktree_count.filter(|value| *value > 0) else {
+        return Ok(Vec::new());
+    };
+    let max = max as usize;
+
+    let (_, rows) = scan_workspace_worktrees(
+        app,
+        workspace_root,
+        effective_root,
+        &workspace_meta.worktree_records,
+    )?;
+    let mut on_disk: Vec<WorkspaceScanRow> = rows
+        .into_iter()
+        .filter(|row| row.status != "deleted")
+        .collect();
+    if on_disk.len() <= max {
+        return Ok(Vec::new());
+    }
+
+    // Least-recently-used first: oldest last_executed_at, then created_at;
+    // unknown timestamps sort first (treated as oldest). The just-created
+    // worktree has the freshest last_executed_at, so it is never a candidate.
+    let sort_key = |row: &WorkspaceScanRow| -> String {
+        row.last_executed_at
+            .clone()
+            .or_else(|| {
+                workspace_meta
+                    .worktree_records
+                    .get(&row.worktree)
+                    .map(|record| record.created_at.clone())
+            })
+            .unwrap_or_default()
+    };
+    on_disk.sort_by(|left, right| sort_key(left).cmp(&sort_key(right)));
+
+    // Worktrees considered "in use": persisted running grooves + active PTYs.
+    let mut running: HashSet<String> = read_running_grooves(app, workspace_root)?
+        .into_iter()
+        .map(|record| record.worktree)
+        .collect();
+    {
+        let state = app.state::<GrooveTerminalState>();
+        let active = match state.inner.lock() {
+            Ok(sessions_state) => active_worktrees_for_workspace(&sessions_state, workspace_root),
+            Err(_) => Vec::new(),
+        };
+        for worktree in active {
+            running.insert(worktree);
+        }
+    }
+
+    let mut remaining_to_remove = on_disk.len().saturating_sub(max);
+    let mut evicted = Vec::new();
+    for row in on_disk {
+        if remaining_to_remove == 0 {
+            break;
+        }
+        if running.contains(&row.worktree) {
+            continue;
+        }
+        let worktree_path = PathBuf::from(&row.path);
+        if worktree_is_dirty(&worktree_path) {
+            continue;
+        }
+        if remove_worktree_for_eviction(
+            app,
+            workspace_root,
+            effective_root,
+            &row.worktree,
+            &worktree_path,
+        )
+        .is_ok()
+        {
+            evicted.push(row.worktree);
+            remaining_to_remove -= 1;
+        }
+    }
+
+    if !evicted.is_empty() {
+        invalidate_workspace_context_cache(app, workspace_root);
+        invalidate_groove_list_cache_for_workspace(app, workspace_root);
+    }
+    Ok(evicted)
+}
+
+/// Runs eviction after a successful create and, if anything was removed,
+/// notifies the frontend so it can surface a toast.
+fn run_post_create_eviction(app: &AppHandle, workspace_root: &Path, effective_root: &Path) {
+    match evict_worktrees_over_limit(app, workspace_root, effective_root) {
+        Ok(evicted) if !evicted.is_empty() => {
+            let _ = app.emit(
+                "worktree-evicted",
+                serde_json::json!({
+                    "workspaceRoot": workspace_root.display().to_string(),
+                    "worktrees": evicted,
+                }),
+            );
+        }
+        _ => {}
     }
 }
 
@@ -2772,6 +3436,7 @@ fn groove_discover_worktree_unit_blocking(
             unit: None,
             summaries: Vec::new(),
             comments: Vec::new(),
+            pull_requests: Vec::new(),
         });
     record.unit = Some(unit.clone());
     meta.updated_at = now_iso();

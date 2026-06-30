@@ -35,7 +35,7 @@ function Toaster(props: ToasterProps) {
           title: "text-xs font-medium text-foreground/90",
           description: "line-clamp-2 text-[11px] text-muted-foreground",
           closeButton:
-            "ml-1 inline-flex size-5 items-center justify-center rounded border border-border/70 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+            "ml-1 inline-flex size-5 items-center justify-center rounded-sm border border-border/70 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
           success:
             "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950",
           error:

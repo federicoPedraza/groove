@@ -34,6 +34,7 @@ import {
   listenGrooveTerminalLifecycle,
   listenWorkspaceChange,
   listenWorkspaceReady,
+  listenWorktreeEvicted,
   workspaceClearActive,
   workspaceEvents,
   workspaceGitignoreSanityApply,
@@ -152,9 +153,7 @@ function isSameWorkspaceMeta(
     left.defaultTerminal === right.defaultTerminal &&
     left.terminalCustomCommand === right.terminalCustomCommand &&
     left.playGrooveCommand === right.playGrooveCommand &&
-    left.openTerminalAtWorktreeCommand ===
-      right.openTerminalAtWorktreeCommand &&
-    left.runLocalCommand === right.runLocalCommand
+    left.openTerminalAtWorktreeCommand === right.openTerminalAtWorktreeCommand
   );
 }
 
@@ -857,6 +856,22 @@ export function useBarracksState(viewingWorktree?: string) {
           scheduleRescan();
         });
         trackUnlisten(unlistenChange);
+
+        const unlistenEvicted = await listenWorktreeEvicted((payload) => {
+          clientDebugLog("events.worktree-evicted", payload);
+          const names = payload.worktrees ?? [];
+          if (names.length > 0) {
+            const label =
+              names.length === 1
+                ? names[0]
+                : `${names.length} worktrees (${names.join(", ")})`;
+            toast.info(
+              `Removed ${label} to stay under the worktree limit.`,
+            );
+          }
+          scheduleRescan();
+        });
+        trackUnlisten(unlistenEvicted);
 
         const response = await workspaceEvents({
           rootName: currentWorkspaceMeta.rootName,

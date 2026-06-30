@@ -21,7 +21,6 @@ export const GROOVE_PLAY_CLAUDE_CODE_COMMAND_SENTINEL =
   "__groove_terminal_claude__";
 export const GROOVE_OPEN_TERMINAL_COMMAND_SENTINEL = "__groove_terminal_open__";
 export const DEFAULT_OPENCODE_SETTINGS_DIRECTORY = "~/.config/opencode";
-export const DEFAULT_RUN_LOCAL_COMMAND = "pnpm run dev";
 
 export type OpencodeSettings = {
   enabled: boolean;
@@ -55,6 +54,15 @@ export type CommentRecord = {
   createdAt: string;
   message: string;
   state: CommentState;
+};
+
+export type PullRequestRecord = {
+  number: number;
+  url: string;
+  title?: string;
+  base?: string;
+  head?: string;
+  addedAt: string;
 };
 
 export const WORKTREE_STATES = [
@@ -104,6 +112,7 @@ export type WorktreeRecord = {
   unit?: WorktreeUnit;
   summaries?: SummaryRecord[];
   comments?: CommentRecord[];
+  pullRequests?: PullRequestRecord[];
 };
 
 export type WorkspaceMeta = {
@@ -114,9 +123,10 @@ export type WorkspaceMeta = {
   defaultTerminal?: DefaultTerminal;
   terminalCustomCommand?: string | null;
   openTerminalAtWorktreeCommand?: string | null;
-  runLocalCommand?: string | null;
   telemetryEnabled?: boolean;
   disableGrooveBusiness?: boolean;
+  hideMascot?: boolean;
+  hideLabels?: boolean;
   showFps?: boolean;
   playGrooveCommand?: string;
   worktreeSymlinkPaths?: string[];
@@ -139,6 +149,12 @@ export type WorkspaceMeta = {
    * Bumped when a worktree's reward is claimed (alongside gold).
    */
   inventory?: Record<string, number>;
+  /**
+   * Optional cap on how many worktrees are kept on disk. When a new worktree
+   * is created past this limit, the least-recently-used worktree that is
+   * neither running nor dirty is auto-removed. Absent/0 means unlimited.
+   */
+  maxWorktreeCount?: number | null;
 };
 
 export type WorkspaceRow = {
@@ -228,6 +244,8 @@ export type GrooveSoundSettings = {
 export type GlobalSettings = {
   telemetryEnabled: boolean;
   disableGrooveBusiness: boolean;
+  hideMascot: boolean;
+  hideLabels: boolean;
   showFps: boolean;
   alwaysShowDiagnosticsSidebar: boolean;
   periodicRerenderEnabled: boolean;
@@ -243,6 +261,8 @@ export type GlobalSettings = {
 export type GlobalSettingsUpdatePayload = {
   telemetryEnabled?: boolean;
   disableGrooveBusiness?: boolean;
+  hideMascot?: boolean;
+  hideLabels?: boolean;
   showFps?: boolean;
   alwaysShowDiagnosticsSidebar?: boolean;
   periodicRerenderEnabled?: boolean;
@@ -267,6 +287,8 @@ export type WorkspaceTerminalSettingsPayload = {
   terminalCustomCommand?: string | null;
   telemetryEnabled?: boolean;
   disableGrooveBusiness?: boolean;
+  hideMascot?: boolean;
+  hideLabels?: boolean;
   showFps?: boolean;
 };
 
@@ -284,7 +306,55 @@ export type WorkspaceCommandSettingsResponse =
 export type WorkspaceCommandSettingsPayload = {
   playGrooveCommand: string;
   openTerminalAtWorktreeCommand?: string | null;
-  runLocalCommand?: string | null;
+};
+
+export type WorkspaceMaxWorktreeCountPayload = {
+  /** Absent, null, or 0 clears the cap (unlimited). */
+  maxWorktreeCount?: number | null;
+};
+
+export type WorkspaceMaxWorktreeCountResponse = {
+  requestId?: string;
+  ok: boolean;
+  workspaceRoot?: string;
+  workspaceMeta?: WorkspaceMeta;
+  /** Worktrees auto-removed to bring the count down to the new limit. */
+  evictedWorktrees?: string[];
+  error?: string;
+};
+
+export type WorktreeStorageStatsPayload = {
+  /**
+   * Compute on-disk sizes for each worktree. Expensive (walks every file), so
+   * the panel loads counts first and only opts in on demand.
+   */
+  includeSizes?: boolean;
+};
+
+export type WorktreeStorageRow = {
+  worktree: string;
+  path: string;
+  /** Only meaningful when the response's `sizesIncluded` is true; otherwise 0. */
+  bytes: number;
+  lastExecutedAt?: string;
+};
+
+export type WorktreeStorageStatsResponse = {
+  requestId?: string;
+  ok: boolean;
+  totalCount: number;
+  totalBytes: number;
+  sizesIncluded: boolean;
+  maxWorktreeCount?: number | null;
+  worktrees: WorktreeStorageRow[];
+  workspaceRoot?: string;
+  error?: string;
+};
+
+/** Payload of the backend "worktree-evicted" event. */
+export type WorktreeEvictedEvent = {
+  workspaceRoot: string;
+  worktrees: string[];
 };
 
 export type WorkspaceWorktreeSymlinkPathsPayload = {
@@ -389,6 +459,12 @@ export type GrooveBinRepairResponse = {
 };
 
 export type ExternalUrlOpenResponse = {
+  requestId?: string;
+  ok: boolean;
+  error?: string;
+};
+
+export type WorkspaceOpenDirectoryResponse = {
   requestId?: string;
   ok: boolean;
   error?: string;

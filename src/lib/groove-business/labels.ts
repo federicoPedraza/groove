@@ -4,9 +4,11 @@ import {
   Bug,
   Castle,
   Database,
+  Flag,
   FlameKindling,
   Folder,
   Folders,
+  Hammer,
   HeartPlus,
   LandPlot,
   LayoutDashboard,
@@ -15,6 +17,7 @@ import {
   PencilRuler,
   Settings,
   Swords,
+  Trophy,
   type LucideIcon,
 } from "lucide-react";
 
@@ -50,7 +53,7 @@ export const GROOVE_BUSINESS_LABELS: Record<GrooveBusinessLabelKey, LabelEntry> 
     wilderness: { groove: "Wilderness", business: "Worktrees" },
     situationRoom: { groove: "Situation Room", business: "Diagnostics" },
     bestiary: { groove: "Bestiary", business: "Bugs" },
-    inventory: { groove: "Inventory", business: "Items" },
+    inventory: { groove: "Inventory", business: "Inventory" },
     intelligence: { groove: "Intelligence", business: "Database" },
     home: { groove: "Home", business: "Home" },
     land: { groove: "Land", business: "Workspace" },
@@ -84,6 +87,45 @@ export function resolveWorktreeStateLabel(
   mode: GrooveBusinessMode,
 ): string {
   return mode === "business" ? WORKTREE_STATE_BUSINESS_LABELS[state] : state;
+}
+
+// GitHub pull-request status, gamified in "groove" mode. Business mode keeps
+// the plain GitHub wording and shows no icon.
+export type PrStatusKey = "open" | "draft" | "merged" | "closed";
+
+type PrStatusEntry = {
+  groove: { label: string; icon: LucideIcon };
+  business: { label: string };
+};
+
+const PR_STATUS: Record<PrStatusKey, PrStatusEntry> = {
+  open: { groove: { label: "Engaged", icon: Swords }, business: { label: "Open" } },
+  draft: {
+    groove: { label: "Forging", icon: Hammer },
+    business: { label: "Draft" },
+  },
+  merged: {
+    groove: { label: "Conquered", icon: Trophy },
+    business: { label: "Merged" },
+  },
+  closed: {
+    groove: { label: "Retreated", icon: Flag },
+    business: { label: "Closed" },
+  },
+};
+
+export function resolvePrStatusLabel(
+  key: PrStatusKey,
+  mode: GrooveBusinessMode,
+): string {
+  return mode === "groove" ? PR_STATUS[key].groove.label : PR_STATUS[key].business.label;
+}
+
+export function resolvePrStatusIcon(
+  key: PrStatusKey,
+  mode: GrooveBusinessMode,
+): LucideIcon | null {
+  return mode === "groove" ? PR_STATUS[key].groove.icon : null;
 }
 
 export function resolveGrooveBusinessLabel(

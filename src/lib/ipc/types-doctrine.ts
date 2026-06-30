@@ -30,6 +30,7 @@ export type DoctrineRecord = {
   result: string;
   state: DoctrineState;
   instructions?: string;
+  directives?: string;
 };
 
 export type DoctrineResultRequest = {

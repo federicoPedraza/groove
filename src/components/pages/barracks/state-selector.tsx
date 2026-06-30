@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Check } from "lucide-react";
+import { Check, Copy, FolderOpen, Pause } from "lucide-react";
 
 import { Badge } from "@/src/components/ui/badge";
 import {
@@ -8,6 +8,9 @@ import {
   ContextMenuItem,
   ContextMenuLabel,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/src/components/ui/context-menu";
 import {
@@ -23,8 +26,9 @@ import {
   getWorktreeStateTitle,
 } from "@/src/components/pages/barracks/worktree-state";
 import type { WorktreeState } from "@/src/components/pages/barracks/types";
-import { WORKTREE_STATES } from "@/src/lib/ipc";
+import { WORKTREE_STATES, workspaceOpenDirectory } from "@/src/lib/ipc";
 import { useGrooveBusiness } from "@/src/lib/groove-business";
+import { toast } from "@/src/lib/toast";
 import { cn } from "@/src/lib/utils";
 
 type StateSelectorCommonProps = {
@@ -117,7 +121,7 @@ export function WorktreeStateDropdownMenu({
           >
             <WorktreeStateBadge
               state={state}
-              className="cursor-pointer transition-none"
+              className="cursor-pointer shadow-lg transition-none"
             />
           </DropdownMenuItem>
         ))}
@@ -128,27 +132,89 @@ export function WorktreeStateDropdownMenu({
 
 export function WorktreeStateContextMenu({
   worktree,
+  worktreePath,
   currentState,
   onSelect,
+  onPauseGroove,
   children,
-}: StateSelectorCommonProps & { children: ReactNode }) {
+}: StateSelectorCommonProps & {
+  worktreePath: string;
+  onPauseGroove: () => void;
+  children: ReactNode;
+}) {
+  const grooveBusiness = useGrooveBusiness();
+
+  const handleOpenDirectory = () => {
+    void workspaceOpenDirectory(worktreePath)
+      .then((response) => {
+        if (!response.ok) {
+          toast.error(response.error ?? "Failed to open worktree directory.");
+        }
+      })
+      .catch(() => {
+        toast.error("Failed to open worktree directory.");
+      });
+  };
+
+  const handleCopyDirectory = () => {
+    void navigator.clipboard
+      .writeText(worktreePath)
+      .then(() => {
+        toast.success("Copied worktree directory to clipboard.");
+      })
+      .catch(() => {
+        toast.error("Failed to copy worktree directory.");
+      });
+  };
+
   return (
     <ContextMenu modal={false}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="min-w-44">
+      <ContextMenuContent className="min-w-52">
         <ContextMenuLabel className="truncate">{worktree}</ContextMenuLabel>
         <ContextMenuSeparator />
-        {WORKTREE_STATES.map((state) => (
-          <ContextMenuItem
-            key={state}
-            onSelect={() => {
-              onSelect(state);
-            }}
-            className="gap-2"
-          >
-            <StateRowContent state={state} isSelected={state === currentState} />
-          </ContextMenuItem>
-        ))}
+        <ContextMenuSub>
+          <ContextMenuSubTrigger className="gap-2">
+            <span
+              className={cn(
+                "inline-flex size-4 items-center justify-center [&>svg]:size-4",
+                getWorktreeStateIconColorClass(currentState),
+              )}
+            >
+              {getWorktreeStateIcon(currentState, grooveBusiness.mode)}
+            </span>
+            <span className="flex-1">State</span>
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="min-w-44">
+            {WORKTREE_STATES.map((state) => (
+              <ContextMenuItem
+                key={state}
+                onSelect={() => {
+                  onSelect(state);
+                }}
+                className="gap-2"
+              >
+                <StateRowContent
+                  state={state}
+                  isSelected={state === currentState}
+                />
+              </ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        <ContextMenuItem className="gap-2" onSelect={handleOpenDirectory}>
+          <FolderOpen aria-hidden="true" className="size-4 text-sky-500" />
+          <span className="flex-1">Open directory</span>
+        </ContextMenuItem>
+        <ContextMenuItem className="gap-2" onSelect={handleCopyDirectory}>
+          <Copy aria-hidden="true" className="size-4 text-emerald-500" />
+          <span className="flex-1">Copy directory path</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem className="gap-2" onSelect={onPauseGroove}>
+          <Pause aria-hidden="true" className="size-4 text-amber-500" />
+          <span className="flex-1">Pause Groove</span>
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );

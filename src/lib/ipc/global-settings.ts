@@ -42,6 +42,8 @@ const DEFAULT_GROOVE_SOUND_SETTINGS: GrooveSoundSettings = {
 let latestGlobalSettings: GlobalSettings = {
   telemetryEnabled: true,
   disableGrooveBusiness: false,
+  hideMascot: false,
+  hideLabels: false,
   showFps: false,
   alwaysShowDiagnosticsSidebar: false,
   periodicRerenderEnabled: false,
@@ -155,6 +157,8 @@ function normalizeGlobalSettings(
   return {
     telemetryEnabled: value?.telemetryEnabled !== false,
     disableGrooveBusiness: value?.disableGrooveBusiness === true,
+    hideMascot: value?.hideMascot === true,
+    hideLabels: value?.hideLabels === true,
     showFps: value?.showFps === true,
     alwaysShowDiagnosticsSidebar: value?.alwaysShowDiagnosticsSidebar === true,
     periodicRerenderEnabled: value?.periodicRerenderEnabled === true,
@@ -247,6 +251,8 @@ export function syncGlobalSettingsFromResult(
       latestGlobalSettings.telemetryEnabled ||
     nextGlobalSettings.disableGrooveBusiness !==
       latestGlobalSettings.disableGrooveBusiness ||
+    nextGlobalSettings.hideMascot !== latestGlobalSettings.hideMascot ||
+    nextGlobalSettings.hideLabels !== latestGlobalSettings.hideLabels ||
     nextGlobalSettings.showFps !== latestGlobalSettings.showFps ||
     nextGlobalSettings.alwaysShowDiagnosticsSidebar !==
       latestGlobalSettings.alwaysShowDiagnosticsSidebar ||
@@ -282,6 +288,37 @@ export function isTelemetryEnabled(): boolean {
 
 export function isGrooveBusinessDisabled(): boolean {
   return latestGlobalSettings.disableGrooveBusiness;
+}
+
+export function isHideMascotEnabled(): boolean {
+  return latestGlobalSettings.hideMascot;
+}
+
+export function isHideLabelsEnabled(): boolean {
+  return latestGlobalSettings.hideLabels;
+}
+
+/**
+ * The mascot is hidden when gamification is fully hidden (master) OR the
+ * dedicated "hide mascot" sub-toggle is on.
+ */
+export function isMascotHidden(): boolean {
+  return (
+    latestGlobalSettings.disableGrooveBusiness ||
+    latestGlobalSettings.hideMascot
+  );
+}
+
+/**
+ * Themed labels/icons are plain when gamification is fully hidden (master) OR
+ * the dedicated "hide labels" sub-toggle is on. Forced elements like the gold
+ * counter are gated on the master flag only, not this.
+ */
+export function isGamificationLabelsHidden(): boolean {
+  return (
+    latestGlobalSettings.disableGrooveBusiness ||
+    latestGlobalSettings.hideLabels
+  );
 }
 
 export function isShowFpsEnabled(): boolean {

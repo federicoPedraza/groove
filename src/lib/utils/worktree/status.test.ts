@@ -30,7 +30,7 @@ describe("deriveWorktreeStatus", () => {
 });
 
 describe("getActiveWorktreeRows", () => {
-  it("includes ready worktrees, sorted by name", () => {
+  it("includes only ready worktrees", () => {
     const rows = [
       buildRow({ worktree: "charlie", status: "paused" }),
       buildRow({ worktree: "alpha", status: "paused" }),
@@ -41,6 +41,56 @@ describe("getActiveWorktreeRows", () => {
     const activeRows = getActiveWorktreeRows(rows, activeWorktrees);
 
     expect(activeRows.map((row) => row.worktree)).toEqual(["alpha"]);
+  });
+
+  it("sorts by play start time (most recent first)", () => {
+    const rows = [
+      buildRow({
+        worktree: "alpha",
+        path: "/tmp/.worktrees/alpha",
+        lastExecutedAt: "2025-01-01T00:00:00Z",
+      }),
+      buildRow({
+        worktree: "charlie",
+        path: "/tmp/.worktrees/charlie",
+        lastExecutedAt: "2025-06-01T00:00:00Z",
+      }),
+      buildRow({
+        worktree: "bravo",
+        path: "/tmp/.worktrees/bravo",
+        lastExecutedAt: "2025-03-01T00:00:00Z",
+      }),
+    ];
+
+    const activeWorktrees = new Set(["alpha", "bravo", "charlie"]);
+    const activeRows = getActiveWorktreeRows(rows, activeWorktrees);
+
+    expect(activeRows.map((row) => row.worktree)).toEqual([
+      "charlie",
+      "bravo",
+      "alpha",
+    ]);
+  });
+
+  it("orders rows without a play start time last, tie-broken by name", () => {
+    const rows = [
+      buildRow({ worktree: "zulu", path: "/tmp/.worktrees/zulu" }),
+      buildRow({ worktree: "alpha", path: "/tmp/.worktrees/alpha" }),
+      buildRow({
+        worktree: "bravo",
+        path: "/tmp/.worktrees/bravo",
+        lastExecutedAt: "2025-03-01T00:00:00Z",
+      }),
+    ];
+
+    const activeWorktrees = new Set(["zulu", "alpha", "bravo"]);
+    const activeRows = getActiveWorktreeRows(rows, activeWorktrees);
+
+    expect(activeRows.map((row) => row.worktree)).toEqual([
+      "bravo",
+      "alpha",
+      "zulu",
+    ]);
   });
 });
 

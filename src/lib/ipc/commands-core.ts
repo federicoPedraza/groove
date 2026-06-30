@@ -13,9 +13,15 @@ import type {
   WorkspaceTerminalSettingsResponse,
   WorkspaceCommandSettingsPayload,
   WorkspaceCommandSettingsResponse,
+  WorkspaceMaxWorktreeCountPayload,
+  WorkspaceMaxWorktreeCountResponse,
+  WorktreeStorageStatsPayload,
+  WorktreeStorageStatsResponse,
+  WorktreeEvictedEvent,
   WorkspaceWorktreeSymlinkPathsPayload,
   WorkspaceBrowseEntriesPayload,
   WorkspaceBrowseEntriesResponse,
+  WorkspaceOpenDirectoryResponse,
   SetWorktreeStatePayload,
   SetWorktreeStateResponse,
   ClaimWorktreeRewardPayload,
@@ -42,6 +48,9 @@ import type {
   GrooveCommentResponse,
   GrooveCommentMarkCommittedPayload,
   GrooveCommentMarkCommittedResponse,
+  GroovePrAttachPayload,
+  GroovePrDetachPayload,
+  GroovePrResponse,
   DiscoverWorktreeUnitPayload,
   DiscoverWorktreeUnitResponse,
   WorkspaceOpenTerminalPayload,
@@ -123,6 +132,18 @@ export function grooveCommentMarkCommitted(
   );
 }
 
+export function groovePrAttach(
+  payload: GroovePrAttachPayload,
+): Promise<GroovePrResponse> {
+  return invokeCommand<GroovePrResponse>("groove_pr_attach", { payload });
+}
+
+export function groovePrDetach(
+  payload: GroovePrDetachPayload,
+): Promise<GroovePrResponse> {
+  return invokeCommand<GroovePrResponse>("groove_pr_detach", { payload });
+}
+
 export function grooveDiscoverWorktreeUnit(
   payload: DiscoverWorktreeUnitPayload,
 ): Promise<DiscoverWorktreeUnitResponse> {
@@ -142,6 +163,15 @@ export function workspaceEvents(
 
 export function openExternalUrl(url: string): Promise<ExternalUrlOpenResponse> {
   return invokeCommand<ExternalUrlOpenResponse>("open_external_url", { url });
+}
+
+export function workspaceOpenDirectory(
+  path: string,
+): Promise<WorkspaceOpenDirectoryResponse> {
+  return invokeCommand<WorkspaceOpenDirectoryResponse>(
+    "workspace_open_directory",
+    { path },
+  );
 }
 
 export function diagnosticsStopProcess(
@@ -321,6 +351,34 @@ export function workspaceUpdateCommandsSettings(
     "workspace_update_commands_settings",
     { payload },
   );
+}
+
+export function workspaceUpdateMaxWorktreeCount(
+  payload: WorkspaceMaxWorktreeCountPayload,
+): Promise<WorkspaceMaxWorktreeCountResponse> {
+  invalidateWorkspaceGetActiveCache();
+  return invokeCommand<WorkspaceMaxWorktreeCountResponse>(
+    "workspace_update_max_worktree_count",
+    { payload },
+  );
+}
+
+export function worktreeStorageStats(
+  payload: WorktreeStorageStatsPayload = {},
+): Promise<WorktreeStorageStatsResponse> {
+  return invokeCommand<WorktreeStorageStatsResponse>(
+    "worktree_storage_stats",
+    { payload },
+    { intent: "background" },
+  );
+}
+
+export function listenWorktreeEvicted(
+  callback: (event: WorktreeEvictedEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<WorktreeEvictedEvent>("worktree-evicted", (event) => {
+    callback(event.payload);
+  });
 }
 
 export function workspaceUpdateRootDirectory(payload: {

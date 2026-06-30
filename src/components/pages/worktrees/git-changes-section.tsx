@@ -8,8 +8,9 @@ import {
   FilePlus,
   FilePlus2,
   FileQuestion,
-  PanelRightClose,
-  PanelRightOpen,
+  History,
+  Loader2,
+  MessageSquarePlus,
   RefreshCw,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,10 +25,16 @@ import type {
 } from "@/src/lib/ipc";
 import { cn } from "@/src/lib/utils";
 
-type WorktreeGitChangesProps = {
+type GitChangesSectionProps = {
   worktreePath: string | null | undefined;
-  expanded: boolean;
-  onToggleExpanded: () => void;
+  /** Whether the section is currently visible; drives the polling loop. */
+  active: boolean;
+  /** Draft a commit comment from the diff + the Claude session since last commit. */
+  onDraftCommitComment?: () => void;
+  isDraftPending?: boolean;
+  /** Open the history of committed commit comments for this worktree. */
+  onViewCommitComments?: () => void;
+  committedCommentCount?: number;
 };
 
 const REFRESH_INTERVAL_MS = 4000;
@@ -211,11 +218,14 @@ function DiffFileItem({ file }: { file: GitDiffFile }) {
   );
 }
 
-export function WorktreeGitChanges({
+export function GitChangesSection({
   worktreePath,
-  expanded,
-  onToggleExpanded,
-}: WorktreeGitChangesProps) {
+  active,
+  onDraftCommitComment,
+  isDraftPending = false,
+  onViewCommitComments,
+  committedCommentCount = 0,
+}: GitChangesSectionProps) {
   const [files, setFiles] = useState<GitDiffFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -250,7 +260,7 @@ export function WorktreeGitChanges({
   }, [worktreePath]);
 
   useEffect(() => {
-    if (!expanded || !worktreePath) return;
+    if (!active || !worktreePath) return;
     void fetchDiff();
     const interval = window.setInterval(() => {
       void fetchDiff();
@@ -258,7 +268,7 @@ export function WorktreeGitChanges({
     return () => {
       window.clearInterval(interval);
     };
-  }, [expanded, fetchDiff, worktreePath]);
+  }, [active, fetchDiff, worktreePath]);
 
   const totals = useMemo(() => {
     let additions = 0;
@@ -270,47 +280,10 @@ export function WorktreeGitChanges({
     return { additions, deletions };
   }, [files]);
 
-  if (!expanded) {
-    return (
-      <aside className="flex h-full min-h-0 w-9 shrink-0 flex-col items-center overflow-hidden rounded-lg border bg-card">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="mt-1 size-7 p-0"
-          onClick={onToggleExpanded}
-          aria-label="Show changes"
-          title="Show changes"
-        >
-          <PanelRightOpen
-            aria-hidden="true"
-            className="size-4 text-muted-foreground"
-          />
-        </Button>
-        <FileDiff
-          aria-hidden="true"
-          className="mt-2 size-4 shrink-0 text-muted-foreground"
-        />
-      </aside>
-    );
-  }
-
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-lg border bg-card">
+    <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between gap-2 border-b px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="size-6 p-0"
-            onClick={onToggleExpanded}
-            aria-label="Hide changes"
-            title="Hide changes"
-          >
-            <PanelRightClose
-              aria-hidden="true"
-              className="size-3.5 text-muted-foreground"
-            />
-          </Button>
           <h2 className="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Changes
           </h2>
@@ -330,6 +303,36 @@ export function WorktreeGitChanges({
             <span className="text-rose-600 dark:text-rose-400">
               −{totals.deletions}
             </span>
+          ) : null}
+          {onDraftCommitComment ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="size-6 p-0"
+              onClick={onDraftCommitComment}
+              disabled={isDraftPending || files.length === 0 || !worktreePath}
+              aria-label="Draft commit comment from changes and session"
+              title="Draft commit comment (changes + Claude session)"
+            >
+              {isDraftPending ? (
+                <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+              ) : (
+                <MessageSquarePlus aria-hidden="true" className="size-3.5" />
+              )}
+            </Button>
+          ) : null}
+          {onViewCommitComments ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="size-6 p-0"
+              onClick={onViewCommitComments}
+              disabled={committedCommentCount === 0}
+              aria-label="View previous commit comments"
+              title="View previous commit comments"
+            >
+              <History aria-hidden="true" className="size-3.5" />
+            </Button>
           ) : null}
           <Button
             variant="ghost"
@@ -356,9 +359,7 @@ export function WorktreeGitChanges({
         ) : files.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-1 px-3 py-6 text-center text-xs text-muted-foreground">
             <FileQuestion aria-hidden="true" className="size-5 opacity-60" />
-            <span>
-              {hasLoadedOnce ? "No changes" : "Loading changes…"}
-            </span>
+            <span>{hasLoadedOnce ? "No changes" : "Loading changes…"}</span>
           </div>
         ) : (
           <ul className="text-foreground">
@@ -370,6 +371,6 @@ export function WorktreeGitChanges({
           </ul>
         )}
       </div>
-    </aside>
+    </div>
   );
 }

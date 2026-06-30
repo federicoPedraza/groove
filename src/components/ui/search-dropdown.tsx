@@ -17,6 +17,8 @@ type SearchDropdownProps = {
   disabled?: boolean;
   emptyLabel?: string;
   noResultsLabel?: string;
+  requireQuery?: boolean;
+  requireQueryLabel?: string;
   triggerClassName?: string;
   contentClassName?: string;
   maxResults?: number;
@@ -33,6 +35,8 @@ export function SearchDropdown({
   disabled = false,
   emptyLabel = "No options available.",
   noResultsLabel = "No matching results.",
+  requireQuery = false,
+  requireQueryLabel = "Type to search.",
   triggerClassName,
   contentClassName,
   maxResults,
@@ -44,6 +48,10 @@ export function SearchDropdown({
 
   const normalizedQuery = query.trim().toLowerCase();
   const filteredOptions = useMemo<DropdownOption[]>(() => {
+    if (requireQuery && !normalizedQuery) {
+      return [];
+    }
+
     const matchingOptions = normalizedQuery
       ? options.filter((option) => {
           return [option.label, option.value, option.valueLabel]
@@ -59,7 +67,7 @@ export function SearchDropdown({
     }
 
     return matchingOptions;
-  }, [maxResults, normalizedQuery, options]);
+  }, [maxResults, normalizedQuery, options, requireQuery]);
 
   useEffect(() => {
     if (!open) {
@@ -76,7 +84,12 @@ export function SearchDropdown({
     };
   }, [open]);
 
-  const emptyStateLabel = options.length === 0 ? emptyLabel : noResultsLabel;
+  const emptyStateLabel =
+    requireQuery && !normalizedQuery
+      ? requireQueryLabel
+      : options.length === 0
+        ? emptyLabel
+        : noResultsLabel;
   const selectedOption = value
     ? (options.find((option) => option.value === value) ?? null)
     : null;

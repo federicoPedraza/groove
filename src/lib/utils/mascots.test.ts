@@ -120,7 +120,7 @@ describe("getWorktreeMascotAssignment", () => {
 });
 
 describe("getDefaultMascotAssignment", () => {
-  it("returns the donkey-kong mascot", () => {
+  it("returns the bramble mascot", () => {
     const result = getDefaultMascotAssignment();
     expect(result.mascot.id).toBe(DEFAULT_MASCOT_ID);
   });
@@ -132,8 +132,8 @@ describe("getDefaultMascotAssignment", () => {
 });
 
 describe("constants", () => {
-  it("DEFAULT_MASCOT_ID is donkey-kong", () => {
-    expect(DEFAULT_MASCOT_ID).toBe("donkey-kong");
+  it("DEFAULT_MASCOT_ID is bramble", () => {
+    expect(DEFAULT_MASCOT_ID).toBe("bramble");
   });
 
   it("MASCOT_DEFINITIONS has entries", () => {

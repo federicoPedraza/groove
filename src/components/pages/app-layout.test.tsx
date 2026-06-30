@@ -13,6 +13,8 @@ vi.mock("@/src/lib/ipc", () => ({
   grooveTerminalActiveWorktrees: vi.fn().mockResolvedValue({ ok: false }),
   isAlwaysShowDiagnosticsSidebarEnabled: vi.fn(() => false),
   isGrooveBusinessDisabled: vi.fn(() => false),
+  isMascotHidden: vi.fn(() => false),
+  isGamificationLabelsHidden: vi.fn(() => false),
   isShowFpsEnabled: vi.fn(() => false),
   isTelemetryEnabled: vi.fn(() => false),
   listenGrooveTerminalLifecycle: vi.fn(async () => () => {}),

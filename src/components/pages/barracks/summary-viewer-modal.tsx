@@ -9,6 +9,7 @@ import {
   Scroll,
 } from "lucide-react";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { Button } from "@/src/components/ui/button";
 import {
@@ -169,7 +170,9 @@ export function SummaryViewerModal({
                 <CopyInlineButton text={summary?.summary ?? ""} />
               </div>
               <div className="prose prose-sm dark:prose-invert max-w-none break-words">
-                <Markdown>{summary?.summary ?? ""}</Markdown>
+                <Markdown remarkPlugins={[remarkGfm]}>
+                  {summary?.summary ?? ""}
+                </Markdown>
               </div>
             </div>
           ) : null}

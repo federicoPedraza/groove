@@ -4,6 +4,7 @@ export * from "./types-doctrine";
 export * from "./types-commands";
 export * from "./types-terminal";
 export * from "./types-git";
+export * from "./types-github";
 export {
   getIpcTelemetrySummary,
   printIpcTelemetrySummary,
@@ -12,6 +13,10 @@ export {
 export {
   isTelemetryEnabled,
   isGrooveBusinessDisabled,
+  isHideMascotEnabled,
+  isHideLabelsEnabled,
+  isMascotHidden,
+  isGamificationLabelsHidden,
   isShowFpsEnabled,
   isAlwaysShowDiagnosticsSidebarEnabled,
   isPeriodicRerenderEnabled,

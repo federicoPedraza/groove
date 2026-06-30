@@ -9,6 +9,16 @@ struct WorkspaceContextCacheState {
     entries: Mutex<HashMap<String, WorkspaceContextCacheEntry>>,
 }
 
+/// Caches the resolved `(workspace_root, worktree_path)` for terminal commands.
+/// Without it, every terminal IPC (including each keystroke via
+/// `groove_terminal_write` and the periodic activity poll) re-runs
+/// `resolve_workspace_root`, which stats every known worktree directory and
+/// re-parses `workspace.json` — O(worktree count) filesystem work per call.
+#[derive(Default)]
+struct TerminalResolutionCacheState {
+    entries: Mutex<HashMap<String, TerminalResolutionCacheEntry>>,
+}
+
 #[derive(Default)]
 struct GrooveListCacheState {
     entries: Mutex<HashMap<String, GrooveListCacheEntry>>,
@@ -61,6 +71,23 @@ impl Drop for GrooveTerminalState {
 struct WorkspaceContextCacheEntry {
     signature: WorkspaceContextSignature,
     response: WorkspaceContextResponse,
+}
+
+#[derive(Debug, Clone)]
+struct TerminalResolutionCacheEntry {
+    workspace_root: PathBuf,
+    worktree_path: PathBuf,
+    signature: TerminalResolutionSignature,
+}
+
+/// Cheap (a few `stat`s, no parsing) fingerprint of the inputs that can change a
+/// terminal worktree resolution: the active-workspace pointer file, the
+/// workspace manifest, and the worktree directory itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TerminalResolutionSignature {
+    active_state_file: SnapshotEntry,
+    workspace_manifest: SnapshotEntry,
+    worktree_dir: SnapshotEntry,
 }
 
 #[derive(Debug, Clone)]
@@ -158,10 +185,11 @@ struct WorkspaceMetaContext {
     telemetry_enabled: Option<bool>,
     #[serde(alias = "disableGrooveLoadingSection")]
     disable_groove_business: Option<bool>,
+    hide_mascot: Option<bool>,
+    hide_labels: Option<bool>,
     show_fps: Option<bool>,
     play_groove_command: Option<String>,
     open_terminal_at_worktree_command: Option<String>,
-    run_local_command: Option<String>,
     worktree_symlink_paths: Option<Vec<String>>,
     opencode_settings: Option<OpencodeSettings>,
     worktree_records: Option<HashMap<String, WorktreeRecord>>,
@@ -456,6 +484,20 @@ struct CommentRecord {
     state: CommentState,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PullRequestRecord {
+    number: i64,
+    url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    head: Option<String>,
+    added_at: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum WorktreeState {
@@ -530,6 +572,8 @@ struct WorktreeRecord {
     summaries: Vec<SummaryRecord>,
     #[serde(default)]
     comments: Vec<CommentRecord>,
+    #[serde(default)]
+    pull_requests: Vec<PullRequestRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -548,13 +592,15 @@ struct WorkspaceMeta {
     #[serde(default, alias = "disableGrooveLoadingSection")]
     disable_groove_business: bool,
     #[serde(default)]
+    hide_mascot: bool,
+    #[serde(default)]
+    hide_labels: bool,
+    #[serde(default)]
     show_fps: bool,
     #[serde(default = "default_play_groove_command")]
     play_groove_command: String,
     #[serde(default)]
     open_terminal_at_worktree_command: Option<String>,
-    #[serde(default)]
-    run_local_command: Option<String>,
     #[serde(default = "default_worktree_symlink_paths")]
     worktree_symlink_paths: Vec<String>,
     #[serde(default = "default_opencode_settings")]
@@ -582,6 +628,12 @@ struct WorkspaceMeta {
     /// Bumped on reward claim alongside `gold`.
     #[serde(default)]
     inventory: HashMap<String, u32>,
+    /// Optional cap on how many worktrees are kept on disk. When a new
+    /// worktree is created past this limit, the least-recently-used worktree
+    /// that is neither running nor dirty is auto-removed. `None`/`Some(0)`
+    /// means unlimited.
+    #[serde(default)]
+    max_worktree_count: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -746,6 +798,8 @@ struct WorkspaceTerminalSettingsPayload {
     terminal_custom_command: Option<String>,
     telemetry_enabled: Option<bool>,
     disable_groove_business: Option<bool>,
+    hide_mascot: Option<bool>,
+    hide_labels: Option<bool>,
     show_fps: Option<bool>,
 }
 
@@ -754,7 +808,68 @@ struct WorkspaceTerminalSettingsPayload {
 struct WorkspaceCommandSettingsPayload {
     play_groove_command: String,
     open_terminal_at_worktree_command: Option<String>,
-    run_local_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceMaxWorktreeCountPayload {
+    #[serde(default)]
+    max_worktree_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceMaxWorktreeCountResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_meta: Option<WorkspaceMeta>,
+    /// Worktrees auto-removed to bring the count down to the new limit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    evicted_worktrees: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorktreeStorageStatsPayload {
+    /// Disk-size calculation walks every file in each worktree (`du`), which is
+    /// expensive for worktrees with large `node_modules`. Off by default so the
+    /// panel can show counts instantly; opted into on demand.
+    #[serde(default)]
+    include_sizes: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorktreeStorageRow {
+    worktree: String,
+    path: String,
+    /// Only meaningful when the response's `sizesIncluded` is true; otherwise 0.
+    bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_executed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorktreeStorageStatsResponse {
+    request_id: String,
+    ok: bool,
+    total_count: usize,
+    total_bytes: u64,
+    /// Whether disk sizes were computed for this response.
+    sizes_included: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_worktree_count: Option<u32>,
+    worktrees: Vec<WorktreeStorageRow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -819,6 +934,8 @@ struct WorkspaceBrowseEntriesPayload {
 struct GlobalSettingsUpdatePayload {
     telemetry_enabled: Option<bool>,
     disable_groove_business: Option<bool>,
+    hide_mascot: Option<bool>,
+    hide_labels: Option<bool>,
     show_fps: Option<bool>,
     always_show_diagnostics_sidebar: Option<bool>,
     periodic_rerender_enabled: Option<bool>,
@@ -884,6 +1001,24 @@ struct SoundLibraryReadResponse {
 #[serde(rename_all = "camelCase")]
 struct GitAuthStatusPayload {
     workspace_root: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhSwitchPayload {
+    user: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhLogoutPayload {
+    user: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhLoginPayload {
+    token: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1047,6 +1182,15 @@ struct ExternalUrlOpenResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkspaceOpenDirectoryResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GrooveStopResponse {
     request_id: String,
     ok: bool,
@@ -1190,6 +1334,10 @@ struct GrooveCommentPayload {
     known_worktrees: Vec<String>,
     workspace_meta: Option<WorkspaceMetaContext>,
     worktree: String,
+    /// When true, also feed the Claude conversation since the last commit into
+    /// the drafting prompt (the Changes-panel "Draft commit comment" button).
+    #[serde(default)]
+    include_session: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1221,6 +1369,45 @@ struct GrooveCommentMarkCommittedResponse {
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     comment: Option<CommentRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GroovePrAttachPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: String,
+    url: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    base: Option<String>,
+    #[serde(default)]
+    head: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GroovePrDetachPayload {
+    root_name: Option<String>,
+    #[serde(default)]
+    known_worktrees: Vec<String>,
+    workspace_meta: Option<WorkspaceMetaContext>,
+    worktree: String,
+    url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GroovePrResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pull_request: Option<PullRequestRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -1481,6 +1668,10 @@ struct GlobalSettings {
     #[serde(default, alias = "disableGrooveLoadingSection")]
     disable_groove_business: bool,
     #[serde(default)]
+    hide_mascot: bool,
+    #[serde(default)]
+    hide_labels: bool,
+    #[serde(default)]
     show_fps: bool,
     #[serde(default)]
     always_show_diagnostics_sidebar: bool,
@@ -1686,6 +1877,198 @@ struct GitAuthStatusResponse {
     workspace_root: Option<String>,
     profile: GitProfileStatus,
     ssh_status: GitSshStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhAccount {
+    login: String,
+    active: bool,
+    scopes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    protocol: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhAuthStatusResponse {
+    request_id: String,
+    ok: bool,
+    installed: bool,
+    logged_in: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    active_account: Option<String>,
+    accounts: Vec<GhAccount>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhCommandResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhSshOverviewPayload {
+    #[serde(default)]
+    workspace_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhSshSetIdentityPayload {
+    workspace_root: String,
+    alias: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhSshIdentity {
+    alias: String,
+    hostname: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identity_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    username: Option<String>,
+    auth_state: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhRemoteOrigin {
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matched_alias: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhSshOverviewResponse {
+    request_id: String,
+    ok: bool,
+    config_found: bool,
+    identities: Vec<GhSshIdentity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    origin: Option<GhRemoteOrigin>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhWorktreePayload {
+    worktree_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPrViewPayload {
+    worktree_path: String,
+    selector: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPrCreateWebPayload {
+    worktree_path: String,
+    base: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhRepoDefaultBranchResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// One PR as returned by `gh pr list --json ...`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPrSummary {
+    number: i64,
+    title: String,
+    state: String,
+    url: String,
+    #[serde(default)]
+    is_draft: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPrListResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<String>,
+    prs: Vec<GhPrSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPrComment {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    author: Option<String>,
+    body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPrDetail {
+    number: i64,
+    title: String,
+    state: String,
+    url: String,
+    is_draft: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    base_ref_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    head_ref_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    review_decision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    author: Option<String>,
+    labels: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    additions: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    deletions: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    updated_at: Option<String>,
+    comments: Vec<GhPrComment>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPrViewResponse {
+    request_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pr: Option<GhPrDetail>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
